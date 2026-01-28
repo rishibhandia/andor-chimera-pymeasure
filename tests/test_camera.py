@@ -2,53 +2,14 @@
 
 These tests use mock SDK implementations to test the camera interface
 without requiring real hardware.
+
+Fixtures (mock_sdk, camera, initialized_camera) are provided by conftest.py.
 """
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import patch
-
 import numpy as np
 import pytest
-
-from andor_pymeasure.instruments.mock import (
-    DRV_SUCCESS,
-    DRV_TEMPERATURE_NOT_REACHED,
-    DRV_TEMPERATURE_OFF,
-    DRV_TEMPERATURE_STABILIZED,
-    MockAtmcd,
-    MockAtmcdCodes,
-    MockAtmcdErrors,
-    create_mock_sdk_modules,
-)
-
-
-@pytest.fixture
-def mock_sdk():
-    """Patch SDK imports with mock implementations."""
-    mock_modules = create_mock_sdk_modules()
-
-    with patch.dict(sys.modules, mock_modules):
-        yield mock_modules
-
-
-@pytest.fixture
-def camera(mock_sdk):
-    """Create and initialize a mock camera."""
-    from andor_pymeasure.instruments.andor_camera import AndorCamera
-
-    cam = AndorCamera(sdk_path="C:\\mock\\sdk")
-    return cam
-
-
-@pytest.fixture
-def initialized_camera(camera):
-    """Create and initialize a camera."""
-    camera.initialize()
-    yield camera
-    if camera._initialized:
-        camera.shutdown()
 
 
 class TestAndorCameraInitialization:

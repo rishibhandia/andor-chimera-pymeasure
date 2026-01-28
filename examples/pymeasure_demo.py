@@ -1,13 +1,13 @@
-"""Phase 1: Minimal PyMeasure test procedure.
+"""PyMeasure demo procedure.
 
-This test verifies PyMeasure installation and demonstrates:
+This demo verifies PyMeasure installation and demonstrates:
 - Parameter definition in GUI
 - Live plotting during acquisition
 - Queue functionality
 - Abort capability
 - Separate hardware controls (cooler) from acquisition parameters
 
-Run with: uv run python tests/pymeasure_test.py
+Run with: uv run python examples/pymeasure_demo.py
 """
 
 import logging
@@ -62,7 +62,7 @@ class SimulatedHardware:
 hardware = SimulatedHardware()
 
 
-class TestProcedure(Procedure):
+class DemoProcedure(Procedure):
     """Test procedure that simulates spectrum acquisition (no hardware).
 
     Note: Cooler control is NOT a procedure parameter - it's controlled
@@ -394,13 +394,13 @@ class CustomInputsWidget(QtWidgets.QWidget):
         return proc
 
 
-class TestWindow(ManagedWindow):
+class DemoWindow(ManagedWindow):
     """Test window with hardware controls and conditional parameter visibility."""
 
     def __init__(self):
         # Don't include cooler parameters - they're in the hardware panel
         super().__init__(
-            procedure_class=TestProcedure,
+            procedure_class=DemoProcedure,
             inputs=[
                 "exposure_time",
                 "acquisition_mode",
@@ -532,7 +532,7 @@ def main():
     )
 
     app = QtWidgets.QApplication([])
-    window = TestWindow()
+    window = DemoWindow()
     window.show()
     app.exec()
 
