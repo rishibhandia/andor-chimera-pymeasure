@@ -70,6 +70,47 @@ class TestWidgetInstantiation:
         assert widget is not None
 
 
+class TestDataSettingsCalibration:
+    """Tests for DataSettings calibration UI."""
+
+    def test_data_settings_has_calibration_source_combo(self, qt_app):
+        """DataSettingsWidget has a calibration source combo box."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert hasattr(widget, "_cal_combo")
+        assert widget.calibration_source == "sdk"
+
+    def test_data_settings_has_file_browse_button(self, qt_app):
+        """DataSettingsWidget has a calibration file browse button."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert hasattr(widget, "_cal_browse_button")
+
+    def test_file_browse_disabled_when_sdk_selected(self, qt_app):
+        """File browse is disabled when SDK calibration is selected."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+        widget.calibration_source = "sdk"
+
+        assert not widget._cal_file_edit.isEnabled()
+        assert not widget._cal_browse_button.isEnabled()
+
+    def test_file_browse_enabled_when_file_selected(self, qt_app):
+        """File browse is enabled when file calibration is selected."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+        widget.calibration_source = "file"
+
+        assert widget._cal_file_edit.isEnabled()
+        assert widget._cal_browse_button.isEnabled()
+
+
 class TestWidgetModuleImports:
     """Test that widget modules can be imported."""
 
