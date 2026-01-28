@@ -34,6 +34,7 @@ from andor_qt.widgets.hardware import (
     SpectrographControlWidget,
     TemperatureControlWidget,
 )
+from andor_qt.widgets.dialogs.shutdown_dialog import ShutdownDialog
 from andor_qt.widgets.inputs import DynamicInputsWidget, QueueControlWidget
 from andor_qt.widgets.menu_bar import AndorMenuBar
 
@@ -627,6 +628,49 @@ class AndorSpectrometerWindow(QMainWindow):
         thread.join()
 
         log.info("Shutdown complete, closing application")
+        QApplication.instance().quit()
+
+    def _start_shutdown_with_dialog(self) -> None:
+        """Start shutdown with a progress dialog.
+
+        Shows a ShutdownDialog that displays temperature progress
+        and allows force-quit.
+        """
+        self._set_controls_enabled(False)
+
+        # Get current temperature for progress range
+        start_temp = -60.0
+        if self._hw_manager.camera:
+            try:
+                start_temp = self._hw_manager.camera.temperature
+            except Exception:
+                pass
+
+        target_temp = -20.0
+
+        # Create and show dialog
+        self._shutdown_dialog = ShutdownDialog(self)
+        self._shutdown_dialog.set_temperature_range(start_temp, target_temp)
+        self._shutdown_dialog.set_status("Starting shutdown...")
+        self._shutdown_dialog.force_quit_requested.connect(self._on_force_quit)
+
+        # Connect temperature signal to update dialog
+        self._signals.temperature_changed.connect(
+            self._shutdown_dialog.update_temperature
+        )
+
+        self._shutdown_dialog.show()
+
+        # Start shutdown in background
+        self._hw_manager.shutdown(
+            warmup=True,
+            on_complete=lambda: self._acq_signals.shutdown_complete.emit(),
+            on_progress=lambda msg: self._acq_signals.shutdown_progress.emit(msg),
+        )
+
+    def _on_force_quit(self) -> None:
+        """Handle force quit request from shutdown dialog."""
+        log.warning("Force quit requested")
         QApplication.instance().quit()
 
     @Slot()
