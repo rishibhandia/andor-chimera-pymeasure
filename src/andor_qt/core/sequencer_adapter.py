@@ -1,14 +1,16 @@
 """Adapter providing ManagedWindow-like interface for SequencerWidget.
 
 PyMeasure's SequencerWidget expects its parent to have procedure_class,
-make_procedure(), and queue(procedure=...) methods. This adapter wraps
-our widgets and queue runner to provide that interface.
+make_procedure(), and queue(procedure=...) methods. It also passes
+parent to QWidget.__init__, so this adapter must be a QWidget.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, List, Optional, Type
+
+from PySide6.QtWidgets import QWidget
 
 if TYPE_CHECKING:
     from pymeasure.experiment import Procedure
@@ -30,9 +32,12 @@ _IMAGE_INPUTS = [
 ]
 
 
-class SequencerAdapter:
-    """Adapts our app to provide the ManagedWindow-like interface
+class SequencerAdapter(QWidget):
+    """QWidget adapter providing the ManagedWindow-like interface
     that PyMeasure's SequencerWidget expects.
+
+    Must be a QWidget because SequencerWidget passes its parent
+    to QWidget.__init__() as the Qt parent widget.
 
     Attributes:
         procedure_class: The current Procedure class (SpectrumProcedure or ImageProcedure).
@@ -41,10 +46,12 @@ class SequencerAdapter:
 
     def __init__(
         self,
-        inputs_widget: DynamicInputsWidget,
-        hw_manager: HardwareManager,
-        queue_runner: ExperimentQueueRunner,
+        inputs_widget: "DynamicInputsWidget",
+        hw_manager: "HardwareManager",
+        queue_runner: "ExperimentQueueRunner",
+        parent: QWidget | None = None,
     ):
+        super().__init__(parent)
         self._inputs = inputs_widget
         self._hw_manager = hw_manager
         self._queue_runner = queue_runner
@@ -79,7 +86,10 @@ class SequencerAdapter:
         )
 
     def queue(self, procedure: Optional["Procedure"] = None) -> None:
-        """Queue a procedure for execution.
+        """Queue a procedure for execution and start the runner.
+
+        The runner's run() is a no-op if already executing, so it is
+        safe to call on every queue() invocation.
 
         Args:
             procedure: Procedure to queue. If None, creates one from
@@ -88,3 +98,4 @@ class SequencerAdapter:
         if procedure is None:
             procedure = self.make_procedure()
         self._queue_runner.add(procedure)
+        self._queue_runner.run()

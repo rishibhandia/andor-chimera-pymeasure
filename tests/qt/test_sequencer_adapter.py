@@ -96,15 +96,50 @@ class TestQueue:
     """Tests for the queue method."""
 
     def test_adapter_queue_adds_to_runner(self, adapter, queue_runner):
-        """queue() adds a procedure to the ExperimentQueueRunner."""
+        """queue() adds a procedure to the runner and starts execution."""
+        import time
+
+        from PySide6.QtWidgets import QApplication
+
+        completed = []
+        queue_runner.procedure_completed.connect(lambda idx: completed.append(idx))
+
         proc = adapter.make_procedure()
         adapter.queue(procedure=proc)
-        assert queue_runner.pending_count == 1
+
+        # Wait for completion (queue() auto-starts the runner)
+        start = time.time()
+        while time.time() - start < 15.0:
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+            if len(completed) > 0:
+                break
+            time.sleep(0.05)
+
+        assert len(completed) == 1
 
     def test_adapter_queue_without_procedure_creates_one(self, adapter, queue_runner):
         """queue() without a procedure argument creates one from make_procedure."""
+        import time
+
+        from PySide6.QtWidgets import QApplication
+
+        completed = []
+        queue_runner.procedure_completed.connect(lambda idx: completed.append(idx))
+
         adapter.queue()
-        assert queue_runner.pending_count == 1
+
+        start = time.time()
+        while time.time() - start < 15.0:
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+            if len(completed) > 0:
+                break
+            time.sleep(0.05)
+
+        assert len(completed) >= 1
 
 
 class TestSequenceableInputs:

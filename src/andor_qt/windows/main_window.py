@@ -22,11 +22,14 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from andor_qt.core.experiment_queue import ExperimentQueueRunner
 from andor_qt.core.hardware_manager import HardwareManager
+from andor_qt.core.sequencer_adapter import SequencerAdapter
 from andor_qt.core.signals import get_hardware_signals
 from andor_qt.widgets.display import ImagePlotWidget, ResultsTableWidget, SpectrumPlotWidget, TraceListWidget
 from andor_qt.widgets.hardware import (
@@ -132,9 +135,29 @@ class AndorSpectrometerWindow(QMainWindow):
         self._acquire_control = AcquireControlWidget()
         left_layout.addWidget(self._acquire_control)
 
-        # Queue control
+        # Queue control tabs (Single / Sequence)
         self._queue_control = QueueControlWidget()
-        left_layout.addWidget(self._queue_control)
+
+        self._queue_runner = ExperimentQueueRunner(self._hw_manager)
+        self._sequencer_adapter = SequencerAdapter(
+            self._inputs_widget, self._hw_manager, self._queue_runner
+        )
+
+        from pymeasure.display.widgets.sequencer_widget import SequencerWidget
+
+        sequencer_inputs = [
+            "exposure_time", "center_wavelength", "grating",
+            "hbin", "num_accumulations",
+        ]
+        self._sequencer_widget = SequencerWidget(
+            inputs=sequencer_inputs,
+            parent=self._sequencer_adapter,
+        )
+
+        self._queue_tabs = QTabWidget()
+        self._queue_tabs.addTab(self._queue_control, "Single")
+        self._queue_tabs.addTab(self._sequencer_widget, "Sequence")
+        left_layout.addWidget(self._queue_tabs)
 
         # Data settings
         self._data_settings = DataSettingsWidget()
@@ -216,6 +239,16 @@ class AndorSpectrometerWindow(QMainWindow):
         # Queue control signals
         self._queue_control.queue_clicked.connect(self._on_queue_clicked)
         self._queue_control.abort_clicked.connect(self._on_abort_clicked)
+
+        # Queue runner signals (sequence execution)
+        self._queue_runner.spectrum_ready.connect(self._on_spectrum_ready)
+        self._queue_runner.image_ready.connect(self._on_image_ready)
+        self._queue_runner.queue_completed.connect(
+            lambda: self._queue_control.set_running(False)
+        )
+        self._queue_runner.queue_completed.connect(
+            lambda: self._status_label.setText("Sequence complete")
+        )
 
         # Trace overlay signals
         self._spectrum_plot.trace_added.connect(self._trace_list.add_trace)
@@ -447,6 +480,10 @@ class AndorSpectrometerWindow(QMainWindow):
         """Handle Abort button click."""
         if self._hw_manager.camera:
             self._hw_manager.camera.abort_acquisition()
+
+        # Also abort the queue runner if running
+        if self._queue_runner.is_running:
+            self._queue_runner.abort_all()
 
         self._queue_control.set_running(False)
         self._status_label.setText("Aborted")
