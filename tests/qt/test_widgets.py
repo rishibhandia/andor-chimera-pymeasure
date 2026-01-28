@@ -70,6 +70,55 @@ class TestWidgetInstantiation:
         assert widget is not None
 
 
+class TestDataSettingsMetadata:
+    """Tests for DataSettings metadata fields."""
+
+    def test_data_settings_has_sample_id_field(self, qt_app):
+        """DataSettingsWidget has a sample ID field."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert hasattr(widget, "_sample_edit")
+        widget.sample_id = "SAMPLE-001"
+        assert widget.sample_id == "SAMPLE-001"
+
+    def test_data_settings_has_operator_field(self, qt_app):
+        """DataSettingsWidget has an operator field."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert hasattr(widget, "_operator_edit")
+        widget.operator = "John Doe"
+        assert widget.operator == "John Doe"
+
+    def test_data_settings_has_notes_field(self, qt_app):
+        """DataSettingsWidget has a notes field."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert hasattr(widget, "_notes_edit")
+        widget.notes = "Test notes"
+        assert widget.notes == "Test notes"
+
+    def test_metadata_in_get_metadata(self, qt_app):
+        """get_metadata returns sample_id, operator, and notes."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+        widget.sample_id = "S001"
+        widget.operator = "Jane"
+        widget.notes = "Important experiment"
+
+        metadata = widget.get_metadata()
+
+        assert metadata["sample_id"] == "S001"
+        assert metadata["operator"] == "Jane"
+        assert metadata["notes"] == "Important experiment"
+
+
 class TestDataSettingsCalibration:
     """Tests for DataSettings calibration UI."""
 

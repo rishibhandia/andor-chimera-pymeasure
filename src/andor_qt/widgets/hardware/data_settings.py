@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSpinBox,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -136,6 +137,18 @@ class DataSettingsWidget(QGroupBox):
         meta_row2.addWidget(self._operator_edit)
 
         layout.addLayout(meta_row2)
+
+        # Notes row
+        notes_row = QVBoxLayout()
+
+        notes_row.addWidget(QLabel("Notes:"))
+
+        self._notes_edit = QTextEdit()
+        self._notes_edit.setPlaceholderText("Optional notes...")
+        self._notes_edit.setMaximumHeight(60)
+        notes_row.addWidget(self._notes_edit)
+
+        layout.addLayout(notes_row)
 
         # Calibration source row
         cal_row = QHBoxLayout()
@@ -296,6 +309,16 @@ class DataSettingsWidget(QGroupBox):
         self._operator_edit.setText(value)
 
     @property
+    def notes(self) -> str:
+        """Get notes text."""
+        return self._notes_edit.toPlainText()
+
+    @notes.setter
+    def notes(self, value: str) -> None:
+        """Set notes text."""
+        self._notes_edit.setPlainText(value)
+
+    @property
     def calibration_source(self) -> str:
         """Get calibration source ('sdk' or 'file')."""
         return self._cal_combo.currentData()
@@ -359,5 +382,6 @@ class DataSettingsWidget(QGroupBox):
         return {
             "sample_id": self.sample_id,
             "operator": self.operator,
+            "notes": self.notes,
             "timestamp": datetime.now().isoformat(),
         }
