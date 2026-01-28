@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from andor_qt.core.hardware_manager import HardwareManager
 from andor_qt.core.signals import get_hardware_signals
-from andor_qt.widgets.display import ImagePlotWidget, ResultsTableWidget, SpectrumPlotWidget
+from andor_qt.widgets.display import ImagePlotWidget, ResultsTableWidget, SpectrumPlotWidget, TraceListWidget
 from andor_qt.widgets.hardware import (
     DataSettingsWidget,
     SpectrographControlWidget,
@@ -158,6 +158,10 @@ class AndorSpectrometerWindow(QMainWindow):
 
         right_layout.addWidget(self._plot_stack, stretch=2)
 
+        # Trace list for overlay management
+        self._trace_list = TraceListWidget()
+        right_layout.addWidget(self._trace_list, stretch=0)
+
         # Results table
         self._results_table = ResultsTableWidget()
         right_layout.addWidget(self._results_table, stretch=1)
@@ -212,6 +216,14 @@ class AndorSpectrometerWindow(QMainWindow):
         # Queue control signals
         self._queue_control.queue_clicked.connect(self._on_queue_clicked)
         self._queue_control.abort_clicked.connect(self._on_abort_clicked)
+
+        # Trace overlay signals
+        self._spectrum_plot.trace_added.connect(self._trace_list.add_trace)
+        self._trace_list.visibility_toggled.connect(self._spectrum_plot.set_trace_visible)
+        self._trace_list.trace_remove_requested.connect(self._spectrum_plot.remove_trace)
+        self._trace_list.clear_all_requested.connect(self._spectrum_plot.clear_traces)
+        self._spectrum_plot.trace_removed.connect(self._trace_list.remove_trace)
+        self._spectrum_plot.traces_cleared.connect(self._trace_list.clear)
 
         # Acquisition signals (thread-safe)
         self._acq_signals.progress.connect(self._on_acq_progress)
@@ -307,10 +319,17 @@ class AndorSpectrometerWindow(QMainWindow):
 
     @Slot(object, object)
     def _on_spectrum_ready(self, wavelengths, intensities) -> None:
-        """Handle spectrum data ready."""
+        """Handle spectrum data ready — add as new overlay trace."""
         self._last_calibration = wavelengths
         self._last_data = intensities
-        self._spectrum_plot.set_data(wavelengths, intensities)
+
+        # Build descriptive label
+        params = self._inputs_widget.get_parameters()
+        exp_id = self._current_exp_id or 0
+        exp_t = params.get("exposure_time", 0)
+        label = f"#{exp_id} exp={exp_t:.2f}s"
+
+        self._spectrum_plot.add_trace(wavelengths, intensities, label=label)
 
     @Slot(object, object)
     def _on_image_ready(self, image, wavelengths) -> None:
