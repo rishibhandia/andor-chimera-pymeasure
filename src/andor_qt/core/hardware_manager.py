@@ -434,8 +434,11 @@ class HardwareManager:
                         timeout = 300
                         while (time.time() - start_time) < timeout:
                             temp = self._camera.temperature
+                            status = self._camera.temperature_status
                             if on_progress:
                                 on_progress(f"Warming up camera: {temp:.1f}°C → -20°C")
+                            # Emit temperature signal so UI can show progress
+                            self._signals.temperature_changed.emit(temp, status)
                             if temp >= -20:
                                 break
                             time.sleep(2)  # Check every 2 seconds

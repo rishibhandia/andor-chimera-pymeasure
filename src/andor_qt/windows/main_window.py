@@ -606,9 +606,9 @@ class AndorSpectrometerWindow(QMainWindow):
             event.ignore()
             return
 
-        # Prevent the close and start shutdown
+        # Prevent the close and start shutdown with visual progress
         event.ignore()
-        self._start_shutdown()
+        self._start_shutdown_with_dialog()
 
     def _start_shutdown(self) -> None:
         """Start the shutdown process.
@@ -710,12 +710,20 @@ class AndorSpectrometerWindow(QMainWindow):
         log.info(f"Shutdown progress: {message}")
         self._status_label.setText(message)
 
+        # Update shutdown dialog status if visible
+        if hasattr(self, "_shutdown_dialog") and self._shutdown_dialog is not None:
+            self._shutdown_dialog.set_status(message)
+
     @Slot()
     def _on_shutdown_complete(self) -> None:
         """Handle shutdown complete - close the application."""
         log.info("Shutdown complete, closing application")
         self._status_label.setText("Shutdown complete")
         self._shutdown_in_progress = False
+
+        # Close the shutdown dialog if visible
+        if hasattr(self, "_shutdown_dialog") and self._shutdown_dialog is not None:
+            self._shutdown_dialog.on_shutdown_complete()
 
         # Now close the application
         QApplication.instance().quit()
