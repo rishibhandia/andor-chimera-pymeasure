@@ -616,25 +616,26 @@ class AndorSpectrometerWindow(QMainWindow):
         Note: This blocks the UI during shutdown/warmup. This is intentional
         to avoid Qt crashes from cross-thread signal/timer interactions.
         """
+        import threading
+
         self._set_controls_enabled(False)
         self._status_label.setText("Shutting down (please wait)...")
 
         # Force UI update before blocking
         QApplication.processEvents()
 
-        # Run shutdown in background thread but wait for it
-        import threading
+        # Use an Event to wait for the hardware manager's internal
+        # shutdown thread to actually complete (not just the call returning).
+        shutdown_done = threading.Event()
 
-        def _do_shutdown():
-            self._hw_manager.shutdown(
-                warmup=True,
-                on_complete=lambda: None,
-                on_progress=lambda msg: log.info(f"Shutdown: {msg}"),
-            )
+        self._hw_manager.shutdown(
+            warmup=True,
+            on_complete=lambda: shutdown_done.set(),
+            on_progress=lambda msg: log.info(f"Shutdown: {msg}"),
+        )
 
-        thread = threading.Thread(target=_do_shutdown, daemon=False)
-        thread.start()
-        thread.join()
+        # Block until the hardware shutdown thread finishes
+        shutdown_done.wait(timeout=360)
 
         log.info("Shutdown complete, closing application")
         QApplication.instance().quit()
