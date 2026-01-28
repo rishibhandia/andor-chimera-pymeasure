@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
     from pymeasure.experiment import Procedure
 
+    from andor_qt.core.config import AppConfig
+
 log = logging.getLogger(__name__)
 
 
@@ -71,6 +73,8 @@ class HardwareManager:
         self._temp_timer: Optional[QTimer] = None
         self._shutdown_in_progress = False
         self._hardware_lock = threading.Lock()
+        self._sdk_path: str = r"C:\Program Files\Andor SDK"
+        self._config: Optional["AppConfig"] = None
         self._initialized = True
 
     @property
@@ -97,6 +101,21 @@ class HardwareManager:
     def mock_mode(self) -> bool:
         """Check if running in mock mode."""
         return self._mock_mode
+
+    @property
+    def sdk_path(self) -> str:
+        """Get the SDK path."""
+        return self._sdk_path
+
+    def set_config(self, config: "AppConfig") -> None:
+        """Set configuration from AppConfig.
+
+        Args:
+            config: Application configuration.
+        """
+        self._config = config
+        self._sdk_path = config.hardware.sdk_path
+        self._mock_mode = config.hardware.mock_mode
 
     def initialize(
         self,
