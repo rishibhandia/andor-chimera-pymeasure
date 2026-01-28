@@ -6,8 +6,15 @@ including hardware settings, UI preferences, and calibration options.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+import logging
+import os
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -82,3 +89,102 @@ class AppConfig:
             ui=UIConfig(),
             calibration=CalibrationConfig(),
         )
+
+    def to_yaml(self, path: Path) -> None:
+        """Save configuration to a YAML file.
+
+        Args:
+            path: Path to the YAML file to write.
+        """
+        data = {
+            "hardware": asdict(self.hardware),
+            "ui": asdict(self.ui),
+            "calibration": asdict(self.calibration),
+        }
+
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> "AppConfig":
+        """Load configuration from a YAML file.
+
+        Args:
+            path: Path to the YAML file to read.
+
+        Returns:
+            AppConfig loaded from the file.
+        """
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+
+        return cls._from_dict(data)
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> "AppConfig":
+        """Create AppConfig from a dictionary.
+
+        Args:
+            data: Dictionary with config data.
+
+        Returns:
+            AppConfig instance.
+        """
+        hardware_data = data.get("hardware", {})
+        ui_data = data.get("ui", {})
+        calibration_data = data.get("calibration", {})
+
+        return cls(
+            hardware=HardwareConfig(**hardware_data) if hardware_data else HardwareConfig(),
+            ui=UIConfig(**ui_data) if ui_data else UIConfig(),
+            calibration=CalibrationConfig(**calibration_data) if calibration_data else CalibrationConfig(),
+        )
+
+    @classmethod
+    def load_or_default(cls, path: Optional[Path] = None) -> "AppConfig":
+        """Load configuration from file or return defaults.
+
+        Also applies environment variable overrides.
+
+        Args:
+            path: Path to config file (optional).
+
+        Returns:
+            AppConfig loaded from file or with defaults.
+        """
+        if path is not None and path.exists():
+            try:
+                config = cls.from_yaml(path)
+            except Exception as e:
+                log.warning(f"Failed to load config from {path}: {e}")
+                config = cls.default()
+        else:
+            config = cls.default()
+
+        # Apply environment variable overrides
+        config = cls._apply_env_overrides(config)
+
+        return config
+
+    @classmethod
+    def _apply_env_overrides(cls, config: "AppConfig") -> "AppConfig":
+        """Apply environment variable overrides to config.
+
+        Args:
+            config: Original configuration.
+
+        Returns:
+            Configuration with env overrides applied.
+        """
+        mock_mode = os.environ.get("ANDOR_MOCK", "0") == "1"
+
+        if mock_mode != config.hardware.mock_mode:
+            # Need to recreate HardwareConfig since it's frozen
+            config.hardware = HardwareConfig(
+                sdk_path=config.hardware.sdk_path,
+                mock_mode=mock_mode,
+                default_temperature=config.hardware.default_temperature,
+                warmup_temperature=config.hardware.warmup_temperature,
+            )
+
+        return config

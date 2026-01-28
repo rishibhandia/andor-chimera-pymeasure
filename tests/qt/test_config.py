@@ -161,3 +161,122 @@ class TestAppConfig:
         # Should not raise
         config.hardware = new_hardware
         assert config.hardware.mock_mode is True
+
+
+class TestConfigYAML:
+    """Tests for YAML serialization/deserialization."""
+
+    def test_config_to_yaml(self, tmp_path):
+        """AppConfig can be saved to YAML file."""
+        from andor_qt.core.config import AppConfig
+
+        config = AppConfig.default()
+        yaml_path = tmp_path / "config.yaml"
+
+        config.to_yaml(yaml_path)
+
+        assert yaml_path.exists()
+        content = yaml_path.read_text()
+        assert "hardware:" in content
+        assert "ui:" in content
+        assert "calibration:" in content
+
+    def test_config_from_yaml(self, tmp_path):
+        """AppConfig can be loaded from YAML file."""
+        from andor_qt.core.config import AppConfig
+
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            """
+hardware:
+  sdk_path: "D:\\\\Custom\\\\SDK"
+  mock_mode: true
+  default_temperature: -80
+  warmup_temperature: -10
+ui:
+  window_title: "Custom Title"
+  temperature_poll_interval_ms: 5000
+calibration:
+  source: file
+  file_path: "C:\\\\cal.csv"
+"""
+        )
+
+        config = AppConfig.from_yaml(yaml_path)
+
+        assert config.hardware.sdk_path == "D:\\Custom\\SDK"
+        assert config.hardware.mock_mode is True
+        assert config.hardware.default_temperature == -80
+        assert config.ui.window_title == "Custom Title"
+        assert config.calibration.source == "file"
+
+    def test_config_roundtrip(self, tmp_path):
+        """AppConfig survives save/load roundtrip."""
+        from andor_qt.core.config import (
+            AppConfig,
+            CalibrationConfig,
+            HardwareConfig,
+            UIConfig,
+        )
+
+        original = AppConfig(
+            hardware=HardwareConfig(
+                sdk_path="D:\\Test",
+                mock_mode=True,
+                default_temperature=-75,
+            ),
+            ui=UIConfig(
+                window_title="Test App",
+                temperature_poll_interval_ms=3000,
+            ),
+            calibration=CalibrationConfig(
+                source="file",
+                file_path="C:\\test.csv",
+            ),
+        )
+
+        yaml_path = tmp_path / "config.yaml"
+        original.to_yaml(yaml_path)
+        loaded = AppConfig.from_yaml(yaml_path)
+
+        assert loaded.hardware.sdk_path == original.hardware.sdk_path
+        assert loaded.hardware.mock_mode == original.hardware.mock_mode
+        assert loaded.hardware.default_temperature == original.hardware.default_temperature
+        assert loaded.ui.window_title == original.ui.window_title
+        assert loaded.calibration.source == original.calibration.source
+        assert loaded.calibration.file_path == original.calibration.file_path
+
+    def test_config_missing_file_returns_default(self, tmp_path, monkeypatch):
+        """load_or_default returns default config if file missing."""
+        from andor_qt.core.config import AppConfig
+
+        # Clear ANDOR_MOCK env var for this test
+        monkeypatch.delenv("ANDOR_MOCK", raising=False)
+
+        yaml_path = tmp_path / "nonexistent.yaml"
+        config = AppConfig.load_or_default(yaml_path)
+
+        assert config.hardware.mock_mode is False
+        assert config.ui.window_title == "Andor Spectrometer Control"
+
+    def test_env_var_override_mock_mode(self, tmp_path, monkeypatch):
+        """ANDOR_MOCK env var overrides config mock_mode."""
+        from andor_qt.core.config import AppConfig
+
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            """
+hardware:
+  mock_mode: false
+ui:
+  window_title: "Test"
+calibration:
+  source: sdk
+"""
+        )
+
+        monkeypatch.setenv("ANDOR_MOCK", "1")
+        config = AppConfig.load_or_default(yaml_path)
+
+        # Env var should override file setting
+        assert config.hardware.mock_mode is True
