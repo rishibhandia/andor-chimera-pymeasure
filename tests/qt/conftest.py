@@ -71,6 +71,23 @@ def mock_signals(qt_app):
     return get_hardware_signals()
 
 
+@pytest.fixture(scope="function")
+def reset_event_bus(qt_app):
+    """Reset EventBus singleton before and after each test.
+
+    This ensures tests are isolated and don't share state.
+    """
+    from andor_qt.core.event_bus import EventBus
+
+    # Reset before test
+    EventBus.reset_instance()
+
+    yield
+
+    # Reset after test
+    EventBus.reset_instance()
+
+
 class SignalCapture:
     """Capture Qt signals for testing."""
 
