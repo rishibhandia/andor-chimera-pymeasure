@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Type
 
 from PySide6.QtCore import QTimer
 
+from andor_qt.core.event_bus import get_event_bus
 from andor_qt.core.signals import get_hardware_signals
 
 if TYPE_CHECKING:
@@ -71,6 +72,11 @@ class HardwareManager:
         self._shutdown_in_progress = False
         self._hardware_lock = threading.Lock()
         self._initialized = True
+
+    @property
+    def _event_bus(self):
+        """Get the current EventBus instance (dynamic for test isolation)."""
+        return get_event_bus()
 
     @property
     def camera(self) -> Optional["AndorCamera"]:
@@ -149,6 +155,18 @@ class HardwareManager:
             })
             # Emit initial wavelength
             self._signals.wavelength_changed.emit(self._spectrograph.wavelength)
+
+        # Publish to EventBus
+        self._event_bus.publish(
+            "hardware.initialized",
+            camera={
+                "xpixels": self._camera.xpixels if self._camera else 0,
+                "ypixels": self._camera.ypixels if self._camera else 0,
+            },
+            spectrograph={
+                "num_gratings": self._spectrograph.info.num_gratings if self._spectrograph and self._spectrograph.info else 0,
+            },
+        )
 
         log.info("Hardware initialization complete")
 
@@ -283,6 +301,7 @@ class HardwareManager:
                     self._spectrograph.grating = grating
 
                 self._signals.grating_changed.emit(grating)
+                self._event_bus.publish("hardware.grating_changed", grating=grating)
                 if on_complete:
                     on_complete()
             except Exception as e:
@@ -315,6 +334,7 @@ class HardwareManager:
                     self._spectrograph.wavelength = wavelength
 
                 self._signals.wavelength_changed.emit(wavelength)
+                self._event_bus.publish("hardware.wavelength_changed", wavelength=wavelength)
                 if on_complete:
                     on_complete()
             except Exception as e:
@@ -418,6 +438,9 @@ class HardwareManager:
                 self._camera = None
                 self._spectrograph = None
                 self._shutdown_in_progress = False
+
+                # Publish to EventBus
+                self._event_bus.publish("hardware.shutdown")
 
                 log.info("Hardware shutdown complete")
                 if on_complete:

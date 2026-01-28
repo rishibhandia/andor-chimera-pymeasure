@@ -342,3 +342,97 @@ class TestHardwareManagerInjectIntoProcedure:
 
         assert MockProcedure._shared_camera is hardware_manager.camera
         assert MockProcedure._shared_spectrograph is hardware_manager.spectrograph
+
+
+class TestHardwareManagerEventBus:
+    """Tests for HardwareManager EventBus integration."""
+
+    def test_initialize_publishes_event(
+        self, hardware_manager, wait_for, reset_event_bus, handler_factory
+    ):
+        """Initialize publishes hardware.initialized event."""
+        from andor_qt.core.event_bus import get_event_bus
+
+        bus = get_event_bus()
+        handler = handler_factory("init_handler")
+        bus.subscribe("hardware.initialized", handler)
+
+        completed = []
+        hardware_manager.initialize(on_complete=lambda: completed.append(True))
+        wait_for(lambda: len(completed) > 0)
+
+        handler.assert_called_once()
+        call_args = handler.call_args
+        assert "camera" in call_args.kwargs
+        assert "spectrograph" in call_args.kwargs
+
+    def test_set_grating_publishes_event(
+        self, hardware_manager, wait_for, reset_event_bus, handler_factory
+    ):
+        """set_grating publishes hardware.grating_changed event."""
+        from andor_qt.core.event_bus import get_event_bus
+
+        # Initialize first
+        completed = []
+        hardware_manager.initialize(on_complete=lambda: completed.append(True))
+        wait_for(lambda: len(completed) > 0)
+
+        bus = get_event_bus()
+        handler = handler_factory("grating_handler")
+        bus.subscribe("hardware.grating_changed", handler)
+
+        grating_done = []
+        hardware_manager.set_grating(2, on_complete=lambda: grating_done.append(True))
+        wait_for(lambda: len(grating_done) > 0)
+
+        handler.assert_called_once()
+        call_args = handler.call_args
+        assert call_args.kwargs["grating"] == 2
+
+    def test_set_wavelength_publishes_event(
+        self, hardware_manager, wait_for, reset_event_bus, handler_factory
+    ):
+        """set_wavelength publishes hardware.wavelength_changed event."""
+        from andor_qt.core.event_bus import get_event_bus
+
+        # Initialize first
+        completed = []
+        hardware_manager.initialize(on_complete=lambda: completed.append(True))
+        wait_for(lambda: len(completed) > 0)
+
+        bus = get_event_bus()
+        handler = handler_factory("wavelength_handler")
+        bus.subscribe("hardware.wavelength_changed", handler)
+
+        wavelength_done = []
+        hardware_manager.set_wavelength(
+            600.0, on_complete=lambda: wavelength_done.append(True)
+        )
+        wait_for(lambda: len(wavelength_done) > 0)
+
+        handler.assert_called_once()
+        call_args = handler.call_args
+        assert call_args.kwargs["wavelength"] == 600.0
+
+    def test_shutdown_publishes_event(
+        self, hardware_manager, wait_for, reset_event_bus, handler_factory
+    ):
+        """shutdown publishes hardware.shutdown event."""
+        from andor_qt.core.event_bus import get_event_bus
+
+        # Initialize first
+        completed = []
+        hardware_manager.initialize(on_complete=lambda: completed.append(True))
+        wait_for(lambda: len(completed) > 0)
+
+        bus = get_event_bus()
+        handler = handler_factory("shutdown_handler")
+        bus.subscribe("hardware.shutdown", handler)
+
+        shutdown_done = []
+        hardware_manager.shutdown(
+            warmup=False, on_complete=lambda: shutdown_done.append(True)
+        )
+        wait_for(lambda: len(shutdown_done) > 0)
+
+        handler.assert_called_once()
