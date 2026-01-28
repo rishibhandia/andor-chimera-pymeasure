@@ -35,6 +35,7 @@ from andor_qt.widgets.hardware import (
     TemperatureControlWidget,
 )
 from andor_qt.widgets.inputs import DynamicInputsWidget, QueueControlWidget
+from andor_qt.widgets.menu_bar import AndorMenuBar
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +98,10 @@ class AndorSpectrometerWindow(QMainWindow):
 
     def _setup_ui(self) -> None:
         """Set up the main window UI."""
+        # Menu bar
+        self._menu_bar = AndorMenuBar(self)
+        self.setMenuBar(self._menu_bar)
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -179,6 +184,11 @@ class AndorSpectrometerWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         """Connect signals between components."""
+        # Menu bar signals
+        self._menu_bar.exit_requested.connect(self.close)
+        self._menu_bar.acquire_requested.connect(self._on_queue_clicked)
+        self._menu_bar.abort_requested.connect(self._on_abort_clicked)
+
         # Hardware signals
         self._signals.camera_initialized.connect(self._on_camera_initialized)
         self._signals.spectrograph_initialized.connect(self._on_spectrograph_initialized)
