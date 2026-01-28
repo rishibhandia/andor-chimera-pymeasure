@@ -1,0 +1,442 @@
+"""Hardware manager for shared hardware instances.
+
+This module provides a singleton HardwareManager that shares camera and
+spectrograph instances between the GUI and PyMeasure procedures.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+import threading
+from typing import TYPE_CHECKING, Callable, Optional, Type
+
+from PySide6.QtCore import QTimer
+
+from andor_qt.core.signals import get_hardware_signals
+
+if TYPE_CHECKING:
+    from andor_pymeasure.instruments.andor_camera import AndorCamera
+    from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+    from pymeasure.experiment import Procedure
+
+log = logging.getLogger(__name__)
+
+
+class HardwareManager:
+    """Singleton managing shared hardware instances.
+
+    This class ensures that camera and spectrograph are initialized once
+    and shared between the GUI controls and PyMeasure procedures.
+
+    Usage:
+        manager = HardwareManager.instance()
+        manager.initialize()
+
+        # Inject into procedure class
+        manager.inject_into_procedure(SpectrumProcedure)
+
+        # Direct access
+        temp = manager.camera.temperature
+    """
+
+    _instance: Optional["HardwareManager"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls) -> "HardwareManager":
+        """Ensure singleton instance."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    @classmethod
+    def instance(cls) -> "HardwareManager":
+        """Get the singleton instance."""
+        return cls()
+
+    def __init__(self):
+        """Initialize the hardware manager."""
+        if self._initialized:
+            return
+
+        self._camera: Optional["AndorCamera"] = None
+        self._spectrograph: Optional["AndorSpectrograph"] = None
+        self._mock_mode = os.environ.get("ANDOR_MOCK", "0") == "1"
+        self._signals = get_hardware_signals()
+        self._temp_timer: Optional[QTimer] = None
+        self._shutdown_in_progress = False
+        self._hardware_lock = threading.Lock()
+        self._initialized = True
+
+    @property
+    def camera(self) -> Optional["AndorCamera"]:
+        """Get the camera instance."""
+        return self._camera
+
+    @property
+    def spectrograph(self) -> Optional["AndorSpectrograph"]:
+        """Get the spectrograph instance."""
+        return self._spectrograph
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check if hardware is initialized."""
+        return self._camera is not None and self._spectrograph is not None
+
+    @property
+    def mock_mode(self) -> bool:
+        """Check if running in mock mode."""
+        return self._mock_mode
+
+    def initialize(
+        self,
+        sdk_path: str = r"C:\Program Files\Andor SDK",
+        on_complete: Optional[Callable] = None,
+        on_error: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Initialize camera and spectrograph in a background thread.
+
+        Args:
+            sdk_path: Path to the Andor SDK installation.
+            on_complete: Callback when initialization completes.
+            on_error: Callback with error message if initialization fails.
+        """
+        if self.is_initialized:
+            log.warning("Hardware already initialized")
+            if on_complete:
+                on_complete()
+            return
+
+        def _init_thread():
+            try:
+                self._do_initialize(sdk_path)
+                if on_complete:
+                    on_complete()
+            except Exception as e:
+                log.error(f"Hardware initialization failed: {e}")
+                if on_error:
+                    on_error(str(e))
+                self._signals.error_occurred.emit("HardwareManager", str(e))
+
+        thread = threading.Thread(target=_init_thread, daemon=True)
+        thread.start()
+
+    def _do_initialize(self, sdk_path: str) -> None:
+        """Perform hardware initialization (called in background thread)."""
+        if self._mock_mode:
+            log.info("Initializing in MOCK mode")
+            self._init_mock_hardware()
+        else:
+            log.info("Initializing real hardware")
+            self._init_real_hardware(sdk_path)
+
+        # Emit signals
+        if self._camera:
+            self._signals.camera_initialized.emit({
+                "xpixels": self._camera.xpixels,
+                "ypixels": self._camera.ypixels,
+                "serial": self._camera.info.serial_number if self._camera.info else "Unknown",
+            })
+
+        if self._spectrograph:
+            self._signals.spectrograph_initialized.emit({
+                "serial": self._spectrograph.info.serial_number if self._spectrograph.info else "Unknown",
+                "num_gratings": self._spectrograph.info.num_gratings if self._spectrograph.info else 0,
+            })
+            # Emit initial wavelength
+            self._signals.wavelength_changed.emit(self._spectrograph.wavelength)
+
+        log.info("Hardware initialization complete")
+
+    def _init_mock_hardware(self) -> None:
+        """Initialize mock hardware for development."""
+        # Patch SDK imports with mocks
+        from andor_pymeasure.instruments.mock import create_mock_sdk_modules
+
+        mock_modules = create_mock_sdk_modules()
+        sys.modules.update(mock_modules)
+
+        from andor_pymeasure.instruments.andor_camera import AndorCamera
+        from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+
+        self._camera = AndorCamera(sdk_path="mock")
+        self._camera.initialize()
+
+        self._spectrograph = AndorSpectrograph(sdk_path="mock")
+        self._spectrograph.initialize()
+
+    def _init_real_hardware(self, sdk_path: str) -> None:
+        """Initialize real hardware."""
+        from andor_pymeasure.instruments.andor_camera import AndorCamera
+        from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+
+        self._camera = AndorCamera(sdk_path=sdk_path)
+        self._camera.initialize()
+
+        self._spectrograph = AndorSpectrograph(sdk_path=sdk_path)
+        self._spectrograph.initialize()
+
+    def inject_into_procedure(self, procedure_class: Type["Procedure"]) -> None:
+        """Inject shared hardware references into a procedure class.
+
+        This allows procedures to use the shared hardware instead of
+        initializing their own instances.
+
+        Args:
+            procedure_class: The procedure class to inject hardware into.
+        """
+        procedure_class._shared_camera = self._camera
+        procedure_class._shared_spectrograph = self._spectrograph
+
+    def start_temperature_polling(self, interval_ms: int = 2000) -> None:
+        """Start polling camera temperature at regular intervals.
+
+        Args:
+            interval_ms: Polling interval in milliseconds.
+        """
+        if self._temp_timer is not None:
+            return
+
+        self._temp_timer = QTimer()
+        self._temp_timer.timeout.connect(self._poll_temperature)
+        self._temp_timer.start(interval_ms)
+        log.debug(f"Temperature polling started (interval: {interval_ms}ms)")
+
+    def stop_temperature_polling(self) -> None:
+        """Stop temperature polling."""
+        if self._temp_timer is not None:
+            self._temp_timer.stop()
+            self._temp_timer = None
+            log.debug("Temperature polling stopped")
+
+    def _poll_temperature(self) -> None:
+        """Poll current temperature and emit signal."""
+        if self._camera is None or self._shutdown_in_progress:
+            return
+
+        try:
+            temp = self._camera.temperature
+            status = self._camera.temperature_status
+            self._signals.temperature_changed.emit(temp, status)
+        except Exception as e:
+            log.error(f"Error polling temperature: {e}")
+
+    def set_cooler(
+        self,
+        on: bool,
+        target_temp: int = -60,
+        on_complete: Optional[Callable] = None,
+    ) -> None:
+        """Set cooler state (immediate action, not queued).
+
+        Args:
+            on: True to turn cooler on, False to turn off.
+            target_temp: Target temperature in Celsius.
+            on_complete: Callback when operation completes.
+        """
+        if self._camera is None:
+            log.error("Camera not initialized")
+            return
+
+        def _cooler_thread():
+            try:
+                with self._hardware_lock:
+                    if on:
+                        self._camera.cooler_on(target=target_temp)
+                    else:
+                        self._camera.cooler_off()
+
+                self._signals.cooler_state_changed.emit(on, target_temp)
+                if on_complete:
+                    on_complete()
+            except Exception as e:
+                log.error(f"Error setting cooler: {e}")
+                self._signals.error_occurred.emit("Cooler", str(e))
+
+        thread = threading.Thread(target=_cooler_thread, daemon=True)
+        thread.start()
+
+    def set_grating(
+        self,
+        grating: int,
+        on_complete: Optional[Callable] = None,
+    ) -> None:
+        """Set grating (background operation).
+
+        Args:
+            grating: Grating index (1-indexed).
+            on_complete: Callback when operation completes.
+        """
+        if self._spectrograph is None:
+            log.error("Spectrograph not initialized")
+            return
+
+        self._signals.grating_changing.emit(grating)
+
+        def _grating_thread():
+            try:
+                with self._hardware_lock:
+                    self._spectrograph.grating = grating
+
+                self._signals.grating_changed.emit(grating)
+                if on_complete:
+                    on_complete()
+            except Exception as e:
+                log.error(f"Error setting grating: {e}")
+                self._signals.error_occurred.emit("Grating", str(e))
+
+        thread = threading.Thread(target=_grating_thread, daemon=True)
+        thread.start()
+
+    def set_wavelength(
+        self,
+        wavelength: float,
+        on_complete: Optional[Callable] = None,
+    ) -> None:
+        """Set wavelength (background operation).
+
+        Args:
+            wavelength: Center wavelength in nm.
+            on_complete: Callback when operation completes.
+        """
+        if self._spectrograph is None:
+            log.error("Spectrograph not initialized")
+            return
+
+        self._signals.wavelength_changing.emit(wavelength)
+
+        def _wavelength_thread():
+            try:
+                with self._hardware_lock:
+                    self._spectrograph.wavelength = wavelength
+
+                self._signals.wavelength_changed.emit(wavelength)
+                if on_complete:
+                    on_complete()
+            except Exception as e:
+                log.error(f"Error setting wavelength: {e}")
+                self._signals.error_occurred.emit("Wavelength", str(e))
+
+        thread = threading.Thread(target=_wavelength_thread, daemon=True)
+        thread.start()
+
+    def get_calibration(self) -> Optional["np.ndarray"]:
+        """Get wavelength calibration for current settings.
+
+        Returns:
+            Wavelength array or None if not available.
+        """
+        if self._spectrograph is None or self._camera is None:
+            return None
+
+        try:
+            with self._hardware_lock:
+                calibration = self._spectrograph.get_calibration(
+                    self._camera.xpixels,
+                    self._camera.info.pixel_width if self._camera.info else 26.0,
+                )
+            self._signals.calibration_updated.emit(calibration)
+            return calibration
+        except Exception as e:
+            log.error(f"Error getting calibration: {e}")
+            return None
+
+    def shutdown(
+        self,
+        warmup: bool = True,
+        on_complete: Optional[Callable] = None,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Shutdown hardware safely in background thread.
+
+        Args:
+            warmup: Whether to warm up camera before shutdown.
+            on_complete: Callback when shutdown completes.
+            on_progress: Callback with progress messages.
+        """
+        if not self.is_initialized:
+            log.warning("Hardware not initialized, nothing to shutdown")
+            if on_complete:
+                on_complete()
+            return
+
+        self._shutdown_in_progress = True
+        self.stop_temperature_polling()
+
+        def _shutdown_thread():
+            try:
+                if on_progress:
+                    on_progress("Stopping any running acquisitions...")
+
+                # Abort any running acquisition
+                if self._camera:
+                    try:
+                        self._camera.abort_acquisition()
+                    except Exception:
+                        pass
+
+                # Warm up camera if needed
+                if warmup and self._camera:
+                    temp = self._camera.temperature
+                    if temp < -20:
+                        if on_progress:
+                            on_progress(f"Warming up camera ({temp:.1f}°C → -20°C)...")
+
+                        # Turn off cooler to allow warming
+                        self._camera.cooler_off()
+
+                        # Monitor warmup with progress updates
+                        import time
+                        start_time = time.time()
+                        timeout = 300
+                        while (time.time() - start_time) < timeout:
+                            temp = self._camera.temperature
+                            if on_progress:
+                                on_progress(f"Warming up camera: {temp:.1f}°C → -20°C")
+                            if temp >= -20:
+                                break
+                            time.sleep(2)  # Check every 2 seconds
+
+                # Shutdown camera
+                if self._camera:
+                    if on_progress:
+                        on_progress("Shutting down camera...")
+                    self._camera.shutdown()
+                    # Don't emit signal from background thread
+
+                # Shutdown spectrograph
+                if self._spectrograph:
+                    if on_progress:
+                        on_progress("Shutting down spectrograph...")
+                    self._spectrograph.shutdown()
+                    # Don't emit signal from background thread
+
+                self._camera = None
+                self._spectrograph = None
+                self._shutdown_in_progress = False
+
+                log.info("Hardware shutdown complete")
+                if on_complete:
+                    on_complete()
+
+            except Exception as e:
+                log.error(f"Error during hardware shutdown: {e}")
+                self._signals.error_occurred.emit("Shutdown", str(e))
+                self._shutdown_in_progress = False
+
+        thread = threading.Thread(target=_shutdown_thread, daemon=True)
+        thread.start()
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance (for testing)."""
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance._camera = None
+                cls._instance._spectrograph = None
+                cls._instance._initialized = False
+            cls._instance = None

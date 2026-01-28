@@ -1,0 +1,317 @@
+"""Spectrum acquisition procedure using PyMeasure.
+
+This module provides procedures for acquiring spectra (FVB mode) and
+2D images from the Andor camera with spectrograph wavelength calibration.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import TYPE_CHECKING
+
+import numpy as np
+from pymeasure.experiment import (
+    BooleanParameter,
+    FloatParameter,
+    IntegerParameter,
+    ListParameter,
+    Procedure,
+)
+
+if TYPE_CHECKING:
+    from andor_pymeasure.instruments.andor_camera import AndorCamera
+    from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
+
+
+class SpectrumProcedure(Procedure):
+    """Single spectrum (FVB) acquisition procedure.
+
+    This procedure acquires a 1D spectrum using Full Vertical Binning (FVB) mode
+    and returns wavelength-calibrated data.
+    """
+
+    # Parameters shown in GUI
+    exposure_time = FloatParameter(
+        "Exposure Time",
+        units="s",
+        default=0.1,
+        minimum=0.001,
+        maximum=600.0,
+    )
+    center_wavelength = FloatParameter(
+        "Center Wavelength",
+        units="nm",
+        default=500.0,
+        minimum=0.0,
+        maximum=2000.0,
+    )
+    grating = IntegerParameter(
+        "Grating",
+        default=1,
+        minimum=1,
+        maximum=3,
+    )
+    num_accumulations = IntegerParameter(
+        "Accumulations",
+        default=1,
+        minimum=1,
+        maximum=1000,
+    )
+    cooler_enabled = BooleanParameter(
+        "Enable Cooler",
+        default=True,
+    )
+    target_temperature = IntegerParameter(
+        "Target Temperature",
+        units="C",
+        default=-60,
+        minimum=-100,
+        maximum=20,
+    )
+
+    DATA_COLUMNS = ["Wavelength", "Intensity"]
+
+    def startup(self):
+        """Initialize hardware."""
+        log.info("Initializing hardware for spectrum acquisition...")
+
+        from andor_pymeasure.instruments.andor_camera import AndorCamera
+        from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+
+        self.camera = AndorCamera()
+        self.camera.initialize()
+
+        self.spectrograph = AndorSpectrograph()
+        self.spectrograph.initialize()
+
+        log.info(f"Camera detector: {self.camera.xpixels}x{self.camera.ypixels}")
+        log.info(f"Camera temperature: {self.camera.temperature:.1f}C")
+        log.info(f"Spectrograph gratings: {self.spectrograph.info.num_gratings}")
+
+        # Enable cooler if requested
+        if self.cooler_enabled:
+            log.info(f"Enabling cooler, target: {self.target_temperature}C")
+            self.camera.cooler_on(target=self.target_temperature)
+
+    def execute(self):
+        """Run spectrum acquisition."""
+        # Set spectrograph grating
+        log.info(f"Setting grating to {self.grating}")
+        self.spectrograph.grating = self.grating
+
+        if self.should_stop():
+            return
+
+        # Set spectrograph wavelength
+        log.info(f"Setting center wavelength to {self.center_wavelength}nm")
+        self.spectrograph.wavelength = self.center_wavelength
+
+        if self.should_stop():
+            return
+
+        # Get wavelength calibration
+        log.info("Getting wavelength calibration...")
+        wavelengths = self.spectrograph.get_calibration(
+            self.camera.xpixels,
+            self.camera.info.pixel_width,
+        )
+        log.info(f"Wavelength range: {wavelengths[0]:.2f} - {wavelengths[-1]:.2f} nm")
+
+        if self.should_stop():
+            return
+
+        # Set exposure and acquire
+        log.info(f"Acquiring spectrum with {self.exposure_time}s exposure...")
+        self.camera.set_exposure(self.exposure_time)
+
+        # Accumulate if requested
+        if self.num_accumulations > 1:
+            accumulated = np.zeros(self.camera.xpixels, dtype=np.float64)
+            for i in range(self.num_accumulations):
+                if self.should_stop():
+                    return
+
+                spectrum = self.camera.acquire_fvb()
+                accumulated += spectrum
+                self.emit("progress", 100 * (i + 1) / self.num_accumulations)
+
+            spectrum = accumulated / self.num_accumulations
+        else:
+            spectrum = self.camera.acquire_fvb()
+            self.emit("progress", 100)
+
+        # Emit results
+        for wl, intensity in zip(wavelengths, spectrum):
+            self.emit("results", {"Wavelength": wl, "Intensity": intensity})
+
+        log.info("Spectrum acquisition complete")
+
+    def shutdown(self):
+        """Cleanup hardware."""
+        log.info("Shutting down hardware...")
+
+        if hasattr(self, "camera"):
+            self.camera.shutdown()
+
+        if hasattr(self, "spectrograph"):
+            self.spectrograph.shutdown()
+
+        log.info("Hardware shutdown complete")
+
+
+class ImageProcedure(Procedure):
+    """2D image acquisition procedure.
+
+    This procedure acquires a 2D image from the CCD with optional binning.
+    One axis is wavelength (from spectrograph calibration), the other is
+    spatial position on the entrance slit.
+    """
+
+    # Parameters shown in GUI
+    exposure_time = FloatParameter(
+        "Exposure Time",
+        units="s",
+        default=1.0,
+        minimum=0.001,
+        maximum=600.0,
+    )
+    center_wavelength = FloatParameter(
+        "Center Wavelength",
+        units="nm",
+        default=500.0,
+        minimum=0.0,
+        maximum=2000.0,
+    )
+    grating = IntegerParameter(
+        "Grating",
+        default=1,
+        minimum=1,
+        maximum=3,
+    )
+    hbin = IntegerParameter(
+        "Horizontal Binning",
+        default=1,
+        minimum=1,
+        maximum=16,
+    )
+    vbin = IntegerParameter(
+        "Vertical Binning",
+        default=1,
+        minimum=1,
+        maximum=16,
+    )
+    cooler_enabled = BooleanParameter(
+        "Enable Cooler",
+        default=True,
+    )
+    target_temperature = IntegerParameter(
+        "Target Temperature",
+        units="C",
+        default=-60,
+        minimum=-100,
+        maximum=20,
+    )
+
+    DATA_COLUMNS = ["Wavelength", "Y_Position", "Intensity"]
+
+    def startup(self):
+        """Initialize hardware."""
+        log.info("Initializing hardware for 2D image acquisition...")
+
+        from andor_pymeasure.instruments.andor_camera import AndorCamera
+        from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+
+        self.camera = AndorCamera()
+        self.camera.initialize()
+
+        self.spectrograph = AndorSpectrograph()
+        self.spectrograph.initialize()
+
+        log.info(f"Camera detector: {self.camera.xpixels}x{self.camera.ypixels}")
+        log.info(f"Camera temperature: {self.camera.temperature:.1f}C")
+
+        # Enable cooler if requested
+        if self.cooler_enabled:
+            log.info(f"Enabling cooler, target: {self.target_temperature}C")
+            self.camera.cooler_on(target=self.target_temperature)
+
+    def execute(self):
+        """Run 2D image acquisition."""
+        # Set spectrograph grating
+        log.info(f"Setting grating to {self.grating}")
+        self.spectrograph.grating = self.grating
+
+        if self.should_stop():
+            return
+
+        # Set spectrograph wavelength
+        log.info(f"Setting center wavelength to {self.center_wavelength}nm")
+        self.spectrograph.wavelength = self.center_wavelength
+
+        if self.should_stop():
+            return
+
+        # Get wavelength calibration
+        eff_xpixels = self.camera.xpixels // self.hbin
+        log.info("Getting wavelength calibration...")
+        wavelengths = self.spectrograph.get_calibration(
+            eff_xpixels,
+            self.camera.info.pixel_width * self.hbin,  # Effective pixel width with binning
+        )
+        log.info(f"Wavelength range: {wavelengths[0]:.2f} - {wavelengths[-1]:.2f} nm")
+
+        if self.should_stop():
+            return
+
+        # Calculate effective dimensions
+        eff_ypixels = self.camera.ypixels // self.vbin
+
+        # Set exposure and acquire
+        log.info(
+            f"Acquiring {eff_xpixels}x{eff_ypixels} image with {self.exposure_time}s exposure..."
+        )
+        self.camera.set_exposure(self.exposure_time)
+        image = self.camera.acquire_image(hbin=self.hbin, vbin=self.vbin)
+
+        self.emit("progress", 50)
+
+        # Emit results (flatten 2D to individual data points)
+        log.info("Emitting image data...")
+        total_points = image.shape[0] * image.shape[1]
+        points_emitted = 0
+
+        for y_idx in range(image.shape[0]):
+            if self.should_stop():
+                return
+
+            for x_idx in range(image.shape[1]):
+                self.emit(
+                    "results",
+                    {
+                        "Wavelength": wavelengths[x_idx],
+                        "Y_Position": y_idx,
+                        "Intensity": image[y_idx, x_idx],
+                    },
+                )
+                points_emitted += 1
+
+            # Update progress
+            self.emit("progress", 50 + 50 * (y_idx + 1) / image.shape[0])
+
+        log.info(f"Image acquisition complete: {points_emitted} data points")
+
+    def shutdown(self):
+        """Cleanup hardware."""
+        log.info("Shutting down hardware...")
+
+        if hasattr(self, "camera"):
+            self.camera.shutdown()
+
+        if hasattr(self, "spectrograph"):
+            self.spectrograph.shutdown()
+
+        log.info("Hardware shutdown complete")
