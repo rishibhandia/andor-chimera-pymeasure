@@ -1,7 +1,7 @@
 [project]
-name = "andor-pymeasure-legacy"
+name = "andor-chimera-pymeasure"
 version = "0.1.0"
-description = "PyMeasure and Qt-based Andor spectrometer control (legacy)"
+description = "PyMeasure and Qt-based Andor spectrometer control"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [

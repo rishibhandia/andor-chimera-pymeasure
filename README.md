@@ -1,6 +1,6 @@
-# Andor PyMeasure Legacy
+# Andor Chimera PyMeasure
 
-This repository contains legacy PyMeasure and Qt-based implementations for Andor spectrometer control.
+PyMeasure and Qt-based implementations for Andor spectrometer control.
 
 ## Packages
 
