@@ -36,6 +36,7 @@ from andor_qt.widgets.hardware import (
 )
 from andor_qt.widgets.dialogs.shutdown_dialog import ShutdownDialog
 from andor_qt.widgets.inputs import DynamicInputsWidget, QueueControlWidget
+from andor_qt.widgets.inputs.acquire_control import AcquireControlWidget
 from andor_qt.widgets.menu_bar import AndorMenuBar
 
 log = logging.getLogger(__name__)
@@ -127,6 +128,10 @@ class AndorSpectrometerWindow(QMainWindow):
         self._inputs_widget = DynamicInputsWidget()
         left_layout.addWidget(self._inputs_widget)
 
+        # Direct acquire controls
+        self._acquire_control = AcquireControlWidget()
+        left_layout.addWidget(self._acquire_control)
+
         # Queue control
         self._queue_control = QueueControlWidget()
         left_layout.addWidget(self._queue_control)
@@ -189,6 +194,10 @@ class AndorSpectrometerWindow(QMainWindow):
         self._menu_bar.exit_requested.connect(self.close)
         self._menu_bar.acquire_requested.connect(self._on_queue_clicked)
         self._menu_bar.abort_requested.connect(self._on_abort_clicked)
+
+        # Acquire control signals
+        self._acquire_control.acquire_requested.connect(self._on_queue_clicked)
+        self._acquire_control.abort_requested.connect(self._on_abort_clicked)
 
         # Hardware signals
         self._signals.camera_initialized.connect(self._on_camera_initialized)
