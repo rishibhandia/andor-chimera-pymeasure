@@ -43,6 +43,12 @@ class HardwareSignals(QObject):
     wavelength_changed = Signal(float)  # new wavelength
     calibration_updated = Signal(object)  # wavelength array
 
+    # Motion controller signals
+    motion_initialized = Signal(dict)  # {axis_name: info, ...}
+    axis_position_changing = Signal(str, float)  # (axis_name, target_position)
+    axis_position_changed = Signal(str, float)  # (axis_name, current_position)
+    axis_moving = Signal(str, bool)  # (axis_name, is_moving)
+
     # General signals
     error_occurred = Signal(str, str)  # (source, message)
     status_message = Signal(str)  # status bar message
