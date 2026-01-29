@@ -24,11 +24,11 @@ log = logging.getLogger(__name__)
 # Sequenceable parameters per procedure type
 _FVB_INPUTS = [
     "exposure_time", "center_wavelength", "grating",
-    "hbin", "num_accumulations",
+    "hbin", "num_accumulations", "delay_position",
 ]
 _IMAGE_INPUTS = [
     "exposure_time", "center_wavelength", "grating",
-    "hbin", "vbin",
+    "hbin", "vbin", "delay_position",
 ]
 
 

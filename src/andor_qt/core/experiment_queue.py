@@ -143,6 +143,16 @@ class ExperimentQueueRunner(QObject):
         """
         from andor_qt.procedures import ImageProcedure, SpectrumProcedure
 
+        # Set delay position if specified
+        if hasattr(procedure, "delay_position"):
+            delay_ps = procedure.delay_position
+            if self._hw_manager.motion_manager:
+                # Get the "delay" axis (or first available)
+                axis = self._hw_manager.motion_manager.get_axis("delay")
+                if axis:
+                    log.info(f"Setting delay position to {delay_ps} ps")
+                    axis.position_ps = delay_ps
+
         # Configure spectrograph
         if hasattr(procedure, "grating"):
             self._hw_manager.spectrograph.grating = procedure.grating
