@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from andor_pymeasure.instruments.andor_camera import AndorCamera
     from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+    from andor_qt.core.motion_manager import MotionControllerManager
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class SharedHardwareMixin:
     # Class-level shared hardware references (set by HardwareManager.inject_into_procedure)
     _shared_camera: Optional["AndorCamera"] = None
     _shared_spectrograph: Optional["AndorSpectrograph"] = None
+    _shared_motion_manager: Optional["MotionControllerManager"] = None
 
     def _init_hardware(self) -> None:
         """Initialize hardware, using shared instances if available.
@@ -73,6 +75,14 @@ class SharedHardwareMixin:
             self.spectrograph = AndorSpectrograph()
             self.spectrograph.initialize()
             self._owns_spectrograph = True
+
+        # Motion manager (always shared, never owned by procedure)
+        if self._shared_motion_manager is not None:
+            log.info("Using shared motion manager")
+            self.motion_manager = self._shared_motion_manager
+        else:
+            log.info("No shared motion manager available")
+            self.motion_manager = None
 
     def _cleanup_hardware(self) -> None:
         """Cleanup hardware, only shutting down owned instances.

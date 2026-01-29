@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from pymeasure.experiment import Procedure
 
     from andor_qt.core.config import AppConfig
+    from andor_qt.core.motion_manager import MotionControllerManager
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class HardwareManager:
 
         self._camera: Optional["AndorCamera"] = None
         self._spectrograph: Optional["AndorSpectrograph"] = None
+        self._motion_manager: Optional["MotionControllerManager"] = None
         self._mock_mode = os.environ.get("ANDOR_MOCK", "0") == "1"
         self._signals = get_hardware_signals()
         self._temp_timer: Optional[QTimer] = None
@@ -91,6 +93,11 @@ class HardwareManager:
     def spectrograph(self) -> Optional["AndorSpectrograph"]:
         """Get the spectrograph instance."""
         return self._spectrograph
+
+    @property
+    def motion_manager(self) -> Optional["MotionControllerManager"]:
+        """Get the motion controller manager."""
+        return self._motion_manager
 
     @property
     def is_initialized(self) -> bool:
@@ -206,6 +213,9 @@ class HardwareManager:
         self._spectrograph = AndorSpectrograph(sdk_path="mock")
         self._spectrograph.initialize()
 
+        # Initialize motion controllers
+        self._init_motion_controllers()
+
     def _init_real_hardware(self, sdk_path: str) -> None:
         """Initialize real hardware."""
         from andor_pymeasure.instruments.andor_camera import AndorCamera
@@ -216,6 +226,56 @@ class HardwareManager:
 
         self._spectrograph = AndorSpectrograph(sdk_path=sdk_path)
         self._spectrograph.initialize()
+
+        # Initialize motion controllers
+        self._init_motion_controllers()
+
+    def _init_motion_controllers(self) -> None:
+        """Initialize motion controllers from config."""
+        from andor_qt.core.motion_manager import MotionControllerManager
+
+        # Get motion config from AppConfig if available
+        if self._config and hasattr(self._config, "motion_controllers"):
+            motion_config = self._config.motion_controllers
+        else:
+            # Default mock config for development
+            motion_config = {
+                "enabled": True,
+                "controllers": [
+                    {
+                        "name": "mock_stage",
+                        "type": "mock",
+                        "home_on_startup": False,
+                        "axes": [
+                            {
+                                "name": "delay",
+                                "index": 1,
+                                "position_min": 0.0,
+                                "position_max": 300.0,
+                                "velocity": 10.0,
+                                "units": "ps",
+                            }
+                        ],
+                    }
+                ],
+            }
+
+        self._motion_manager = MotionControllerManager(motion_config)
+        self._motion_manager.initialize()
+
+        # Emit motion initialized signal
+        if self._motion_manager.all_axes:
+            axis_info = {
+                name: {
+                    "position": axis.position,
+                    "position_min": axis.position_min,
+                    "position_max": axis.position_max,
+                    "units": axis.units,
+                }
+                for name, axis in self._motion_manager.all_axes.items()
+            }
+            self._signals.motion_initialized.emit(axis_info)
+            log.info(f"Motion controllers initialized: {list(axis_info.keys())}")
 
     def inject_into_procedure(self, procedure_class: Type["Procedure"]) -> None:
         """Inject shared hardware references into a procedure class.
@@ -228,6 +288,62 @@ class HardwareManager:
         """
         procedure_class._shared_camera = self._camera
         procedure_class._shared_spectrograph = self._spectrograph
+        procedure_class._shared_motion_manager = self._motion_manager
+
+    def set_axis_position(
+        self,
+        axis_name: str,
+        position: float,
+        units: str = "ps",
+        on_complete: Optional[Callable] = None,
+    ) -> None:
+        """Set position of a named motion axis (background operation).
+
+        Args:
+            axis_name: Name of the axis to move.
+            position: Target position value.
+            units: Position units ("ps", "mm", "deg"). Default is "ps".
+            on_complete: Callback when move completes.
+        """
+        if self._motion_manager is None:
+            log.error("Motion manager not initialized")
+            return
+
+        axis = self._motion_manager.get_axis(axis_name)
+        if axis is None:
+            log.error(f"Axis '{axis_name}' not found")
+            return
+
+        self._signals.axis_position_changing.emit(axis_name, position)
+        self._signals.axis_moving.emit(axis_name, True)
+
+        def _move_thread():
+            try:
+                with self._hardware_lock:
+                    if units == "ps":
+                        axis.position_ps = position
+                    elif units == "mm":
+                        axis.position = position
+                    else:
+                        # For other units, assume mm
+                        axis.position = position
+
+                self._signals.axis_position_changed.emit(axis_name, axis.position)
+                self._signals.axis_moving.emit(axis_name, False)
+                self._event_bus.publish(
+                    "hardware.axis_position_changed",
+                    axis_name=axis_name,
+                    position=axis.position,
+                )
+                if on_complete:
+                    on_complete()
+            except Exception as e:
+                log.error(f"Error setting axis position: {e}")
+                self._signals.error_occurred.emit("AxisMove", str(e))
+                self._signals.axis_moving.emit(axis_name, False)
+
+        thread = threading.Thread(target=_move_thread, daemon=True)
+        thread.start()
 
     def start_temperature_polling(self, interval_ms: int = 2000) -> None:
         """Start polling camera temperature at regular intervals.
@@ -457,8 +573,15 @@ class HardwareManager:
                     self._spectrograph.shutdown()
                     # Don't emit signal from background thread
 
+                # Shutdown motion controllers
+                if self._motion_manager:
+                    if on_progress:
+                        on_progress("Shutting down motion controllers...")
+                    self._motion_manager.shutdown()
+
                 self._camera = None
                 self._spectrograph = None
+                self._motion_manager = None
                 self._shutdown_in_progress = False
 
                 # Publish to EventBus
@@ -483,5 +606,6 @@ class HardwareManager:
             if cls._instance is not None:
                 cls._instance._camera = None
                 cls._instance._spectrograph = None
+                cls._instance._motion_manager = None
                 cls._instance._initialized = False
             cls._instance = None
