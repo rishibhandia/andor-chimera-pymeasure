@@ -8,12 +8,26 @@ from andor_pymeasure.instruments.delay_stage import (
     MockDelayStage,
     NewportDelayStage,
 )
+from andor_pymeasure.instruments.motion_controller import (
+    Axis,
+    AxisInfo,
+    MockAxis,
+    MockMotionController,
+    MotionController,
+    SPEED_OF_LIGHT_MM_PS,
+)
 
 __all__ = [
     "AndorCamera",
     "AndorSpectrograph",
+    "Axis",
+    "AxisInfo",
     "DelayStage",
     "DelayStageInfo",
+    "MockAxis",
     "MockDelayStage",
+    "MockMotionController",
+    "MotionController",
     "NewportDelayStage",
+    "SPEED_OF_LIGHT_MM_PS",
 ]
