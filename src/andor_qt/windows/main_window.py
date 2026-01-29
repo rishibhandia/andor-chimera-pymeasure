@@ -34,6 +34,7 @@ from andor_qt.core.signals import get_hardware_signals
 from andor_qt.widgets.display import ImagePlotWidget, ResultsTableWidget, SpectrumPlotWidget, TraceListWidget
 from andor_qt.widgets.hardware import (
     DataSettingsWidget,
+    DelayStageControlWidget,
     SpectrographControlWidget,
     TemperatureControlWidget,
 )
@@ -62,22 +63,24 @@ class AndorSpectrometerWindow(QMainWindow):
     """Main window for Andor spectrometer control.
 
     Layout:
-        ┌─────────────────────────────────────────────────────────────┐
-        │  Menu Bar                                                   │
-        ├───────────────────────┬─────────────────────────────────────┤
-        │   Control Panel       │            Display Panel            │
-        │   (left side)         │            (right side)             │
-        │  ┌─────────────────┐  │  ┌───────────────────────────────┐  │
-        │  │TemperatureCtrl  │  │  │ QStackedWidget                │  │
-        │  │SpectrographCtrl │  │  │  - SpectrumPlotWidget (1D)    │  │
-        │  │ DynamicInputs   │  │  │  - ImagePlotWidget (2D)       │  │
-        │  │ QueueControl    │  │  └───────────────────────────────┘  │
-        │  │ DataSettings    │  │  ┌───────────────────────────────┐  │
-        │  └─────────────────┘  │  │ ResultsTableWidget            │  │
-        │                       │  └───────────────────────────────┘  │
-        ├───────────────────────┴─────────────────────────────────────┤
-        │  Status Bar: Ready | Temp: -60.1C (STABILIZED) | WL: 500nm │
-        └─────────────────────────────────────────────────────────────┘
+        ┌─────────────────────────────────────────────────────────────────────┐
+        │  Menu Bar                                                           │
+        ├─────────────────────────────────────┬───────────────────────────────┤
+        │   Control Panel (two columns)       │        Display Panel          │
+        │  ┌───────────────┬────────────────┐ │ ┌───────────────────────────┐ │
+        │  │ Column 1      │ Column 2       │ │ │ QStackedWidget            │ │
+        │  │ (Hardware)    │ (Queue/Data)   │ │ │  - SpectrumPlotWidget(1D) │ │
+        │  │───────────────│────────────────│ │ │  - ImagePlotWidget (2D)   │ │
+        │  │ TempControl   │ QueueTabs      │ │ └───────────────────────────┘ │
+        │  │ SpecControl   │ (Single/Seq)   │ │ ┌───────────────────────────┐ │
+        │  │ DynamicInputs │ DataSettings   │ │ │ TraceListWidget           │ │
+        │  │ AcquireCtrl   │                │ │ └───────────────────────────┘ │
+        │  └───────────────┴────────────────┘ │ ┌───────────────────────────┐ │
+        │                                     │ │ ResultsTableWidget        │ │
+        │                                     │ └───────────────────────────┘ │
+        ├─────────────────────────────────────┴───────────────────────────────┤
+        │  Status Bar: Ready | Temp: -60.1C (STABILIZED) | WL: 500nm          │
+        └─────────────────────────────────────────────────────────────────────┘
     """
 
     def __init__(self, parent: QWidget | None = None):
@@ -115,25 +118,38 @@ class AndorSpectrometerWindow(QMainWindow):
         # Create main splitter
         self._splitter = QSplitter(Qt.Horizontal)
 
-        # Left panel - Controls
+        # Left panel - Two columns
         left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(4, 4, 4, 4)
+        left_main_layout = QHBoxLayout(left_panel)
+        left_main_layout.setContentsMargins(4, 4, 4, 4)
+        left_main_layout.setSpacing(8)
 
-        # Hardware control widgets
+        # Column 1: Hardware controls
+        col1_widget = QWidget()
+        col1 = QVBoxLayout(col1_widget)
+        col1.setContentsMargins(0, 0, 0, 0)
+
         self._temp_control = TemperatureControlWidget(self._hw_manager)
-        left_layout.addWidget(self._temp_control)
+        col1.addWidget(self._temp_control)
 
         self._spec_control = SpectrographControlWidget(self._hw_manager)
-        left_layout.addWidget(self._spec_control)
+        col1.addWidget(self._spec_control)
 
-        # Acquisition parameters
+        self._delay_control = DelayStageControlWidget(self._hw_manager)
+        col1.addWidget(self._delay_control)
+
         self._inputs_widget = DynamicInputsWidget()
-        left_layout.addWidget(self._inputs_widget)
+        col1.addWidget(self._inputs_widget)
 
-        # Direct acquire controls
         self._acquire_control = AcquireControlWidget()
-        left_layout.addWidget(self._acquire_control)
+        col1.addWidget(self._acquire_control)
+
+        col1.addStretch()
+
+        # Column 2: Queue and data settings
+        col2_widget = QWidget()
+        col2 = QVBoxLayout(col2_widget)
+        col2.setContentsMargins(0, 0, 0, 0)
 
         # Queue control tabs (Single / Sequence)
         self._queue_control = QueueControlWidget()
@@ -147,7 +163,7 @@ class AndorSpectrometerWindow(QMainWindow):
 
         sequencer_inputs = [
             "exposure_time", "center_wavelength", "grating",
-            "hbin", "num_accumulations",
+            "hbin", "num_accumulations", "delay_position",
         ]
         self._sequencer_widget = SequencerWidget(
             inputs=sequencer_inputs,
@@ -157,13 +173,15 @@ class AndorSpectrometerWindow(QMainWindow):
         self._queue_tabs = QTabWidget()
         self._queue_tabs.addTab(self._queue_control, "Single")
         self._queue_tabs.addTab(self._sequencer_widget, "Sequence")
-        left_layout.addWidget(self._queue_tabs)
+        col2.addWidget(self._queue_tabs)
 
-        # Data settings
         self._data_settings = DataSettingsWidget()
-        left_layout.addWidget(self._data_settings)
+        col2.addWidget(self._data_settings)
 
-        left_layout.addStretch()
+        col2.addStretch()
+
+        left_main_layout.addWidget(col1_widget, stretch=1)
+        left_main_layout.addWidget(col2_widget, stretch=1)
 
         # Right panel - Display
         right_panel = QWidget()
@@ -192,9 +210,9 @@ class AndorSpectrometerWindow(QMainWindow):
         # Add panels to splitter
         self._splitter.addWidget(left_panel)
         self._splitter.addWidget(right_panel)
-        self._splitter.setStretchFactor(0, 1)  # Left panel: smaller
+        self._splitter.setStretchFactor(0, 2)  # Left panel: two columns
         self._splitter.setStretchFactor(1, 3)  # Right panel: larger
-        self._splitter.setSizes([350, 850])
+        self._splitter.setSizes([550, 650])
 
         main_layout.addWidget(self._splitter)
 
@@ -215,6 +233,10 @@ class AndorSpectrometerWindow(QMainWindow):
         self._wl_status_label = QLabel("WL: -- nm")
         self._status_bar.addPermanentWidget(self._wl_status_label)
 
+        # Delay position label
+        self._delay_status_label = QLabel("Delay: -- ps")
+        self._status_bar.addPermanentWidget(self._delay_status_label)
+
     def _connect_signals(self) -> None:
         """Connect signals between components."""
         # Menu bar signals
@@ -231,6 +253,7 @@ class AndorSpectrometerWindow(QMainWindow):
         self._signals.spectrograph_initialized.connect(self._on_spectrograph_initialized)
         self._signals.temperature_changed.connect(self._on_temperature_changed)
         self._signals.wavelength_changed.connect(self._on_wavelength_changed)
+        self._signals.axis_position_changed.connect(self._on_delay_position_changed)
         self._signals.error_occurred.connect(self._on_error)
 
         # Input signals
@@ -328,6 +351,15 @@ class AndorSpectrometerWindow(QMainWindow):
     def _on_wavelength_changed(self, wavelength: float) -> None:
         """Update wavelength status display."""
         self._wl_status_label.setText(f"WL: {wavelength:.1f} nm")
+
+    @Slot(str, float)
+    def _on_delay_position_changed(self, axis_name: str, position: float) -> None:
+        """Update delay position status display."""
+        # Convert mm to ps for display
+        if self._hw_manager.motion_manager:
+            axis = self._hw_manager.motion_manager.get_axis(axis_name)
+            if axis:
+                self._delay_status_label.setText(f"Delay: {axis.position_ps:.2f} ps")
 
     @Slot(str, str)
     def _on_error(self, source: str, message: str) -> None:
@@ -621,6 +653,7 @@ class AndorSpectrometerWindow(QMainWindow):
         """Enable or disable control widgets."""
         self._temp_control.set_enabled(enabled)
         self._spec_control.set_enabled(enabled)
+        self._delay_control.set_enabled(enabled)
         self._inputs_widget.setEnabled(enabled)
         self._queue_control.setEnabled(enabled)
 
