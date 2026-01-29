@@ -63,6 +63,13 @@ class SpectrumProcedure(SharedHardwareMixin, Procedure):
         minimum=1,
         maximum=1000,
     )
+    delay_position = FloatParameter(
+        "Delay Position",
+        units="ps",
+        default=0.0,
+        minimum=-10000.0,
+        maximum=10000.0,
+    )
 
     DATA_COLUMNS = ["Wavelength", "Intensity"]
 
@@ -176,6 +183,13 @@ class ImageProcedure(SharedHardwareMixin, Procedure):
         default=1,
         minimum=1,
         maximum=16,
+    )
+    delay_position = FloatParameter(
+        "Delay Position",
+        units="ps",
+        default=0.0,
+        minimum=-10000.0,
+        maximum=10000.0,
     )
 
     DATA_COLUMNS = ["Wavelength", "Y_Position", "Intensity"]
