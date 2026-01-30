@@ -87,6 +87,41 @@ Qt/PySide6 GUI and PyMeasure integration for Andor CCD spectrometer control. Two
 - **andor_qt** — Main GUI application
 - **andor_pymeasure** — PyMeasure procedures and instrument drivers
 
+## Project Stack
+
+- **Language**: Python 3.11+
+- **Build system**: uv with pyproject.toml
+- **GUI framework**: PySide6 (Qt6)
+- **Experiment framework**: PyMeasure
+- **Testing**: pytest with pytest-qt
+- **Linting**: ruff
+
+## Code Style Guidelines
+
+- **Line length**: 100 characters
+- **Naming**: lowercase_with_underscores for functions/variables, CamelCase for classes
+- **Imports**: Use absolute imports, sorted by ruff
+- **Type hints**: Encouraged, use `from __future__ import annotations`
+- **Docstrings**: Google style, start with imperative verb
+
+### Property Docstrings (PyMeasure style)
+
+For instrument properties, follow PyMeasure conventions:
+```python
+# Use "Control", "Measure", "Get", or "Set" to indicate property type
+wavelength = Instrument.control(
+    "?GW", ":GW %g",
+    """Control the center wavelength in nm (float from 200 to 1100).""",
+    validator=strict_range,
+    values=[200, 1100],
+)
+
+temperature = Instrument.measurement(
+    "?TEMP",
+    """Measure the current temperature in degrees C (float, read-only).""",
+)
+```
+
 ## Quick Commands
 
 ```bash
@@ -231,6 +266,93 @@ def wait_for_qt(condition_fn, timeout=15.0):
 - `ExperimentQueueRunner` — Background queue execution
 - `SequencerAdapter` — Bridges SequencerWidget to our queue
 - QTabWidget with Single/Sequence tabs in left panel
+
+## Instrument Driver Patterns
+
+### Creating New Instruments
+
+Follow PyMeasure's Instrument pattern:
+```python
+from pymeasure.instruments import Instrument
+
+class MyInstrument(Instrument):
+    """Docstring describing the instrument."""
+
+    # Use property creators instead of getter/setter methods
+    voltage = Instrument.control(
+        "VOLT?", "VOLT %g",
+        """Control output voltage in V (float from 0 to 10).""",
+        validator=strict_range,
+        values=[0, 10],
+    )
+
+    # Read-only properties use measurement()
+    status = Instrument.measurement(
+        "STATUS?",
+        """Measure the device status (str, read-only).""",
+    )
+
+    # Write-only properties use setting()
+    reset = Instrument.setting(
+        "*RST",
+        """Set to True to reset the device.""",
+    )
+```
+
+### Validators
+
+- `strict_range` — Raises ValueError if out of range
+- `truncated_range` — Clamps value to range silently
+- `strict_discrete_set` — Raises if not in allowed set
+- `truncated_discrete_set` — Rounds to nearest allowed value
+
+### Mock Instruments
+
+For testing without hardware:
+- Inherit from base instrument class
+- Override adapter with mock responses
+- Use `ANDOR_MOCK=1` environment variable
+- Mock implementations in `src/andor_pymeasure/instruments/`
+
+## Non-Obvious Conventions
+
+### Signal Parameter Order
+When signals pass multiple objects, order matters:
+```python
+# Correct order for spectrum signals
+spectrum_ready = Signal(object, object, dict)  # wavelengths, intensities, params
+image_ready = Signal(object, object, dict)     # image, wavelengths, params
+```
+
+### Hardware Manager Singleton
+Always use `.instance()`, never construct directly:
+```python
+# Correct
+hw = HardwareManager.instance()
+
+# Wrong - creates orphan instance
+hw = HardwareManager()
+```
+
+### Qt Thread Safety
+Never access widgets from background threads. Use signals:
+```python
+# In background thread - emit signal
+self._acq_signals.spectrum_ready.emit(wavelengths, data, params)
+
+# In main thread - slot handles update
+@Slot(object, object, dict)
+def _on_spectrum_ready(self, wavelengths, data, params):
+    self._plot.add_trace(wavelengths, data)  # Safe - main thread
+```
+
+### Procedure Parameter Injection
+Procedures get shared hardware via mixin, not constructor:
+```python
+class SpectrumProcedure(SharedHardwareMixin, Procedure):
+    def startup(self):
+        self._init_hardware()  # Gets shared instances from HardwareManager
+```
 
 ## Troubleshooting
 
