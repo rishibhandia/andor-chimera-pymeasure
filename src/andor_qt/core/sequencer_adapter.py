@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Sequenceable parameters per procedure type
+# Sequenceable parameters per procedure type (attribute names)
 _FVB_INPUTS = [
     "exposure_time", "center_wavelength", "grating",
     "hbin", "num_accumulations", "delay_position",
