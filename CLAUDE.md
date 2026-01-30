@@ -2,6 +2,85 @@
 
 Project-specific guidance for Claude Code when working on andor-chimera-pymeasure.
 
+## CRITICAL: Development Workflow
+
+**STOP AND PLAN BEFORE CODING.** This project requires strict TDD with atomic commits.
+
+### Required Workflow for Every Feature
+
+1. **Plan atomic commits FIRST** - Before writing any code, identify the commits:
+   ```
+   Task: "Add user feedback to sequencer"
+
+   Commits:
+   1. feat: add FeedbackSequencerWidget class
+   2. feat: integrate FeedbackSequencerWidget into main window
+   3. test: add validation feedback tests
+   ```
+
+2. **For each commit, follow TDD**:
+   - **RED**: Write failing tests first
+   - Run tests → verify they FAIL
+   - **GREEN**: Write minimal code to pass
+   - Run tests → verify they PASS
+   - **COMMIT**: Create atomic commit immediately
+
+3. **Use task tracking** to maintain discipline:
+   ```
+   TaskCreate → for each planned commit
+   TaskUpdate(in_progress) → when starting
+   TaskUpdate(completed) → after commit
+   ```
+
+### What NOT To Do
+
+❌ Implement features first, then write tests
+❌ Make multiple changes before committing
+❌ Batch all commits at the end
+❌ Skip the planning phase
+
+### Commit Checklist
+
+Before each commit, verify:
+- [ ] Tests were written BEFORE implementation
+- [ ] Tests failed before implementation (RED phase verified)
+- [ ] Commit does exactly ONE thing
+- [ ] Tests pass after this commit
+- [ ] No unrelated changes included
+
+### Agents to Use
+
+| Phase | Agent | Purpose |
+|-------|-------|---------|
+| Planning | `planner` or `/plan` | Break feature into atomic commits |
+| Architecture | `architect` | Review design before implementation |
+| Testing | `tdd-guide` | Write tests first (RED phase) |
+| Implementation | Direct coding | Write minimal code to pass tests |
+| Commit | `git-commit` | Verify atomic, create commit |
+| Debug | `debugger` | If tests fail unexpectedly |
+
+### Example Workflow
+
+```
+User: "Add wavelength validation to spectrograph"
+
+1. PLAN (use planner agent):
+   Commits:
+   - feat: add wavelength range validation to MockSpectrograph
+   - feat: add validation error feedback in SpectrographControlWidget
+
+2. FOR EACH COMMIT:
+   a. TaskCreate("Add wavelength validation to MockSpectrograph")
+   b. TaskUpdate(status=in_progress)
+   c. Write test: test_wavelength_rejects_out_of_range
+   d. Run pytest → FAILS (RED)
+   e. Implement validation in MockSpectrograph
+   f. Run pytest → PASSES (GREEN)
+   g. git commit
+   h. TaskUpdate(status=completed)
+   i. Move to next commit
+```
+
 ## Project Overview
 
 Qt/PySide6 GUI and PyMeasure integration for Andor CCD spectrometer control. Two packages:
