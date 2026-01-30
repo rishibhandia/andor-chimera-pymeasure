@@ -50,8 +50,8 @@ class AcquisitionSignals(QObject):
     """Signals for thread-safe acquisition updates."""
 
     progress = Signal(int, float)  # (exp_id, progress)
-    spectrum_ready = Signal(object, object)  # (wavelengths, intensities)
-    image_ready = Signal(object, object)  # (image, wavelengths)
+    spectrum_ready = Signal(object, object, dict)  # (wavelengths, intensities, params)
+    image_ready = Signal(object, object, dict)  # (image, wavelengths, params)
     completed = Signal(int)  # exp_id
     failed = Signal(int, str)  # (exp_id, error_message)
     status = Signal(str)  # status message
@@ -159,13 +159,14 @@ class AndorSpectrometerWindow(QMainWindow):
             self._inputs_widget, self._hw_manager, self._queue_runner
         )
 
-        from pymeasure.display.widgets.sequencer_widget import SequencerWidget
+        from andor_qt.widgets.inputs.sequencer_widget import FeedbackSequencerWidget
 
+        # SequencerWidget expects attribute names (it maps to display names internally)
         sequencer_inputs = [
             "exposure_time", "center_wavelength", "grating",
             "hbin", "num_accumulations", "delay_position",
         ]
-        self._sequencer_widget = SequencerWidget(
+        self._sequencer_widget = FeedbackSequencerWidget(
             inputs=sequencer_inputs,
             parent=self._sequencer_adapter,
         )
@@ -266,6 +267,10 @@ class AndorSpectrometerWindow(QMainWindow):
         # Queue runner signals (sequence execution)
         self._queue_runner.spectrum_ready.connect(self._on_spectrum_ready)
         self._queue_runner.image_ready.connect(self._on_image_ready)
+        self._queue_runner.procedure_started.connect(self._on_sequence_procedure_started)
+        self._queue_runner.procedure_completed.connect(self._on_sequence_procedure_completed)
+        self._queue_runner.procedure_failed.connect(self._on_sequence_procedure_failed)
+        self._queue_runner.queue_progress.connect(self._on_sequence_progress)
         self._queue_runner.queue_completed.connect(
             lambda: self._queue_control.set_running(False)
         )
@@ -375,6 +380,54 @@ class AndorSpectrometerWindow(QMainWindow):
         else:
             self._plot_stack.setCurrentWidget(self._spectrum_plot)
 
+    # Sequence execution handlers (from queue runner)
+    @Slot(int, object)
+    def _on_sequence_procedure_started(self, queue_idx: int, procedure) -> None:
+        """Handle sequencer procedure started - add to results table."""
+        params = {
+            "exposure_time": getattr(procedure, "exposure_time", 0),
+            "center_wavelength": getattr(procedure, "center_wavelength", 0),
+            "grating": getattr(procedure, "grating", 1),
+            "delay_position": getattr(procedure, "delay_position", 0),
+            "read_mode": "fvb",  # Default; could check procedure type
+        }
+
+        # Add to results table
+        procedure_type = type(procedure).__name__
+        exp_id = self._results_table.add_experiment(procedure_type, params)
+
+        # Store mapping from queue index to experiment ID
+        if not hasattr(self, "_queue_exp_map"):
+            self._queue_exp_map = {}
+        self._queue_exp_map[queue_idx] = exp_id
+
+        self._current_exp_id = exp_id
+        self._results_table.update_status(exp_id, "running")
+        self._queue_control.set_running(True)
+        self._status_label.setText(f"Running procedure {queue_idx + 1}...")
+
+    @Slot(int)
+    def _on_sequence_procedure_completed(self, queue_idx: int) -> None:
+        """Handle sequencer procedure completed."""
+        if hasattr(self, "_queue_exp_map") and queue_idx in self._queue_exp_map:
+            exp_id = self._queue_exp_map[queue_idx]
+            self._results_table.update_status(exp_id, "completed", 100)
+
+    @Slot(int, str)
+    def _on_sequence_procedure_failed(self, queue_idx: int, error_msg: str) -> None:
+        """Handle sequencer procedure failed."""
+        if hasattr(self, "_queue_exp_map") and queue_idx in self._queue_exp_map:
+            exp_id = self._queue_exp_map[queue_idx]
+            self._results_table.update_status(exp_id, "failed", error_message=error_msg)
+        self._status_label.setText(f"Error: {error_msg}")
+
+    @Slot(int, int)
+    def _on_sequence_progress(self, completed: int, total: int) -> None:
+        """Handle overall sequence progress."""
+        progress = 100 * completed / total if total > 0 else 0
+        self._queue_control.set_progress(progress)
+        self._status_label.setText(f"Sequence: {completed}/{total} complete")
+
     # Acquisition signal handlers (called on main thread)
     @Slot(int, float)
     def _on_acq_progress(self, exp_id: int, progress: float) -> None:
@@ -382,26 +435,59 @@ class AndorSpectrometerWindow(QMainWindow):
         self._queue_control.set_progress(progress)
         self._results_table.update_status(exp_id, "running", progress)
 
-    @Slot(object, object)
-    def _on_spectrum_ready(self, wavelengths, intensities) -> None:
-        """Handle spectrum data ready — add as new overlay trace."""
+    @Slot(object, object, dict)
+    def _on_spectrum_ready(self, wavelengths, intensities, params: dict = None) -> None:
+        """Handle spectrum data ready — add as new overlay trace.
+
+        Args:
+            wavelengths: Wavelength calibration array.
+            intensities: Spectrum intensity data.
+            params: Procedure parameters used for this acquisition (from sequencer).
+                    If None, falls back to current form values.
+        """
         self._last_calibration = wavelengths
         self._last_data = intensities
 
-        # Build descriptive label
-        params = self._inputs_widget.get_parameters()
+        # Use passed params if available, otherwise fall back to form values
+        if params is None:
+            params = self._inputs_widget.get_parameters()
+
         exp_id = self._current_exp_id or 0
         exp_t = params.get("exposure_time", 0)
-        label = f"#{exp_id} exp={exp_t:.2f}s"
+        wl = params.get("center_wavelength", 0)
+        delay = params.get("delay_position", 0)
+
+        # Build descriptive label with key parameters
+        label = f"#{exp_id} exp={exp_t:.2f}s λ={wl:.0f}nm"
+        if delay != 0:
+            label += f" t={delay:.1f}ps"
 
         self._spectrum_plot.add_trace(wavelengths, intensities, label=label)
 
-    @Slot(object, object)
-    def _on_image_ready(self, image, wavelengths) -> None:
-        """Handle image data ready."""
+        # Auto-save if enabled
+        if self._data_settings.auto_save:
+            self._save_data(intensities, wavelengths, params)
+
+    @Slot(object, object, dict)
+    def _on_image_ready(self, image, wavelengths, params: dict = None) -> None:
+        """Handle image data ready.
+
+        Args:
+            image: 2D image data.
+            wavelengths: Wavelength calibration array.
+            params: Procedure parameters used for this acquisition.
+        """
         self._last_calibration = wavelengths
         self._last_data = image
+
+        if params is None:
+            params = self._inputs_widget.get_parameters()
+
         self._image_plot.set_data(image, wavelengths)
+
+        # Auto-save if enabled
+        if self._data_settings.auto_save:
+            self._save_data(image, wavelengths, params)
 
     @Slot(int)
     def _on_acq_completed(self, exp_id: int) -> None:
@@ -409,11 +495,7 @@ class AndorSpectrometerWindow(QMainWindow):
         self._results_table.update_status(exp_id, "completed", 100)
         self._queue_control.set_running(False)
         self._status_label.setText("Ready")
-
-        # Auto-save if enabled
-        if self._data_settings.auto_save and self._last_data is not None:
-            params = self._inputs_widget.get_parameters()
-            self._save_data(self._last_data, self._last_calibration, params)
+        # Note: Auto-save is handled in _on_spectrum_ready / _on_image_ready
 
     @Slot(int, str)
     def _on_acq_failed(self, exp_id: int, error_msg: str) -> None:
@@ -486,7 +568,7 @@ class AndorSpectrometerWindow(QMainWindow):
                         data = self._hw_manager.camera.acquire_fvb()
 
                     # Emit spectrum ready (on main thread)
-                    self._acq_signals.spectrum_ready.emit(calibration, data)
+                    self._acq_signals.spectrum_ready.emit(calibration, data, params)
                 else:
                     # Image acquisition
                     data = self._hw_manager.camera.acquire_image(
@@ -495,7 +577,7 @@ class AndorSpectrometerWindow(QMainWindow):
                     )
 
                     # Emit image ready (on main thread)
-                    self._acq_signals.image_ready.emit(data, calibration)
+                    self._acq_signals.image_ready.emit(data, calibration, params)
 
                 # Emit completed
                 self._acq_signals.completed.emit(exp_id)

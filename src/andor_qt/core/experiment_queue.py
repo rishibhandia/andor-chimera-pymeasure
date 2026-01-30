@@ -34,8 +34,8 @@ class ExperimentQueueRunner(QObject):
         procedure_failed: (queue_index, error_message)
         queue_progress: (completed_count, total_count)
         queue_completed: ()
-        spectrum_ready: (wavelengths, intensities)
-        image_ready: (image, wavelengths)
+        spectrum_ready: (wavelengths, intensities, params_dict)
+        image_ready: (image, wavelengths, params_dict)
     """
 
     procedure_started = Signal(int, object)
@@ -43,8 +43,8 @@ class ExperimentQueueRunner(QObject):
     procedure_failed = Signal(int, str)
     queue_progress = Signal(int, int)
     queue_completed = Signal()
-    spectrum_ready = Signal(object, object)
-    image_ready = Signal(object, object)
+    spectrum_ready = Signal(object, object, dict)  # (wavelengths, intensities, params)
+    image_ready = Signal(object, object, dict)  # (image, wavelengths, params)
 
     def __init__(self, hw_manager: HardwareManager, parent: QObject | None = None):
         super().__init__(parent)
@@ -187,7 +187,16 @@ class ExperimentQueueRunner(QObject):
         else:
             data = self._hw_manager.camera.acquire_fvb()
 
-        self.spectrum_ready.emit(calibration, data)
+        # Extract procedure parameters for labeling
+        params = {
+            "exposure_time": getattr(procedure, "exposure_time", 0),
+            "center_wavelength": getattr(procedure, "center_wavelength", 0),
+            "grating": getattr(procedure, "grating", 1),
+            "delay_position": getattr(procedure, "delay_position", 0),
+            "num_accumulations": num_accum,
+            "hbin": hbin,
+        }
+        self.spectrum_ready.emit(calibration, data, params)
 
     def _acquire_image(self, procedure, calibration: np.ndarray) -> None:
         """Acquire 2D image data."""
@@ -195,4 +204,14 @@ class ExperimentQueueRunner(QObject):
         vbin = getattr(procedure, "vbin", 1)
 
         data = self._hw_manager.camera.acquire_image(hbin=hbin, vbin=vbin)
-        self.image_ready.emit(data, calibration)
+
+        # Extract procedure parameters for labeling
+        params = {
+            "exposure_time": getattr(procedure, "exposure_time", 0),
+            "center_wavelength": getattr(procedure, "center_wavelength", 0),
+            "grating": getattr(procedure, "grating", 1),
+            "delay_position": getattr(procedure, "delay_position", 0),
+            "hbin": hbin,
+            "vbin": vbin,
+        }
+        self.image_ready.emit(data, calibration, params)
