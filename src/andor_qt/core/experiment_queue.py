@@ -159,8 +159,11 @@ class ExperimentQueueRunner(QObject):
         if hasattr(procedure, "center_wavelength"):
             self._hw_manager.spectrograph.wavelength = procedure.center_wavelength
 
-        # Get calibration
-        calibration = self._hw_manager.get_calibration()
+        # Get hbin for calibration (FVB mode uses hbin, image mode also uses it)
+        hbin = getattr(procedure, "hbin", 1)
+
+        # Get calibration with binning factor
+        calibration = self._hw_manager.get_calibration(hbin=hbin)
 
         # Set exposure
         self._hw_manager.camera.set_exposure(procedure.exposure_time)
@@ -181,11 +184,11 @@ class ExperimentQueueRunner(QObject):
             eff_xpixels = self._hw_manager.camera.xpixels // hbin
             accumulated = np.zeros(eff_xpixels, dtype=np.float64)
             for i in range(num_accum):
-                data = self._hw_manager.camera.acquire_fvb()
+                data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
                 accumulated += data
             data = accumulated / num_accum
         else:
-            data = self._hw_manager.camera.acquire_fvb()
+            data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
 
         # Extract procedure parameters for labeling
         params = {

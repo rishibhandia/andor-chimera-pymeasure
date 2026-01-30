@@ -479,8 +479,12 @@ class HardwareManager:
         thread = threading.Thread(target=_wavelength_thread, daemon=True)
         thread.start()
 
-    def get_calibration(self) -> Optional["np.ndarray"]:
+    def get_calibration(self, hbin: int = 1) -> Optional["np.ndarray"]:
         """Get wavelength calibration for current settings.
+
+        Args:
+            hbin: Horizontal binning factor. Calibration array will have
+                  xpixels // hbin points.
 
         Returns:
             Wavelength array or None if not available.
@@ -489,10 +493,12 @@ class HardwareManager:
             return None
 
         try:
+            eff_xpixels = self._camera.xpixels // hbin
+            eff_pixel_width = (self._camera.info.pixel_width if self._camera.info else 26.0) * hbin
             with self._hardware_lock:
                 calibration = self._spectrograph.get_calibration(
-                    self._camera.xpixels,
-                    self._camera.info.pixel_width if self._camera.info else 26.0,
+                    eff_xpixels,
+                    eff_pixel_width,
                 )
             self._signals.calibration_updated.emit(calibration)
             return calibration

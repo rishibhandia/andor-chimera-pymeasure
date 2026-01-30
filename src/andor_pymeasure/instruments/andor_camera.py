@@ -209,22 +209,49 @@ class AndorCamera:
             self._cooler_on = False
             log.info("Cooler OFF")
 
-    def acquire_fvb(self) -> np.ndarray:
+    def acquire_fvb(self, hbin: int = 1) -> np.ndarray:
         """Acquire single FVB (Full Vertical Binning) spectrum.
+
+        Args:
+            hbin: Horizontal binning factor. Must be a factor of xpixels.
 
         Returns:
             1D numpy array of intensities.
 
         Raises:
             RuntimeError: If acquisition fails.
+            ValueError: If hbin is invalid.
         """
         if not self._initialized:
             raise RuntimeError("Camera not initialized")
+
+        xpixels = self._info.xpixels
+
+        if hbin < 1:
+            raise ValueError(f"hbin must be >= 1, got {hbin}")
+        if xpixels % hbin != 0:
+            raise ValueError(f"hbin={hbin} must be a factor of {xpixels}")
+
+        eff_pixels = xpixels // hbin
 
         with self._lock:
             # Set FVB mode
             self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
             self._sdk.SetAcquisitionMode(self._codes.Acquisition_Mode.SINGLE_SCAN)
+
+            # IMPORTANT: Use SetFVBHBin for horizontal binning in FVB mode.
+            # SetImage is IGNORED in FVB mode!
+            if hbin > 1:
+                ret = self._sdk.SetFVBHBin(hbin)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    log.error(f"SetFVBHBin({hbin}) failed: {ret}")
+                    raise RuntimeError(f"SetFVBHBin failed with code {ret}")
+                log.debug(f"FVB mode: {eff_pixels} pixels (hbin={hbin})")
+            else:
+                # Reset to no binning
+                ret = self._sdk.SetFVBHBin(1)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    log.warning(f"SetFVBHBin(1) returned: {ret}")
 
             # Prepare and start
             ret = self._sdk.PrepareAcquisition()
@@ -242,16 +269,16 @@ class AndorCamera:
                 self._sdk.AbortAcquisition()
             raise RuntimeError(f"WaitForAcquisition failed with code: {ret}")
 
-        # Get data
+        # Get data - use effective pixels based on binning
         with self._lock:
             ret, arr, validfirst, validlast = self._sdk.GetImages16(
-                1, 1, self._info.xpixels
+                1, 1, eff_pixels
             )
             if ret != self._errors.Error_Codes.DRV_SUCCESS:
                 raise RuntimeError(f"GetImages16 failed with code: {ret}")
 
         data = np.array(arr, dtype=np.float64)
-        log.debug(f"FVB acquisition complete: {len(data)} pixels")
+        log.debug(f"FVB acquisition complete: {len(data)} pixels (hbin={hbin})")
         return data
 
     def acquire_image(self, hbin: int = 1, vbin: int = 1) -> np.ndarray:

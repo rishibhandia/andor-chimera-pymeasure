@@ -201,9 +201,17 @@ class MockAtmcd:
     def SetImage(
         self, hbin: int, vbin: int, hstart: int, hend: int, vstart: int, vend: int
     ) -> int:
-        """Set image parameters."""
+        """Set image parameters (for Image mode)."""
         self._state.hbin = hbin
         self._state.vbin = vbin
+        return DRV_SUCCESS
+
+    def SetFVBHBin(self, hbin: int) -> int:
+        """Set horizontal binning for FVB mode.
+
+        IMPORTANT: SetImage is IGNORED in FVB mode. Use this method instead.
+        """
+        self._state.hbin = hbin
         return DRV_SUCCESS
 
     def PrepareAcquisition(self) -> int:
@@ -235,7 +243,9 @@ class MockAtmcd:
         np.random.seed(42)  # Reproducible for tests
 
         if self._state.read_mode == 0:  # FVB
-            data = self._generate_mock_spectrum(self._state.xpixels)
+            # FVB mode uses SetFVBHBin for horizontal binning
+            eff_x = self._state.xpixels // self._state.hbin
+            data = self._generate_mock_spectrum(eff_x)
         else:  # Image
             eff_x = self._state.xpixels // self._state.hbin
             eff_y = self._state.ypixels // self._state.vbin

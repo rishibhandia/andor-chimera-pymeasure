@@ -112,6 +112,31 @@ class TestAndorCameraAcquisitionFVB:
         with pytest.raises(RuntimeError, match="not initialized"):
             camera.acquire_fvb()
 
+    def test_acquire_fvb_with_hbin(self, initialized_camera):
+        """FVB acquisition with horizontal binning returns reduced pixel count."""
+        initialized_camera.set_exposure(0.01)
+        hbin = 2
+        data = initialized_camera.acquire_fvb(hbin=hbin)
+
+        assert isinstance(data, np.ndarray)
+        assert data.ndim == 1
+        assert len(data) == initialized_camera.xpixels // hbin
+
+    def test_acquire_fvb_with_hbin_4(self, initialized_camera):
+        """FVB with hbin=4 returns 1/4 pixel count."""
+        initialized_camera.set_exposure(0.01)
+        hbin = 4
+        data = initialized_camera.acquire_fvb(hbin=hbin)
+
+        assert len(data) == initialized_camera.xpixels // hbin
+
+    def test_acquire_fvb_invalid_hbin(self, initialized_camera):
+        """FVB with invalid hbin raises ValueError."""
+        initialized_camera.set_exposure(0.01)
+        # 3 is not a factor of 1024
+        with pytest.raises(ValueError, match="must be a factor"):
+            initialized_camera.acquire_fvb(hbin=3)
+
 
 class TestAndorCameraAcquisitionImage:
     """Tests for 2D image acquisition."""

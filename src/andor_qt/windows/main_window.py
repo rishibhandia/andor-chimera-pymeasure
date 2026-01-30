@@ -538,6 +538,9 @@ class AndorSpectrometerWindow(QMainWindow):
                 # Emit status
                 self._acq_signals.status.emit("Getting calibration...")
 
+                # Get hbin for calibration
+                hbin = params.get("hbin", 1)
+
                 # Get calibration based on source setting
                 cal_source = self._data_settings.calibration_source
                 if cal_source == "file" and self._data_settings.calibration_file:
@@ -545,7 +548,7 @@ class AndorSpectrometerWindow(QMainWindow):
                         self._data_settings.calibration_file
                     )
                 else:
-                    calibration = self._hw_manager.get_calibration()
+                    calibration = self._hw_manager.get_calibration(hbin=hbin)
 
                 # Set exposure
                 self._hw_manager.camera.set_exposure(params["exposure_time"])
@@ -554,18 +557,18 @@ class AndorSpectrometerWindow(QMainWindow):
 
                 # Acquire based on mode
                 if params["read_mode"] == "fvb":
-                    # FVB acquisition
+                    # FVB acquisition with horizontal binning
                     if params.get("num_accumulations", 1) > 1:
-                        eff_xpixels = self._hw_manager.camera.xpixels // params["hbin"]
+                        eff_xpixels = self._hw_manager.camera.xpixels // hbin
                         accumulated = np.zeros(eff_xpixels, dtype=np.float64)
                         for i in range(params["num_accumulations"]):
-                            data = self._hw_manager.camera.acquire_fvb()
+                            data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
                             accumulated += data
                             progress = 100 * (i + 1) / params["num_accumulations"]
                             self._acq_signals.progress.emit(exp_id, progress)
                         data = accumulated / params["num_accumulations"]
                     else:
-                        data = self._hw_manager.camera.acquire_fvb()
+                        data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
 
                     # Emit spectrum ready (on main thread)
                     self._acq_signals.spectrum_ready.emit(calibration, data, params)
