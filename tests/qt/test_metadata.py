@@ -231,3 +231,55 @@ class TestMetadataWithNumpy:
         assert metadata["acquisition"]["exposure_time"] == 0.5
         assert metadata["acquisition"]["grating"] == 1
         assert metadata["acquisition"]["wavelength_range"] == [400.0, 800.0]
+
+
+class TestDataSettingsMetadataFormat:
+    """Tests for metadata format option in DataSettingsWidget."""
+
+    def test_data_settings_has_metadata_combo(self, qt_app):
+        """DataSettingsWidget has a metadata format combo box."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert hasattr(widget, "_metadata_combo")
+        assert widget._metadata_combo is not None
+
+    def test_metadata_format_defaults_to_separate(self, qt_app):
+        """Metadata format defaults to 'separate' (JSON sidecar)."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        assert widget.metadata_format == "separate"
+
+    def test_metadata_format_property_returns_value(self, qt_app):
+        """metadata_format property returns the selected value."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+
+        # Default is 'separate'
+        assert widget.metadata_format == "separate"
+
+        # Change to 'embedded'
+        index = widget._metadata_combo.findData("embedded")
+        widget._metadata_combo.setCurrentIndex(index)
+
+        assert widget.metadata_format == "embedded"
+
+    def test_get_metadata_returns_session_info(self, qt_app):
+        """get_metadata() returns session information dict."""
+        from andor_qt.widgets.hardware.data_settings import DataSettingsWidget
+
+        widget = DataSettingsWidget()
+        widget.sample_id = "SAMPLE-001"
+        widget.operator = "Test User"
+        widget.notes = "Test notes"
+
+        metadata = widget.get_metadata()
+
+        assert metadata["sample_id"] == "SAMPLE-001"
+        assert metadata["operator"] == "Test User"
+        assert metadata["notes"] == "Test notes"
+        assert "timestamp" in metadata

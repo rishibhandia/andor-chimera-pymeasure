@@ -117,6 +117,20 @@ class DataSettingsWidget(QGroupBox):
         save_row.addStretch()
         layout.addLayout(save_row)
 
+        # Metadata format row
+        meta_format_row = QHBoxLayout()
+
+        meta_format_row.addWidget(QLabel("Metadata:"))
+
+        self._metadata_combo = QComboBox()
+        self._metadata_combo.addItem("Separate JSON file", "separate")
+        self._metadata_combo.addItem("Embedded (legacy)", "embedded")
+        self._metadata_combo.setToolTip("How to store metadata")
+        meta_format_row.addWidget(self._metadata_combo)
+
+        meta_format_row.addStretch()
+        layout.addLayout(meta_format_row)
+
         # Metadata rows
         meta_row1 = QHBoxLayout()
 
@@ -187,6 +201,7 @@ class DataSettingsWidget(QGroupBox):
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self._counter_spin.valueChanged.connect(self._emit_settings_changed)
         self._autosave_check.stateChanged.connect(self._emit_settings_changed)
+        self._metadata_combo.currentIndexChanged.connect(self._emit_settings_changed)
         self._sample_edit.textChanged.connect(self._emit_settings_changed)
         self._operator_edit.textChanged.connect(self._emit_settings_changed)
         self._cal_combo.currentIndexChanged.connect(self._on_cal_mode_changed)
@@ -317,6 +332,18 @@ class DataSettingsWidget(QGroupBox):
     def notes(self, value: str) -> None:
         """Set notes text."""
         self._notes_edit.setPlainText(value)
+
+    @property
+    def metadata_format(self) -> str:
+        """Get metadata format ('separate' or 'embedded')."""
+        return self._metadata_combo.currentData()
+
+    @metadata_format.setter
+    def metadata_format(self, format_type: str) -> None:
+        """Set metadata format."""
+        index = self._metadata_combo.findData(format_type)
+        if index >= 0:
+            self._metadata_combo.setCurrentIndex(index)
 
     @property
     def calibration_source(self) -> str:
