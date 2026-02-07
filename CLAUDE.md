@@ -193,6 +193,8 @@ Hardware → HardwareSignals → Widgets
 | `ExperimentQueueRunner` | `core/experiment_queue.py` | Sequential procedure execution |
 | `SequencerAdapter` | `core/sequencer_adapter.py` | PyMeasure SequencerWidget integration |
 | `DynamicInputsWidget` | `widgets/inputs/dynamic_inputs.py` | Parameter input form |
+| `RealtimeWindow` | `windows/realtime_window.py` | Continuous live acquisition window |
+| `DataSettingsWidget` | `widgets/hardware/data_settings.py` | Save directory and metadata settings |
 
 ### Procedures
 PyMeasure procedures in `src/andor_qt/procedures/`:
