@@ -64,6 +64,28 @@ def setup_logging(level: int = logging.INFO) -> None:
     )
 
 
+def create_argument_parser():
+    """Create and return the argument parser.
+
+    Returns:
+        argparse.ArgumentParser: Configured argument parser.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Andor Spectrometer Qt GUI")
+    parser.add_argument(
+        "--mock", action="store_true", help="Run in mock mode (no hardware required)"
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument("--config", type=Path, help="Path to configuration file")
+    parser.add_argument(
+        "--create-shortcut",
+        action="store_true",
+        help="Create a desktop shortcut and exit",
+    )
+    return parser
+
+
 def main() -> int:
     """Main entry point for the Andor Qt GUI application.
 
@@ -71,13 +93,23 @@ def main() -> int:
         Exit code (0 for success, non-zero for error).
     """
     # Parse command line arguments
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Andor Spectrometer Qt GUI")
-    parser.add_argument("--mock", action="store_true", help="Run in mock mode (no hardware required)")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--config", type=Path, help="Path to configuration file")
+    parser = create_argument_parser()
     args = parser.parse_args()
+
+    # Handle --create-shortcut flag
+    if args.create_shortcut:
+        try:
+            from andor_qt.utils.shortcut import create_desktop_shortcut
+
+            shortcut_path = create_desktop_shortcut(
+                name="Andor Spectrometer",
+                mock_mode=args.mock,
+            )
+            print(f"Desktop shortcut created: {shortcut_path}")
+            return 0
+        except Exception as e:
+            print(f"Failed to create shortcut: {e}")
+            return 1
 
     # Set environment variables from command line
     if args.mock:

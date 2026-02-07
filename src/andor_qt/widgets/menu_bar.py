@@ -17,6 +17,7 @@ class AndorMenuBar(QMenuBar):
     Signals:
         save_requested: Emitted when user requests to save.
         load_calibration_requested: Emitted when user wants to load calibration.
+        create_shortcut_requested: Emitted when user wants to create desktop shortcut.
         exit_requested: Emitted when user wants to exit.
         acquire_requested: Emitted when user wants to start acquisition.
         abort_requested: Emitted when user wants to abort acquisition.
@@ -26,6 +27,7 @@ class AndorMenuBar(QMenuBar):
 
     save_requested = Signal()
     load_calibration_requested = Signal()
+    create_shortcut_requested = Signal()
     exit_requested = Signal()
     acquire_requested = Signal()
     abort_requested = Signal()
@@ -53,6 +55,14 @@ class AndorMenuBar(QMenuBar):
             self.load_calibration_requested.emit
         )
         file_menu.addAction(self.load_calibration_action)
+
+        file_menu.addSeparator()
+
+        self.create_shortcut_action = QAction("Create &Desktop Shortcut", self)
+        self.create_shortcut_action.triggered.connect(
+            self.create_shortcut_requested.emit
+        )
+        file_menu.addAction(self.create_shortcut_action)
 
         file_menu.addSeparator()
 

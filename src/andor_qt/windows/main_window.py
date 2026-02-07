@@ -244,6 +244,7 @@ class AndorSpectrometerWindow(QMainWindow):
         self._menu_bar.exit_requested.connect(self.close)
         self._menu_bar.acquire_requested.connect(self._on_queue_clicked)
         self._menu_bar.abort_requested.connect(self._on_abort_clicked)
+        self._menu_bar.create_shortcut_requested.connect(self._on_create_shortcut)
 
         # Acquire control signals
         self._acquire_control.acquire_requested.connect(self._on_queue_clicked)
@@ -607,6 +608,26 @@ class AndorSpectrometerWindow(QMainWindow):
 
         if self._current_exp_id:
             self._results_table.update_status(self._current_exp_id, "aborted")
+
+    @Slot()
+    def _on_create_shortcut(self) -> None:
+        """Handle Create Desktop Shortcut menu action."""
+        try:
+            from andor_qt.utils.shortcut import create_desktop_shortcut
+
+            shortcut_path = create_desktop_shortcut(name="Andor Spectrometer")
+            QMessageBox.information(
+                self,
+                "Shortcut Created",
+                f"Desktop shortcut created:\n{shortcut_path}",
+            )
+        except Exception as e:
+            log.error(f"Failed to create shortcut: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to create desktop shortcut:\n{e}",
+            )
 
     def _load_calibration_file(self, filepath: str) -> Optional[np.ndarray]:
         """Load wavelength calibration from a file.
