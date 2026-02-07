@@ -283,3 +283,73 @@ class TestDataSettingsMetadataFormat:
         assert metadata["operator"] == "Test User"
         assert metadata["notes"] == "Test notes"
         assert "timestamp" in metadata
+
+
+class TestSaveDataWithSeparateMetadata:
+    """Tests for save_data with separate metadata files."""
+
+    def test_save_csv_data_only_creates_clean_file(self, tmp_path):
+        """save_csv_data_only creates CSV without comment headers."""
+        import numpy as np
+        from andor_qt.utils.metadata import save_metadata
+
+        # Create test data
+        wavelengths = np.linspace(400, 800, 100)
+        intensities = np.random.rand(100) * 1000
+
+        # Import the helper function we'll create
+        from andor_qt.utils.data_io import save_csv_data_only
+
+        filepath = tmp_path / "spectrum_001.csv"
+        save_csv_data_only(filepath, wavelengths, intensities)
+
+        # Read file and check format
+        with open(filepath) as f:
+            lines = f.readlines()
+
+        # First line should be header (not a comment)
+        assert not lines[0].startswith("#")
+        assert "Wavelength" in lines[0] or "wavelength" in lines[0].lower()
+
+    def test_save_npz_data_only_has_minimal_keys(self, tmp_path):
+        """save_npz_data_only creates NPZ with only data arrays."""
+        import numpy as np
+
+        from andor_qt.utils.data_io import save_npz_data_only
+
+        # Create test data
+        wavelengths = np.linspace(400, 800, 100)
+        data = np.random.rand(100)
+
+        filepath = tmp_path / "spectrum_001.npz"
+        save_npz_data_only(filepath, wavelengths, data)
+
+        # Load and verify
+        loaded = np.load(filepath)
+
+        assert "data" in loaded
+        assert "wavelengths" in loaded
+        # Should not have parameter keys like exposure_time, grating, etc.
+        assert "exposure_time" not in loaded
+        assert "grating" not in loaded
+
+    def test_separate_metadata_creates_two_files(self, tmp_path):
+        """Saving with separate metadata creates data and .meta.json files."""
+        import numpy as np
+
+        from andor_qt.utils.data_io import save_csv_data_only
+        from andor_qt.utils.metadata import save_metadata
+
+        wavelengths = np.linspace(400, 800, 100)
+        intensities = np.random.rand(100) * 1000
+        params = {"exposure_time": 0.5, "grating": 1}
+        session = {"sample_id": "TEST-001"}
+
+        filepath = tmp_path / "spectrum_001.csv"
+        save_csv_data_only(filepath, wavelengths, intensities)
+        save_metadata(filepath, params, session)
+
+        # Both files should exist
+        assert filepath.exists()
+        meta_path = filepath.with_suffix(".meta.json")
+        assert meta_path.exists()
