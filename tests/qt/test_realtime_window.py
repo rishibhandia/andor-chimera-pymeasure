@@ -154,3 +154,141 @@ class TestRealtimeSignals:
         signals = RealtimeSignals()
 
         assert hasattr(signals, "error")
+
+
+class TestRealtimeAcquisitionLoop:
+    """Tests for continuous acquisition loop behavior.
+
+    Note: These tests verify signal connections and state management
+    without running actual acquisition to avoid Qt/threading issues.
+    """
+
+    def test_acquisition_started_signal_updates_ui(self, qt_app, hardware_manager):
+        """Acquisition started signal updates UI state."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        window = RealtimeWindow(hardware_manager)
+
+        # Simulate the signal being emitted
+        window._signals.acquisition_started.emit()
+        qt_app.processEvents()
+
+        # Check UI state updates
+        assert not window._start_button.isEnabled()
+        assert window._stop_button.isEnabled()
+        assert not window._mode_combo.isEnabled()
+        assert window._status_label.text() == "Running"
+
+    def test_acquisition_stopped_signal_updates_ui(self, qt_app, hardware_manager):
+        """Acquisition stopped signal updates UI state."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        window = RealtimeWindow(hardware_manager)
+
+        # First start, then stop
+        window._signals.acquisition_started.emit()
+        qt_app.processEvents()
+        window._signals.acquisition_stopped.emit()
+        qt_app.processEvents()
+
+        # Check UI state returns to initial
+        assert window._start_button.isEnabled()
+        assert not window._stop_button.isEnabled()
+        assert window._mode_combo.isEnabled()
+        assert window._status_label.text() == "Stopped"
+
+    def test_frame_count_signal_updates_label(self, qt_app, hardware_manager):
+        """Frame count updated signal updates the frame label."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        window = RealtimeWindow(hardware_manager)
+
+        window._signals.frame_count_updated.emit(42)
+        qt_app.processEvents()
+
+        assert "42" in window._frame_label.text()
+
+    def test_error_signal_updates_status(self, qt_app, hardware_manager):
+        """Error signal updates status label."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        window = RealtimeWindow(hardware_manager)
+
+        window._signals.error.emit("Test error message")
+        qt_app.processEvents()
+
+        assert "Test error" in window._status_label.text()
+
+    def test_start_without_hardware_emits_error(self, qt_app, hardware_manager):
+        """Starting acquisition without initialized hardware emits error."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        # Don't initialize hardware
+        window = RealtimeWindow(hardware_manager)
+
+        errors = []
+        window._signals.error.connect(lambda msg: errors.append(msg))
+
+        window._start_acquisition()
+        qt_app.processEvents()
+
+        assert len(errors) == 1
+        assert "not initialized" in errors[0]
+
+
+class TestRealtimePlotUpdates:
+    """Tests for plot updates and FPS display."""
+
+    def test_spectrum_signal_updates_plot(self, qt_app, hardware_manager, wait_for):
+        """Spectrum signal updates the spectrum plot."""
+        import numpy as np
+
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        hardware_manager.initialize()
+        wait_for(lambda: hardware_manager.is_initialized, timeout=10.0)
+
+        window = RealtimeWindow(hardware_manager)
+
+        # Emit mock spectrum data
+        wavelengths = np.linspace(400, 800, 100)
+        intensities = np.random.rand(100) * 1000
+
+        window._signals.spectrum_ready.emit(wavelengths, intensities)
+        qt_app.processEvents()
+
+        # Plot should have data set
+        assert window._spectrum_plot is not None
+
+    def test_fps_display_updates(self, qt_app, hardware_manager, wait_for):
+        """FPS display updates during acquisition."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        hardware_manager.initialize()
+        wait_for(lambda: hardware_manager.is_initialized, timeout=10.0)
+
+        window = RealtimeWindow(hardware_manager)
+
+        # Simulate frame updates
+        window._frame_count = 10
+        window._last_frame_count = 0
+        window._update_fps()
+        qt_app.processEvents()
+
+        assert "10" in window._fps_label.text()
+
+    def test_mode_switch_changes_plot(self, qt_app, hardware_manager):
+        """Switching mode changes the visible plot."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        window = RealtimeWindow(hardware_manager)
+
+        # Start with FVB mode (spectrum plot)
+        window._mode_combo.setCurrentIndex(0)
+        qt_app.processEvents()
+        assert window._plot_stack.currentWidget() == window._spectrum_plot
+
+        # Switch to Image mode
+        window._mode_combo.setCurrentIndex(1)
+        qt_app.processEvents()
+        assert window._plot_stack.currentWidget() == window._image_plot
