@@ -31,6 +31,7 @@ class AndorMenuBar(QMenuBar):
     exit_requested = Signal()
     acquire_requested = Signal()
     abort_requested = Signal()
+    realtime_requested = Signal()
     benchmark_requested = Signal()
     about_requested = Signal()
 
@@ -86,6 +87,10 @@ class AndorMenuBar(QMenuBar):
         acq_menu.addAction(self.abort_action)
 
         acq_menu.addSeparator()
+
+        self.realtime_action = QAction("&Real-Time Mode...", self)
+        self.realtime_action.triggered.connect(self.realtime_requested.emit)
+        acq_menu.addAction(self.realtime_action)
 
         self.benchmark_action = QAction("&Benchmark...", self)
         self.benchmark_action.triggered.connect(self.benchmark_requested.emit)

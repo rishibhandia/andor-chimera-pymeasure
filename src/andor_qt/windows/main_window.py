@@ -245,6 +245,7 @@ class AndorSpectrometerWindow(QMainWindow):
         self._menu_bar.acquire_requested.connect(self._on_queue_clicked)
         self._menu_bar.abort_requested.connect(self._on_abort_clicked)
         self._menu_bar.create_shortcut_requested.connect(self._on_create_shortcut)
+        self._menu_bar.realtime_requested.connect(self._on_realtime_mode)
 
         # Acquire control signals
         self._acquire_control.acquire_requested.connect(self._on_queue_clicked)
@@ -628,6 +629,17 @@ class AndorSpectrometerWindow(QMainWindow):
                 "Error",
                 f"Failed to create desktop shortcut:\n{e}",
             )
+
+    @Slot()
+    def _on_realtime_mode(self) -> None:
+        """Handle Real-Time Mode menu action."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        if not hasattr(self, "_realtime_window") or self._realtime_window is None:
+            self._realtime_window = RealtimeWindow(self._hw_manager, self)
+        self._realtime_window.show()
+        self._realtime_window.raise_()
+        self._realtime_window.activateWindow()
 
     def _load_calibration_file(self, filepath: str) -> Optional[np.ndarray]:
         """Load wavelength calibration from a file.
