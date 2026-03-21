@@ -42,6 +42,7 @@ from andor_qt.widgets.dialogs.shutdown_dialog import ShutdownDialog
 from andor_qt.widgets.inputs import DynamicInputsWidget, QueueControlWidget
 from andor_qt.widgets.inputs.acquire_control import AcquireControlWidget
 from andor_qt.widgets.menu_bar import AndorMenuBar
+from andor_qt.windows.ta_panel import TAWindowPanel
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +114,15 @@ class AndorSpectrometerWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        main_layout = QHBoxLayout(central_widget)
+        # Top-level tab widget: Spectrometer | TA
+        self._main_tabs = QTabWidget()
+        outer_layout = QHBoxLayout(central_widget)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(self._main_tabs)
+
+        # Spectrometer tab wrapper
+        spectrometer_tab = QWidget()
+        main_layout = QHBoxLayout(spectrometer_tab)
 
         # Create main splitter
         self._splitter = QSplitter(Qt.Horizontal)
@@ -216,6 +225,13 @@ class AndorSpectrometerWindow(QMainWindow):
         self._splitter.setSizes([550, 650])
 
         main_layout.addWidget(self._splitter)
+
+        # Add tabs to main tab widget
+        self._main_tabs.addTab(spectrometer_tab, "Spectrometer")
+
+        # TA tab
+        self._ta_panel = TAWindowPanel(hw_manager=self._hw_manager)
+        self._main_tabs.addTab(self._ta_panel, "TA")
 
     def _setup_status_bar(self) -> None:
         """Set up the status bar."""
