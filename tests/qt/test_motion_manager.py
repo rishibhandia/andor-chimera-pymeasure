@@ -259,3 +259,94 @@ class TestControllerTypeRegistry:
 
         assert "Unknown controller type" in caplog.text
         assert len(manager.controllers) == 0
+
+    def test_mock_esp302_in_registry(self):
+        """Mock ESP302 type is in registry."""
+        assert "mock_esp302" in CONTROLLER_TYPES
+
+    def test_mock_gsc02c_in_registry(self):
+        """Mock GSC-02C type is in registry."""
+        assert "mock_gsc02c" in CONTROLLER_TYPES
+
+    def test_mock_k10cr2_in_registry(self):
+        """Mock K10CR2 type is in registry."""
+        assert "mock_k10cr2" in CONTROLLER_TYPES
+
+    def test_newport_esp302_in_registry(self):
+        """Newport ESP302 type is in registry."""
+        assert "newport_esp302" in CONTROLLER_TYPES
+
+    def test_optosigma_gsc02c_in_registry(self):
+        """OptoSigma GSC-02C type is in registry."""
+        assert "optosigma_gsc02c" in CONTROLLER_TYPES
+
+    def test_thorlabs_k10cr2_in_registry(self):
+        """Thorlabs K10CR2 type is in registry."""
+        assert "thorlabs_k10cr2" in CONTROLLER_TYPES
+
+
+class TestNewControllerTypesViaMock:
+    """Tests for creating new controller types via manager using mock types."""
+
+    def test_create_mock_esp302_via_manager(self):
+        """Manager creates MockNewportESP302 from mock_esp302 type."""
+        config = {
+            "enabled": True,
+            "controllers": [
+                {
+                    "name": "delay_stage",
+                    "type": "mock_esp302",
+                    "axes": [{"name": "delay", "index": 1}],
+                }
+            ],
+        }
+        manager = MotionControllerManager(config)
+        manager.initialize()
+
+        assert "delay_stage" in manager.controllers
+        axis = manager.get_axis("delay")
+        assert axis is not None
+        axis.position = 50.0
+        assert axis.position == pytest.approx(50.0)
+
+    def test_create_mock_gsc02c_via_manager(self):
+        """Manager creates MockGSC02C from mock_gsc02c type."""
+        config = {
+            "enabled": True,
+            "controllers": [
+                {
+                    "name": "polarizer",
+                    "type": "mock_gsc02c",
+                    "axes": [{"name": "pol", "index": 1}],
+                }
+            ],
+        }
+        manager = MotionControllerManager(config)
+        manager.initialize()
+
+        assert "polarizer" in manager.controllers
+        axis = manager.get_axis("pol")
+        assert axis is not None
+        axis.position = 45.0
+        assert axis.position == pytest.approx(45.0)
+
+    def test_create_mock_k10cr2_via_manager(self):
+        """Manager creates MockThorlabsK10CR2 from mock_k10cr2 type."""
+        config = {
+            "enabled": True,
+            "controllers": [
+                {
+                    "name": "waveplate",
+                    "type": "mock_k10cr2",
+                    "axes": [{"name": "wp", "index": 0}],
+                }
+            ],
+        }
+        manager = MotionControllerManager(config)
+        manager.initialize()
+
+        assert "waveplate" in manager.controllers
+        axis = manager.get_axis("wp")
+        assert axis is not None
+        axis.position = 90.0
+        assert axis.position == pytest.approx(90.0)

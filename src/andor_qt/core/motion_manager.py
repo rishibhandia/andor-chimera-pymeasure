@@ -18,15 +18,41 @@ log = logging.getLogger(__name__)
 # Import controller classes
 from andor_pymeasure.instruments.motion_controller import MockMotionController
 
+# New hardware controller imports (lazy try/except to avoid hard dependency failures)
+try:
+    from andor_pymeasure.instruments.newport_esp302 import MockNewportESP302, NewportESP302
+    _esp302_available = True
+except ImportError:
+    _esp302_available = False
+
+try:
+    from andor_pymeasure.instruments.optosigma_gsc02c import GSC02C, MockGSC02C
+    _gsc02c_available = True
+except ImportError:
+    _gsc02c_available = False
+
+try:
+    from andor_pymeasure.instruments.thorlabs_k10cr2 import MockThorlabsK10CR2, ThorlabsK10CR2
+    _k10cr2_available = True
+except ImportError:
+    _k10cr2_available = False
+
 # Controller type registry - maps type names to controller classes
 CONTROLLER_TYPES: Dict[str, Type["MotionController"]] = {
     "mock": MockMotionController,
-    # Future additions:
-    # "newport_esp301": NewportESP301,
-    # "sigmakoki_gsc01": SigmaKokiGSC01,
-    # "sigmakoki_gsc02c": SigmaKokiGSC02C,
-    # "thorlabs_kdc101": ThorlabsKDC101,
 }
+
+if _esp302_available:
+    CONTROLLER_TYPES["newport_esp302"] = NewportESP302
+    CONTROLLER_TYPES["mock_esp302"] = MockNewportESP302
+
+if _gsc02c_available:
+    CONTROLLER_TYPES["optosigma_gsc02c"] = GSC02C
+    CONTROLLER_TYPES["mock_gsc02c"] = MockGSC02C
+
+if _k10cr2_available:
+    CONTROLLER_TYPES["thorlabs_k10cr2"] = ThorlabsK10CR2
+    CONTROLLER_TYPES["mock_k10cr2"] = MockThorlabsK10CR2
 
 
 class MotionControllerManager:
