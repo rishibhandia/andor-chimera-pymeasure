@@ -1,0 +1,243 @@
+"""Transient Absorption scan engine.
+
+``TransientAbsorptionEngine`` orchestrates the full TA pump-probe scan loop.
+It runs in a ``QThread`` so the GUI stays responsive, and communicates back
+to the main thread via Qt signals.
+
+Pause/resume uses ``threading.Event`` (set = running, clear = paused).
+Abort uses a separate ``threading.Event`` (set = abort requested).
+
+Signals
+-------
+scan_started(int)
+    Emitted when a new scan begins. Argument is the scan index.
+point_started(int, float)
+    Emitted before acquiring each delay point. Arguments: scan_idx, delay_ps.
+point_completed(int, float)
+    Emitted after each delay point. Arguments: scan_idx, delay_ps.
+scan_completed()
+    Emitted when all scans finish successfully.
+aborted()
+    Emitted when the scan is aborted.
+error(str)
+    Emitted on unhandled exception. Argument is the error message.
+delta_od_updated(float, object, object)
+    Emitted with (delay_ps, wavelengths, delta_od) after each point.
+kinetic_updated(object, object)
+    Emitted with (delays, kinetic_trace_at_probe_wl) after each point.
+map_updated(object, object, object)
+    Emitted with (delays, wavelengths, delta_od_matrix) after each point.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from typing import Optional
+
+import numpy as np
+from PySide6.QtCore import QObject, QThread, Signal
+
+from andor_qt.ta.acquisition import acquire_delta_od_at_delay
+from andor_qt.ta.scan_config import TAScanConfig
+
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
+
+
+class _ScanWorker(QObject):
+    """QObject that runs in a QThread and executes the scan loop."""
+
+    # Status signals
+    scan_started = Signal(int)
+    point_started = Signal(int, float)
+    point_completed = Signal(int, float)
+    scan_completed = Signal()
+    aborted = Signal()
+    error = Signal(str)
+
+    # Data signals
+    delta_od_updated = Signal(float, object, object)
+    kinetic_updated = Signal(object, object)
+    map_updated = Signal(object, object, object)
+
+    def __init__(self):
+        super().__init__()
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # Start in running state
+        self._abort_event = threading.Event()
+        self._config: Optional[TAScanConfig] = None
+        self._hw_manager = None
+        self._writer = None
+
+    def setup(self, config: TAScanConfig, hw_manager, writer) -> None:
+        """Configure the worker before starting."""
+        self._config = config
+        self._hw_manager = hw_manager
+        self._writer = writer
+        self._abort_event.clear()
+        self._pause_event.set()
+
+    def run(self) -> None:
+        """Execute the scan loop. Called from QThread."""
+        config = self._config
+        hw = self._hw_manager
+        writer = self._writer
+
+        # Accumulated data for map/kinetic updates
+        all_delays = []
+        all_od = []  # list of 1-D arrays
+
+        try:
+            for scan_idx in range(config.n_scans):
+                if self._abort_event.is_set():
+                    self.aborted.emit()
+                    return
+
+                self.scan_started.emit(scan_idx)
+
+                if writer is not None:
+                    writer.begin_scan(scan_idx)
+
+                ordered = config.ordered_delays(scan_idx)
+
+                for delay_ps in ordered:
+                    # Check abort
+                    if self._abort_event.is_set():
+                        self.aborted.emit()
+                        return
+
+                    # Wait if paused
+                    while not self._pause_event.is_set():
+                        if self._abort_event.is_set():
+                            self.aborted.emit()
+                            return
+                        self._pause_event.wait(timeout=0.1)
+
+                    self.point_started.emit(scan_idx, delay_ps)
+
+                    delta_od = acquire_delta_od_at_delay(delay_ps, hw, config, dark=None)
+
+                    if writer is not None:
+                        writer.write_point(scan_idx, delay_ps, delta_od)
+
+                    wavelengths = getattr(hw, "wavelengths", np.array([]))
+                    self.delta_od_updated.emit(delay_ps, wavelengths, delta_od)
+
+                    # Update kinetic trace (first wavelength as proxy)
+                    all_delays.append(delay_ps)
+                    all_od.append(delta_od)
+                    if len(delta_od) > 0:
+                        kinetic = np.array([od[0] for od in all_od])
+                        self.kinetic_updated.emit(np.array(all_delays), kinetic)
+
+                    # Update 2-D map
+                    if len(all_od) > 0:
+                        od_matrix = np.array(all_od)
+                        self.map_updated.emit(
+                            np.array(all_delays), wavelengths, od_matrix
+                        )
+
+                    self.point_completed.emit(scan_idx, delay_ps)
+
+            self.scan_completed.emit()
+
+        except Exception as exc:
+            log.exception("TA engine error")
+            self.error.emit(str(exc))
+
+
+class TransientAbsorptionEngine(QObject):
+    """High-level engine for TA pump-probe scanning.
+
+    Manages a QThread and exposes signals mirroring ``_ScanWorker``.
+    """
+
+    # Re-export signals from worker
+    scan_started = Signal(int)
+    point_started = Signal(int, float)
+    point_completed = Signal(int, float)
+    scan_completed = Signal()
+    aborted = Signal()
+    error = Signal(str)
+    delta_od_updated = Signal(float, object, object)
+    kinetic_updated = Signal(object, object)
+    map_updated = Signal(object, object, object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._thread = QThread(self)
+        self._worker = _ScanWorker()
+        self._worker.moveToThread(self._thread)
+
+        # Forward worker signals
+        self._worker.scan_started.connect(self.scan_started)
+        self._worker.point_started.connect(self.point_started)
+        self._worker.point_completed.connect(self.point_completed)
+        self._worker.scan_completed.connect(self.scan_completed)
+        self._worker.aborted.connect(self.aborted)
+        self._worker.error.connect(self.error)
+        self._worker.delta_od_updated.connect(self.delta_od_updated)
+        self._worker.kinetic_updated.connect(self.kinetic_updated)
+        self._worker.map_updated.connect(self.map_updated)
+
+        # Stop thread when scan finishes
+        self._worker.scan_completed.connect(self._thread.quit)
+        self._worker.aborted.connect(self._thread.quit)
+        self._worker.error.connect(self._thread.quit)
+
+        self._thread.started.connect(self._worker.run)
+
+    def start_scan(self, config: TAScanConfig, hw_manager, writer=None) -> None:
+        """Start the TA scan in a background thread.
+
+        Args:
+            config: Scan parameters.
+            hw_manager: Hardware manager.
+            writer: Optional ``TADataWriter`` (already opened).
+        """
+        if self._thread.isRunning():
+            log.warning("Scan already running")
+            return
+
+        self._worker.setup(config, hw_manager, writer)
+        self._thread.start()
+
+    def pause(self) -> None:
+        """Pause the scan after the current delay point completes."""
+        self._worker._pause_event.clear()
+
+    def resume(self) -> None:
+        """Resume a paused scan."""
+        self._worker._pause_event.set()
+
+    def abort(self) -> None:
+        """Abort the scan as soon as possible."""
+        self._worker._abort_event.set()
+        self._worker._pause_event.set()  # Unblock if paused
+
+    def emergency_stop(self) -> None:
+        """Abort scan and stop all motion."""
+        self.abort()
+
+    def acquire_dark(self, hw_manager) -> np.ndarray:
+        """Acquire a dark spectrum (blocking, called from main thread).
+
+        Args:
+            hw_manager: Hardware manager.
+
+        Returns:
+            Dark spectrum as numpy array.
+        """
+        return np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
+
+    def acquire_reference(self, hw_manager) -> np.ndarray:
+        """Acquire a reference spectrum (blocking, called from main thread).
+
+        Args:
+            hw_manager: Hardware manager.
+
+        Returns:
+            Reference spectrum as numpy array.
+        """
+        return np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
