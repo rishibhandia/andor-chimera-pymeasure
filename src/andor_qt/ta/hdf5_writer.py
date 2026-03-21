@@ -1,0 +1,198 @@
+"""HDF5 data writer for transient absorption measurements.
+
+HDF5 structure::
+
+    /wavelengths                  — 1-D float64 array (nm)
+    /metadata/
+        attrs: sample_name, notes, creation_time
+    /scan_000/
+        time_delays               — 1-D float64 (ps), grows per write_point
+        delta_OD                  — 2-D float64 (n_delays × n_wavelengths)
+    /scan_001/
+        ...
+
+Each ``write_point`` call flushes the file immediately for crash protection.
+
+``auto_filename`` generates a timestamped filename.
+``export_csv`` converts HDF5 to a flat CSV (one row per delay, averaged over scans).
+"""
+
+from __future__ import annotations
+
+import csv
+import datetime
+from pathlib import Path
+from typing import List, Optional, Union
+
+import h5py
+import numpy as np
+
+
+def auto_filename(sample_name: str, base_dir: Union[str, Path]) -> str:
+    """Generate a timestamped HDF5 filename.
+
+    Args:
+        sample_name: Sample identifier (used in filename).
+        base_dir: Directory where the file will be saved.
+
+    Returns:
+        Full absolute path string: ``<base_dir>/YYYYMMDD_HHMMSS_TA_<sample_name>.h5``.
+    """
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{ts}_TA_{sample_name}.h5"
+    return str(Path(base_dir) / filename)
+
+
+class TADataWriter:
+    """Context manager for writing TA scan data to HDF5.
+
+    Usage::
+
+        with TADataWriter(path, wavelengths, sample_name="sample") as writer:
+            writer.begin_scan(0)
+            writer.write_point(scan_idx=0, delay_ps=1.0, delta_od=array)
+
+    Or use ``open()`` / ``finalize()`` explicitly.
+
+    Args:
+        path: Output HDF5 file path.
+        wavelengths: Wavelength array in nm.
+        sample_name: Sample name stored in metadata.
+        notes: Free-text notes stored in metadata.
+    """
+
+    def __init__(
+        self,
+        path: Union[str, Path],
+        wavelengths: np.ndarray,
+        sample_name: str = "",
+        notes: str = "",
+    ):
+        self._path = Path(path)
+        self._wavelengths = np.asarray(wavelengths, dtype=np.float64)
+        self._sample_name = sample_name
+        self._notes = notes
+        self._file: Optional[h5py.File] = None
+        self._scan_groups: dict = {}  # scan_idx → h5py.Group
+        self._scan_delays: dict = {}  # scan_idx → list of delays
+        self._scan_data: dict = {}    # scan_idx → list of delta_od arrays
+
+    def open(self) -> None:
+        """Open the HDF5 file and write header datasets."""
+        self._file = h5py.File(self._path, "w")
+        self._file.create_dataset("wavelengths", data=self._wavelengths)
+        meta = self._file.create_group("metadata")
+        meta.attrs["sample_name"] = self._sample_name
+        meta.attrs["notes"] = self._notes
+        meta.attrs["creation_time"] = datetime.datetime.now().isoformat()
+        self._file.flush()
+
+    def begin_scan(self, scan_idx: int) -> None:
+        """Create a new scan group in the HDF5 file.
+
+        Args:
+            scan_idx: Zero-based scan index.
+        """
+        if self._file is None:
+            self.open()
+        group_name = f"scan_{scan_idx:03d}"
+        grp = self._file.create_group(group_name)
+        self._scan_groups[scan_idx] = grp
+        self._scan_delays[scan_idx] = []
+        self._scan_data[scan_idx] = []
+        self._file.flush()
+
+    def write_point(
+        self,
+        scan_idx: int,
+        delay_ps: float,
+        delta_od: np.ndarray,
+    ) -> None:
+        """Write one delay point to the current scan.
+
+        Flushes the file after every write for crash protection.
+
+        Args:
+            scan_idx: Scan index (must have called ``begin_scan`` first).
+            delay_ps: Time delay in picoseconds.
+            delta_od: ΔOD spectrum at this delay (1-D array, n_wavelengths).
+        """
+        self._scan_delays[scan_idx].append(float(delay_ps))
+        self._scan_data[scan_idx].append(np.asarray(delta_od, dtype=np.float64))
+
+        grp = self._scan_groups[scan_idx]
+        # Overwrite datasets each time (simplest crash-safe approach)
+        delays_arr = np.array(self._scan_delays[scan_idx], dtype=np.float64)
+        data_arr = np.array(self._scan_data[scan_idx], dtype=np.float64)
+
+        if "time_delays" in grp:
+            del grp["time_delays"]
+        if "delta_OD" in grp:
+            del grp["delta_OD"]
+
+        grp.create_dataset("time_delays", data=delays_arr)
+        grp.create_dataset("delta_OD", data=data_arr)
+        self._file.flush()
+
+    def finalize(self) -> None:
+        """Close the HDF5 file."""
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def __enter__(self) -> "TADataWriter":
+        self.open()
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.finalize()
+
+
+def export_csv(h5_path: Union[str, Path], output_path: Union[str, Path]) -> None:
+    """Export averaged TA data from HDF5 to flat CSV.
+
+    Columns: ``delay_ps``, ``wl_400.0``, ``wl_401.0``, ...
+
+    Rows are averaged ΔOD values across all scans for each unique delay.
+
+    Args:
+        h5_path: Source HDF5 file.
+        output_path: Destination CSV file.
+    """
+    with h5py.File(h5_path, "r") as f:
+        wavelengths = f["wavelengths"][:]
+        scan_keys = sorted(k for k in f.keys() if k.startswith("scan_"))
+
+        if not scan_keys:
+            # Write empty CSV with header only
+            with open(output_path, "w", newline="", encoding="utf-8") as csvf:
+                writer = csv.writer(csvf)
+                header = ["delay_ps"] + [f"wl_{wl:.1f}" for wl in wavelengths]
+                writer.writerow(header)
+            return
+
+        # Collect all data across scans
+        delays_all: List[float] = []
+        data_all: List[np.ndarray] = []
+        for key in scan_keys:
+            grp = f[key]
+            delays = grp["time_delays"][:]
+            data = grp["delta_OD"][:]
+            for i, d in enumerate(delays):
+                delays_all.append(float(d))
+                data_all.append(data[i])
+
+        # Average across scans by delay (simple: assume same delays each scan)
+        unique_delays = sorted(set(delays_all))
+        delay_to_od: dict = {d: [] for d in unique_delays}
+        for delay, od in zip(delays_all, data_all):
+            delay_to_od[delay].append(od)
+
+        header = ["delay_ps"] + [f"wl_{wl:.1f}" for wl in wavelengths]
+        with open(output_path, "w", newline="", encoding="utf-8") as csvf:
+            csv_writer = csv.writer(csvf)
+            csv_writer.writerow(header)
+            for delay in unique_delays:
+                mean_od = np.mean(delay_to_od[delay], axis=0)
+                row = [f"{delay:.6g}"] + [f"{v:.8g}" for v in mean_od]
+                csv_writer.writerow(row)
