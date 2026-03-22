@@ -73,6 +73,7 @@ class TestTAWindowPanel:
 class TestMainWindowTATab:
     def test_main_window_has_ta_tab(self, qt_app, mock_sdk):
         """Main window should have a TA tab."""
+        from unittest.mock import patch
         from PySide6.QtWidgets import QTabWidget
         from andor_qt.windows.main_window import AndorSpectrometerWindow
 
@@ -90,7 +91,7 @@ class TestMainWindowTATab:
                     ta_tab_found = True
                     break
 
-        window.close()
+        # Skip close() to avoid triggering the blocking shutdown sequence in tests
         window.deleteLater()
 
         assert ta_tab_found, "No TA tab found in main window"

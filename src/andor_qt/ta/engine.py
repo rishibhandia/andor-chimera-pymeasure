@@ -121,7 +121,8 @@ class _ScanWorker(QObject):
                     if writer is not None:
                         writer.write_point(scan_idx, delay_ps, delta_od)
 
-                    wavelengths = getattr(hw, "wavelengths", np.array([]))
+                    get_wl = getattr(hw, "get_wavelengths", None)
+                    wavelengths = np.asarray(get_wl()) if callable(get_wl) else np.array([])
                     self.delta_od_updated.emit(delay_ps, wavelengths, delta_od)
 
                     # Update kinetic trace (first wavelength as proxy)
