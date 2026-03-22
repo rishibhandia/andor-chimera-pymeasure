@@ -6,12 +6,12 @@ Algorithm
 ---------
 1. **Coarse scan**: steps through delays from ``-coarse_range_ps`` to
    ``+coarse_range_ps`` in ``coarse_step_ps`` increments.
-   Records the mean absolute ΔOD at each point.
-2. **Onset detection**: finds the first delay where ``|mean(ΔOD)| > threshold``.
+   Records the mean absolute ΔI/I₀ at each point.
+2. **Onset detection**: finds the first delay where ``|mean(ΔI/I₀)| > threshold``.
 3. **Fine scan**: scans from ``(onset - fine_range_ps)`` to
    ``(onset + fine_range_ps)`` in ``fine_step_ps`` increments.
 4. **Max-gradient refinement**: picks the delay with the highest gradient
-   in the ΔOD signal.
+   in the ΔI/I₀ signal.
 5. Emits ``t0_found(t0_ps, t0_mm)`` with the result.
 
 Runs in a ``QThread`` for GUI responsiveness.
@@ -26,7 +26,7 @@ from typing import Optional
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from andor_qt.ta.acquisition import acquire_delta_od_at_delay
+from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 from andor_qt.ta.scan_config import TAScanConfig
 
 log = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ class _T0SearchWorker(QObject):
                 if self._abort_event.is_set():
                     self.aborted.emit()
                     return
-                od = acquire_delta_od_at_delay(delay_ps, self._hw, config)
+                od = acquire_delta_signal_at_delay(delay_ps, self._hw, config)
                 coarse_signals.append(float(np.mean(np.abs(od))))
                 step[0] += 1
                 self.progress.emit(step[0], total)
@@ -118,7 +118,7 @@ class _T0SearchWorker(QObject):
                 if self._abort_event.is_set():
                     self.aborted.emit()
                     return
-                od = acquire_delta_od_at_delay(delay_ps, self._hw, config)
+                od = acquire_delta_signal_at_delay(delay_ps, self._hw, config)
                 fine_signals.append(float(np.mean(np.abs(od))))
                 step[0] += 1
                 self.progress.emit(step[0], total)
@@ -193,7 +193,7 @@ class T0Finder(QObject):
             coarse_step_ps: Step size for coarse scan in ps.
             fine_range_ps: Half-range for fine scan around onset in ps.
             fine_step_ps: Step size for fine scan in ps.
-            threshold: ΔOD threshold for onset detection.
+            threshold: |ΔI/I₀| threshold for onset detection.
         """
         if self._thread.isRunning():
             log.warning("T0Finder already running")

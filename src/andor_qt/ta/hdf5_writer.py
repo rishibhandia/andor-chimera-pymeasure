@@ -7,7 +7,7 @@ HDF5 structure::
         attrs: sample_name, notes, creation_time
     /scan_000/
         time_delays               — 1-D float64 (ps), grows per write_point
-        delta_OD                  — 2-D float64 (n_delays × n_wavelengths)
+        delta_signal                  — 2-D float64 (n_delays × n_wavelengths)
     /scan_001/
         ...
 
@@ -50,7 +50,7 @@ class TADataWriter:
 
         with TADataWriter(path, wavelengths, sample_name="sample") as writer:
             writer.begin_scan(0)
-            writer.write_point(scan_idx=0, delay_ps=1.0, delta_od=array)
+            writer.write_point(scan_idx=0, delay_ps=1.0, delta_signal=array)
 
     Or use ``open()`` / ``finalize()`` explicitly.
 
@@ -75,7 +75,7 @@ class TADataWriter:
         self._file: Optional[h5py.File] = None
         self._scan_groups: dict = {}  # scan_idx → h5py.Group
         self._scan_delays: dict = {}  # scan_idx → list of delays
-        self._scan_data: dict = {}    # scan_idx → list of delta_od arrays
+        self._scan_data: dict = {}    # scan_idx → list of delta_signal arrays
 
     def open(self) -> None:
         """Open the HDF5 file and write header datasets."""
@@ -106,7 +106,7 @@ class TADataWriter:
         self,
         scan_idx: int,
         delay_ps: float,
-        delta_od: np.ndarray,
+        delta_signal: np.ndarray,
     ) -> None:
         """Write one delay point to the current scan.
 
@@ -115,10 +115,10 @@ class TADataWriter:
         Args:
             scan_idx: Scan index (must have called ``begin_scan`` first).
             delay_ps: Time delay in picoseconds.
-            delta_od: ΔOD spectrum at this delay (1-D array, n_wavelengths).
+            delta_signal: ΔI/I₀ spectrum at this delay (1-D array, n_wavelengths).
         """
         self._scan_delays[scan_idx].append(float(delay_ps))
-        self._scan_data[scan_idx].append(np.asarray(delta_od, dtype=np.float64))
+        self._scan_data[scan_idx].append(np.asarray(delta_signal, dtype=np.float64))
 
         grp = self._scan_groups[scan_idx]
         # Overwrite datasets each time (simplest crash-safe approach)
@@ -127,11 +127,11 @@ class TADataWriter:
 
         if "time_delays" in grp:
             del grp["time_delays"]
-        if "delta_OD" in grp:
-            del grp["delta_OD"]
+        if "delta_signal" in grp:
+            del grp["delta_signal"]
 
         grp.create_dataset("time_delays", data=delays_arr)
-        grp.create_dataset("delta_OD", data=data_arr)
+        grp.create_dataset("delta_signal", data=data_arr)
         self._file.flush()
 
     def finalize(self) -> None:
@@ -177,7 +177,7 @@ def export_csv(h5_path: Union[str, Path], output_path: Union[str, Path]) -> None
         for key in scan_keys:
             grp = f[key]
             delays = grp["time_delays"][:]
-            data = grp["delta_OD"][:]
+            data = grp["delta_signal"][:]
             for i, d in enumerate(delays):
                 delays_all.append(float(d))
                 data_all.append(data[i])

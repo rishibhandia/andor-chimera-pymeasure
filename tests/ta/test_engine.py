@@ -16,7 +16,7 @@ import pytest
 
 from andor_qt.ta.scan_config import TAScanConfig
 from andor_qt.ta.engine import TransientAbsorptionEngine
-from andor_qt.ta.acquisition import acquire_delta_od_at_delay
+from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 
 
 # ---------------------------------------------------------------------------
@@ -51,15 +51,15 @@ def make_config(n_delays: int = 3, n_averages: int = 1, n_scans: int = 1):
 
 
 # ---------------------------------------------------------------------------
-# acquire_delta_od_at_delay
+# acquire_delta_signal_at_delay
 # ---------------------------------------------------------------------------
 
 
-class TestAcquireDeltaODAtDelay:
+class TestAcquireDeltaSignalAtDelay:
     def test_returns_ndarray(self):
         hw = make_mock_hw()
         config = make_config(n_averages=2)
-        result = acquire_delta_od_at_delay(
+        result = acquire_delta_signal_at_delay(
             delay_ps=1.0, hw_manager=hw, config=config, dark=None
         )
         assert isinstance(result, np.ndarray)
@@ -67,7 +67,7 @@ class TestAcquireDeltaODAtDelay:
     def test_result_length_matches_pixels(self):
         hw = make_mock_hw(n_pixels=32)
         config = make_config(n_averages=1)
-        result = acquire_delta_od_at_delay(0.0, hw, config, dark=None)
+        result = acquire_delta_signal_at_delay(0.0, hw, config, dark=None)
         assert len(result) == 32
 
     def test_dark_subtraction_applied(self):
@@ -76,8 +76,8 @@ class TestAcquireDeltaODAtDelay:
         hw.camera.get_spectrum.return_value = np.ones(10) * 1000.0
         config = make_config(n_averages=1)
         dark = np.ones(10) * 100.0
-        result = acquire_delta_od_at_delay(0.0, hw, config, dark=dark)
-        # ΔOD of identical pump_on/pump_off = 0
+        result = acquire_delta_signal_at_delay(0.0, hw, config, dark=dark)
+        # ΔI/I₀ of identical pumped/ref = 0
         assert result == pytest.approx(np.zeros(10), abs=1e-8)
 
 
@@ -187,13 +187,13 @@ class TestTransientAbsorptionEngineSignals:
         assert len(started) == 3
         assert started == [0, 1, 2]
 
-    def test_delta_od_updated_emitted(self, qt_app):
+    def test_signal_updated_emitted(self, qt_app):
         hw = make_mock_hw(n_pixels=16)
         config = make_config(n_delays=2, n_scans=1)
         engine = TransientAbsorptionEngine()
 
         updates = []
-        engine.delta_od_updated.connect(lambda delay, wl, od: updates.append(delay))
+        engine.signal_updated.connect(lambda delay, wl, sig: updates.append(delay))
 
         self._run_engine(engine, config, hw)
         assert len(updates) == 2  # once per delay point

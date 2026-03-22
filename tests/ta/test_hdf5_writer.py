@@ -86,16 +86,16 @@ class TestTADataWriter:
     def test_write_point_stores_data(self, tmp_path):
         path = tmp_path / "test.h5"
         wavelengths = np.linspace(400.0, 800.0, 10)
-        delta_od = np.random.rand(10)
+        delta_signal = np.random.rand(10)
         with TADataWriter(path, wavelengths=wavelengths, sample_name="s") as writer:
             writer.begin_scan(0)
-            writer.write_point(scan_idx=0, delay_ps=1.0, delta_od=delta_od)
+            writer.write_point(scan_idx=0, delay_ps=1.0, delta_signal=delta_signal)
         with h5py.File(path, "r") as f:
             assert "scan_000" in f
             assert "time_delays" in f["scan_000"]
-            assert "delta_OD" in f["scan_000"]
+            assert "delta_signal" in f["scan_000"]
             assert f["scan_000/time_delays"][0] == pytest.approx(1.0)
-            assert np.allclose(f["scan_000/delta_OD"][0], delta_od)
+            assert np.allclose(f["scan_000/delta_signal"][0], delta_signal)
 
     def test_multiple_points_per_scan(self, tmp_path):
         path = tmp_path / "test.h5"

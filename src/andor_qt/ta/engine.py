@@ -21,12 +21,10 @@ aborted()
     Emitted when the scan is aborted.
 error(str)
     Emitted on unhandled exception. Argument is the error message.
-delta_od_updated(float, object, object)
-    Emitted with (delay_ps, wavelengths, delta_od) after each point.
-kinetic_updated(object, object)
-    Emitted with (delays, kinetic_trace_at_probe_wl) after each point.
+signal_updated(float, object, object)
+    Emitted with (delay_ps, wavelengths, delta_signal) after each point.
 map_updated(object, object, object)
-    Emitted with (delays, wavelengths, delta_od_matrix) after each point.
+    Emitted with (delays, wavelengths, delta_signal_matrix) after each point.
 """
 
 from __future__ import annotations
@@ -38,7 +36,7 @@ from typing import Optional
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from andor_qt.ta.acquisition import acquire_delta_od_at_delay
+from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 from andor_qt.ta.scan_config import TAScanConfig
 
 log = logging.getLogger(__name__)
@@ -57,8 +55,7 @@ class _ScanWorker(QObject):
     error = Signal(str)
 
     # Data signals
-    delta_od_updated = Signal(float, object, object)
-    kinetic_updated = Signal(object, object)
+    signal_updated = Signal(float, object, object)
     map_updated = Signal(object, object, object)
 
     def __init__(self):
@@ -84,9 +81,9 @@ class _ScanWorker(QObject):
         hw = self._hw_manager
         writer = self._writer
 
-        # Accumulated data for map/kinetic updates
+        # Accumulated data for map updates
         all_delays = []
-        all_od = []  # list of 1-D arrays
+        all_signals = []  # list of 1-D arrays
 
         try:
             for scan_idx in range(config.n_scans):
@@ -116,27 +113,22 @@ class _ScanWorker(QObject):
 
                     self.point_started.emit(scan_idx, delay_ps)
 
-                    delta_od = acquire_delta_od_at_delay(delay_ps, hw, config, dark=None)
+                    delta_signal = acquire_delta_signal_at_delay(delay_ps, hw, config, dark=None)
 
                     if writer is not None:
-                        writer.write_point(scan_idx, delay_ps, delta_od)
+                        writer.write_point(scan_idx, delay_ps, delta_signal)
 
                     get_wl = getattr(hw, "get_wavelengths", None)
                     wavelengths = np.asarray(get_wl()) if callable(get_wl) else np.array([])
-                    self.delta_od_updated.emit(delay_ps, wavelengths, delta_od)
-
-                    # Update kinetic trace (first wavelength as proxy)
-                    all_delays.append(delay_ps)
-                    all_od.append(delta_od)
-                    if len(delta_od) > 0:
-                        kinetic = np.array([od[0] for od in all_od])
-                        self.kinetic_updated.emit(np.array(all_delays), kinetic)
+                    self.signal_updated.emit(delay_ps, wavelengths, delta_signal)
 
                     # Update 2-D map
-                    if len(all_od) > 0:
-                        od_matrix = np.array(all_od)
+                    all_delays.append(delay_ps)
+                    all_signals.append(delta_signal)
+                    if len(all_signals) > 0:
+                        signal_matrix = np.array(all_signals)
                         self.map_updated.emit(
-                            np.array(all_delays), wavelengths, od_matrix
+                            np.array(all_delays), wavelengths, signal_matrix
                         )
 
                     self.point_completed.emit(scan_idx, delay_ps)
@@ -161,8 +153,7 @@ class TransientAbsorptionEngine(QObject):
     scan_completed = Signal()
     aborted = Signal()
     error = Signal(str)
-    delta_od_updated = Signal(float, object, object)
-    kinetic_updated = Signal(object, object)
+    signal_updated = Signal(float, object, object)
     map_updated = Signal(object, object, object)
 
     def __init__(self, parent=None):
@@ -178,8 +169,7 @@ class TransientAbsorptionEngine(QObject):
         self._worker.scan_completed.connect(self.scan_completed)
         self._worker.aborted.connect(self.aborted)
         self._worker.error.connect(self.error)
-        self._worker.delta_od_updated.connect(self.delta_od_updated)
-        self._worker.kinetic_updated.connect(self.kinetic_updated)
+        self._worker.signal_updated.connect(self.signal_updated)
         self._worker.map_updated.connect(self.map_updated)
 
         # Stop thread when scan finishes

@@ -1,32 +1,39 @@
-"""TALiveDisplayWidget — real-time ΔOD visualization panel.
+"""TALiveDisplayWidget — real-time ΔI/I₀ visualization panel.
 
 Three pyqtgraph panes:
-1. ΔOD spectrum — current delay point, with std shading
-2. Kinetic trace — ΔOD vs. delay at a selected probe wavelength
-3. 2-D heatmap — full delay × wavelength ΔOD matrix
+1. ΔI/I₀ spectrum — current delay point
+2. Kinetic trace — ΔI/I₀ vs. delay at a user-selected probe wavelength
+3. 2-D heatmap — full delay × wavelength ΔI/I₀ matrix
 
 Slots (called from the engine via signals):
-- ``on_delta_od_updated(delay_ps, wavelengths, delta_od)``
-- ``on_kinetic_updated(delays, kinetic)``
-- ``on_map_updated(delays, wavelengths, od_matrix)``
+- ``on_signal_updated(delay_ps, wavelengths, delta_signal)``
+- ``on_map_updated(delays, wavelengths, signal_matrix)``
+
+The kinetic trace is computed internally from accumulated ``on_signal_updated``
+calls. Use the probe wavelength spinbox to select which wavelength to track.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDoubleSpinBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+)
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
 class TALiveDisplayWidget(QGroupBox):
-    """Real-time ΔOD display with spectrum, kinetic, and 2-D heatmap panes.
+    """Real-time ΔI/I₀ display with spectrum, kinetic, and 2-D heatmap panes.
 
     Args:
         parent: Optional parent widget.
@@ -34,27 +41,47 @@ class TALiveDisplayWidget(QGroupBox):
 
     def __init__(self, parent=None):
         super().__init__("TA Live Display", parent)
+        # Kinetic trace buffers — accumulated across signal_updated calls
+        self._kinetic_delays: list = []
+        self._kinetic_signals: list = []   # list of 1-D delta_signal arrays
+        self._wavelengths: np.ndarray = np.array([])
         self._build_ui()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
 
-        # --- ΔOD spectrum plot ---
-        self._delta_od_plot = pg.PlotWidget(title="ΔOD Spectrum")
-        self._delta_od_plot.setLabel("left", "ΔOD")
-        self._delta_od_plot.setLabel("bottom", "Wavelength (nm)")
-        self._od_curve = self._delta_od_plot.plot(pen="y")
-        root.addWidget(self._delta_od_plot)
+        # --- ΔI/I₀ spectrum plot ---
+        self._signal_plot = pg.PlotWidget(title="ΔI/I₀ Spectrum")
+        self._signal_plot.setLabel("left", "ΔI/I₀")
+        self._signal_plot.setLabel("bottom", "Wavelength (nm)")
+        self._signal_curve = self._signal_plot.plot(pen="y")
+        root.addWidget(self._signal_plot)
 
-        # --- Kinetic trace plot ---
+        # --- Kinetic trace plot + wavelength selector ---
         self._kinetic_plot = pg.PlotWidget(title="Kinetic Trace")
-        self._kinetic_plot.setLabel("left", "ΔOD")
+        self._kinetic_plot.setLabel("left", "ΔI/I₀")
         self._kinetic_plot.setLabel("bottom", "Delay (ps)")
         self._kinetic_curve = self._kinetic_plot.plot(pen="c", symbol="o", symbolSize=4)
-        root.addWidget(self._kinetic_plot)
+
+        selector_row = QHBoxLayout()
+        selector_row.addWidget(QLabel("Probe λ (nm):"))
+        self._probe_wl_spin = QDoubleSpinBox()
+        self._probe_wl_spin.setRange(0.0, 10000.0)
+        self._probe_wl_spin.setDecimals(1)
+        self._probe_wl_spin.setSingleStep(1.0)
+        self._probe_wl_spin.setValue(600.0)
+        self._probe_wl_spin.valueChanged.connect(self._update_kinetic_curve)
+        selector_row.addWidget(self._probe_wl_spin)
+        selector_row.addStretch()
+
+        kinetic_container = QGroupBox("Kinetic Trace")
+        kinetic_layout = QVBoxLayout(kinetic_container)
+        kinetic_layout.addLayout(selector_row)
+        kinetic_layout.addWidget(self._kinetic_plot)
+        root.addWidget(kinetic_container)
 
         # --- 2-D heatmap ---
-        self._heatmap_plot = pg.PlotWidget(title="ΔOD Map")
+        self._heatmap_plot = pg.PlotWidget(title="ΔI/I₀ Map")
         self._heatmap_plot.setLabel("left", "Delay (ps)")
         self._heatmap_plot.setLabel("bottom", "Wavelength (nm)")
         self._image_item = pg.ImageItem()
@@ -68,8 +95,8 @@ class TALiveDisplayWidget(QGroupBox):
     # -- public API --------------------------------------------------------
 
     @property
-    def delta_od_plot(self) -> pg.PlotWidget:
-        return self._delta_od_plot
+    def signal_plot(self) -> pg.PlotWidget:
+        return self._signal_plot
 
     @property
     def kinetic_plot(self) -> pg.PlotWidget:
@@ -79,58 +106,67 @@ class TALiveDisplayWidget(QGroupBox):
     def heatmap_plot(self) -> pg.PlotWidget:
         return self._heatmap_plot
 
+    @property
+    def probe_wavelength(self) -> float:
+        """Currently selected probe wavelength in nm."""
+        return self._probe_wl_spin.value()
+
+    @probe_wavelength.setter
+    def probe_wavelength(self, value: float) -> None:
+        self._probe_wl_spin.setValue(value)
+
+    # -- slots -------------------------------------------------------------
+
     @Slot(float, object, object)
-    def on_delta_od_updated(
+    def on_signal_updated(
         self,
         delay_ps: float,
         wavelengths: np.ndarray,
-        delta_od: np.ndarray,
+        delta_signal: np.ndarray,
     ) -> None:
-        """Update the ΔOD spectrum pane.
+        """Update the ΔI/I₀ spectrum pane and accumulate kinetic data.
 
         Args:
             delay_ps: Current time delay in ps.
             wavelengths: Wavelength array in nm.
-            delta_od: ΔOD spectrum values.
+            delta_signal: ΔI/I₀ spectrum values.
         """
         wl = np.asarray(wavelengths)
-        od = np.asarray(delta_od)
-        self._od_curve.setData(wl, od)
-        self._delta_od_plot.setTitle(f"ΔOD Spectrum  (t = {delay_ps:.2f} ps)")
+        sig = np.asarray(delta_signal)
 
-    @Slot(object, object)
-    def on_kinetic_updated(
-        self,
-        delays: np.ndarray,
-        kinetic: np.ndarray,
-    ) -> None:
-        """Update the kinetic trace pane.
+        # Update spectrum pane
+        self._signal_curve.setData(wl, sig)
+        self._signal_plot.setTitle(f"ΔI/I₀ Spectrum  (t = {delay_ps:.1f} ps)")
 
-        Args:
-            delays: Delay array in ps.
-            kinetic: ΔOD values at the probe wavelength.
-        """
-        d = np.asarray(delays)
-        k = np.asarray(kinetic)
-        self._kinetic_curve.setData(d, k)
+        # Initialise wavelength axis and selector range on first call
+        if len(wl) > 0 and len(self._wavelengths) == 0:
+            self._wavelengths = wl
+            self._probe_wl_spin.setRange(float(wl[0]), float(wl[-1]))
+            # Default to centre wavelength
+            self._probe_wl_spin.setValue(float(wl[len(wl) // 2]))
+
+        # Accumulate for kinetic trace
+        self._kinetic_delays.append(delay_ps)
+        self._kinetic_signals.append(sig)
+        self._update_kinetic_curve()
 
     @Slot(object, object, object)
     def on_map_updated(
         self,
         delays: np.ndarray,
         wavelengths: np.ndarray,
-        od_matrix: np.ndarray,
+        signal_matrix: np.ndarray,
     ) -> None:
         """Update the 2-D heatmap.
 
         Args:
-            delays: Delay array in ps (rows of od_matrix).
-            wavelengths: Wavelength array in nm (columns of od_matrix).
-            od_matrix: ΔOD matrix of shape (n_delays, n_wavelengths).
+            delays: Delay array in ps (rows of signal_matrix).
+            wavelengths: Wavelength array in nm (columns of signal_matrix).
+            signal_matrix: ΔI/I₀ matrix of shape (n_delays, n_wavelengths).
         """
         d = np.asarray(delays)
         wl = np.asarray(wavelengths)
-        mat = np.asarray(od_matrix)
+        mat = np.asarray(signal_matrix)
 
         if mat.ndim != 2 or len(d) == 0 or len(wl) == 0:
             return
@@ -144,13 +180,33 @@ class TALiveDisplayWidget(QGroupBox):
                 float(wl[-1] - wl[0]), float(d[-1] - d[0]),
             )
 
-        # Update colorbar scale
         vmax = float(np.nanmax(np.abs(mat))) or 0.01
         self._colorbar.setLevels((-vmax, vmax))
 
+    def _update_kinetic_curve(self) -> None:
+        """Recompute kinetic trace at current probe wavelength and redraw."""
+        if not self._kinetic_signals:
+            return
+
+        probe_nm = self._probe_wl_spin.value()
+
+        if len(self._wavelengths) > 0:
+            idx = int(np.argmin(np.abs(self._wavelengths - probe_nm)))
+        else:
+            idx = 0
+
+        kinetic = np.array([s[idx] for s in self._kinetic_signals if len(s) > idx])
+        delays = np.array(self._kinetic_delays[:len(kinetic)])
+        self._kinetic_curve.setData(delays, kinetic)
+        self._kinetic_plot.setTitle(f"Kinetic Trace  (λ = {probe_nm:.1f} nm)")
+
     def clear(self) -> None:
-        """Reset all plots to empty state."""
-        self._od_curve.setData([], [])
+        """Reset all plots and kinetic buffers to empty state."""
+        self._kinetic_delays.clear()
+        self._kinetic_signals.clear()
+        self._wavelengths = np.array([])
+        self._signal_curve.setData([], [])
         self._kinetic_curve.setData([], [])
         self._image_item.setImage(np.zeros((1, 1)))
-        self._delta_od_plot.setTitle("ΔOD Spectrum")
+        self._signal_plot.setTitle("ΔI/I₀ Spectrum")
+        self._kinetic_plot.setTitle("Kinetic Trace")

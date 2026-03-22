@@ -59,8 +59,7 @@ class TAWindowPanel(QWidget):
         self._config_widget.scan_requested.connect(self._on_scan_requested)
 
         # Engine → live display
-        self._engine.delta_od_updated.connect(self._live_display.on_delta_od_updated)
-        self._engine.kinetic_updated.connect(self._live_display.on_kinetic_updated)
+        self._engine.signal_updated.connect(self._live_display.on_signal_updated)
         self._engine.map_updated.connect(self._live_display.on_map_updated)
 
         # Status feedback

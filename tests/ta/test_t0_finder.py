@@ -1,8 +1,8 @@
 """Tests for T0Finder utility.
 
-T0Finder does a coarse + fine scan to locate the optical t0 (onset of ΔOD).
-Tests use a mock hardware manager that returns zero ΔOD before t0 and
-nonzero ΔOD after t0.
+T0Finder does a coarse + fine scan to locate the optical t0 (onset of ΔI/I₀).
+Tests use a mock hardware manager that returns zero ΔI/I₀ before t0 and
+nonzero ΔI/I₀ after t0.
 """
 
 from __future__ import annotations
@@ -27,12 +27,12 @@ N_PIXELS = 16
 
 
 def make_mock_hw_with_t0(t0_ps: float = TRUE_T0_PS):
-    """Return a mock hw where ΔOD is 0 before t0 and 0.1 after."""
+    """Return a mock hw where ΔI/I₀ is 0 before t0 and 0.1 after."""
     hw = MagicMock()
     call_count = [0]
 
     def get_spectrum():
-        # We patch acquire_delta_od_at_delay directly in tests, so this
+        # acquire_delta_signal_at_delay is patched directly in tests; this
         # is just a fallback that returns a flat spectrum
         return np.ones(N_PIXELS) * 1000.0
 
@@ -75,7 +75,7 @@ class TestT0FinderSignals:
         hw = make_mock_hw_with_t0()
         finder = T0Finder()
 
-        # Mock acquire_delta_od_at_delay to return zero before t0, nonzero after
+        # Mock acquire_delta_signal_at_delay to return zero before t0, nonzero after
         delay_captured = []
 
         def fake_acquire(delay_ps, hw_manager, config, dark=None):
@@ -94,7 +94,7 @@ class TestT0FinderSignals:
         from PySide6.QtWidgets import QApplication
         import andor_qt.ta.t0_finder as t0_mod
 
-        with patch.object(t0_mod, "acquire_delta_od_at_delay", fake_acquire):
+        with patch.object(t0_mod, "acquire_delta_signal_at_delay", fake_acquire):
             finder.find_t0(
                 hw,
                 coarse_range_ps=20.0,
@@ -134,7 +134,7 @@ class TestT0FinderSignals:
         from PySide6.QtWidgets import QApplication
         import andor_qt.ta.t0_finder as t0_mod
 
-        with patch.object(t0_mod, "acquire_delta_od_at_delay", fake_acquire):
+        with patch.object(t0_mod, "acquire_delta_signal_at_delay", fake_acquire):
             finder.find_t0(hw, coarse_range_ps=10.0, coarse_step_ps=2.0,
                            fine_range_ps=2.0, fine_step_ps=0.5, threshold=0.01)
 
@@ -166,7 +166,7 @@ class TestT0FinderSignals:
         from PySide6.QtWidgets import QApplication
         import andor_qt.ta.t0_finder as t0_mod
 
-        with patch.object(t0_mod, "acquire_delta_od_at_delay", slow_acquire):
+        with patch.object(t0_mod, "acquire_delta_signal_at_delay", slow_acquire):
             finder.find_t0(hw, coarse_range_ps=100.0, coarse_step_ps=2.0,
                            fine_range_ps=2.0, fine_step_ps=0.5, threshold=0.01)
             time.sleep(0.1)
