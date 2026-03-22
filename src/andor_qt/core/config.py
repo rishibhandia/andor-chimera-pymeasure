@@ -71,11 +71,15 @@ class AppConfig:
         hardware: Hardware device configuration.
         ui: User interface configuration.
         calibration: Calibration settings.
+        motion_controllers: Motion controller configuration dict passed
+            directly to MotionControllerManager. When absent or None,
+            HardwareManager falls back to a single mock delay stage.
     """
 
     hardware: HardwareConfig = field(default_factory=HardwareConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
+    motion_controllers: Optional[dict] = field(default=None)
 
     @classmethod
     def default(cls) -> "AppConfig":
@@ -101,6 +105,8 @@ class AppConfig:
             "ui": asdict(self.ui),
             "calibration": asdict(self.calibration),
         }
+        if self.motion_controllers is not None:
+            data["motion_controllers"] = self.motion_controllers
 
         with open(path, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
@@ -138,6 +144,7 @@ class AppConfig:
             hardware=HardwareConfig(**hardware_data) if hardware_data else HardwareConfig(),
             ui=UIConfig(**ui_data) if ui_data else UIConfig(),
             calibration=CalibrationConfig(**calibration_data) if calibration_data else CalibrationConfig(),
+            motion_controllers=data.get("motion_controllers"),
         )
 
     @classmethod
