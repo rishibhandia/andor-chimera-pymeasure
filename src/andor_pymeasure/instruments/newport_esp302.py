@@ -55,6 +55,15 @@ class NewportESP302Axis(Axis):
 
     Adds ``t0_offset_mm`` so that ``position_ps`` reports delay relative
     to the optical t0 position, not the stage origin.
+
+    Two velocity/acceleration profiles are supported:
+
+    - **Initialization profile** (``init_velocity``, ``init_acceleration``):
+      used during the startup sequence (motor on, set limits, homing).
+      Typically faster so the stage reaches home quickly.
+    - **Measurement profile** (``velocity``, ``acceleration``):
+      set on the controller after startup and used for all subsequent moves
+      during data acquisition. Typically slower for accurate positioning.
     """
 
     def __init__(
@@ -64,8 +73,10 @@ class NewportESP302Axis(Axis):
         name: str = "",
         position_min: float = 0.0,
         position_max: float = 300.0,
-        velocity: float = 10.0,
-        acceleration: float = 5.0,
+        velocity: float = 0.5,
+        acceleration: float = 50.0,
+        init_velocity: float = 5.0,
+        init_acceleration: float = 10.0,
         units: str = "mm",
     ):
         super().__init__(
@@ -78,6 +89,8 @@ class NewportESP302Axis(Axis):
             units=units,
         )
         self.acceleration = acceleration
+        self.init_velocity = init_velocity
+        self.init_acceleration = init_acceleration
         self.t0_offset_mm: float = 0.0
 
     # -- position_ps override to honour t0_offset_mm ----------------------
@@ -166,10 +179,10 @@ class NewportESP302(MotionController):
 
     def __init__(
         self,
-        transport: str = "serial",
+        transport: str = "socket",
         port: str = "COM3",
         baudrate: int = 19200,
-        host: str = "192.168.0.254",
+        host: str = "172.24.20.193",
         tcp_port: int = 5001,
         axis_configs: Optional[List[Dict]] = None,
         name: str = "Newport ESP302",
@@ -207,9 +220,11 @@ class NewportESP302(MotionController):
                 controller=self,
                 name=cfg.get("name", f"axis{cfg.get('index', 1)}"),
                 position_min=cfg.get("position_min", 0.0),
-                position_max=cfg.get("position_max", 300.0),
-                velocity=cfg.get("velocity", 10.0),
-                acceleration=cfg.get("acceleration", 5.0),
+                position_max=cfg.get("position_max", 600.0),
+                velocity=cfg.get("velocity", 0.5),
+                acceleration=cfg.get("acceleration", 50.0),
+                init_velocity=cfg.get("init_velocity", 5.0),
+                init_acceleration=cfg.get("init_acceleration", 10.0),
                 units=cfg.get("units", "mm"),
             )
             self._axes[axis.name] = axis
@@ -219,14 +234,22 @@ class NewportESP302(MotionController):
             self.home_all()
 
     def _startup_axis(self, axis: NewportESP302Axis) -> None:
-        """Send startup sequence for one axis."""
+        """Send startup sequence for one axis.
+
+        Uses the initialization velocity/acceleration profile during setup,
+        then switches to the measurement profile for subsequent moves.
+        """
         n = axis.index
         self._send(f"{n}MO")
         self._send(f"{n}SN2")  # mm units
-        self._send(f"{n}VA{axis.velocity}")
-        self._send(f"{n}AC{axis.acceleration}")
+        # Use initialization profile for startup (faster for homing etc.)
+        self._send(f"{n}VA{axis.init_velocity}")
+        self._send(f"{n}AC{axis.init_acceleration}")
         self._send(f"{n}SL{axis.position_min}")
         self._send(f"{n}SR{axis.position_max}")
+        # Switch to measurement profile — used for all data acquisition moves
+        self._send(f"{n}VA{axis.velocity}")
+        self._send(f"{n}AC{axis.acceleration}")
         axis._enabled = True
 
     # -- transport I/O -----------------------------------------------------
@@ -284,9 +307,13 @@ class MockNewportESP302Axis(MockAxis):
     """Mock ESP302 axis that adds t0_offset_mm support."""
 
     def __init__(self, *args, **kwargs):
-        acceleration = kwargs.pop("acceleration", 5.0)
+        acceleration = kwargs.pop("acceleration", 50.0)
+        init_velocity = kwargs.pop("init_velocity", 5.0)
+        init_acceleration = kwargs.pop("init_acceleration", 10.0)
         super().__init__(*args, **kwargs)
         self.acceleration = acceleration
+        self.init_velocity = init_velocity
+        self.init_acceleration = init_acceleration
         self.t0_offset_mm: float = 0.0
 
     @property
@@ -324,10 +351,12 @@ class MockNewportESP302(MockMotionController):
                 controller=self,
                 name=cfg.get("name", f"axis{cfg.get('index', 1)}"),
                 position_min=cfg.get("position_min", 0.0),
-                position_max=cfg.get("position_max", 300.0),
+                position_max=cfg.get("position_max", 600.0),
                 velocity=cfg.get("velocity", 1000.0),
                 units=cfg.get("units", "mm"),
-                acceleration=cfg.get("acceleration", 5.0),
+                acceleration=cfg.get("acceleration", 50.0),
+                init_velocity=cfg.get("init_velocity", 5.0),
+                init_acceleration=cfg.get("init_acceleration", 10.0),
             )
             self._axes[axis.name] = axis
 
