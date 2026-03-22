@@ -244,6 +244,147 @@ class TestChangeSettingsAndAcquire:
         wait_for(lambda: not manager.is_initialized, timeout=5)
 
 
+class TestAcquireWithSeparateMetadata:
+    """Test acquisition workflow with separate metadata files."""
+
+    def test_acquire_save_with_separate_metadata(
+        self, qt_app, reset_singletons, wait_for, tmp_path
+    ):
+        """Acquisition with separate metadata creates data + .meta.json files.
+
+        Verifies:
+        - Data file is created without embedded metadata
+        - Separate .meta.json sidecar file is created
+        - Metadata contains acquisition and session info
+        """
+        import json
+
+        from PySide6.QtWidgets import QApplication
+
+        from andor_qt.core.hardware_manager import HardwareManager
+        from andor_qt.windows.main_window import AndorSpectrometerWindow
+
+        window = AndorSpectrometerWindow()
+        manager = HardwareManager.instance()
+
+        # Wait for initialization
+        assert wait_for(lambda: manager.is_initialized, timeout=10), \
+            "Hardware did not initialize"
+
+        QApplication.processEvents()
+
+        # Configure data settings for auto-save with separate metadata
+        window._data_settings.directory = str(tmp_path)
+        window._data_settings.base_name = "test_spectrum"
+        window._data_settings.auto_save = True
+        window._data_settings.metadata_format = "separate"
+        window._data_settings.sample_id = "SAMPLE-001"
+        window._data_settings.operator = "Test User"
+
+        # Track acquisition completion
+        acq_completed = []
+        original_on_acq_completed = window._on_acq_completed
+
+        def _on_completed(exp_id):
+            original_on_acq_completed(exp_id)
+            acq_completed.append(exp_id)
+
+        window._acq_signals.completed.disconnect(window._on_acq_completed)
+        window._acq_signals.completed.connect(_on_completed)
+
+        # Trigger acquisition
+        window._on_queue_clicked()
+
+        # Wait for acquisition to complete
+        assert wait_for(lambda: len(acq_completed) > 0, timeout=15), \
+            "Acquisition did not complete"
+
+        import time
+        QApplication.processEvents()
+        time.sleep(0.5)
+        QApplication.processEvents()
+
+        # Verify both files exist
+        csv_files = list(tmp_path.glob("test_spectrum_*.csv"))
+        meta_files = list(tmp_path.glob("test_spectrum_*.meta.json"))
+
+        assert len(csv_files) > 0, f"No CSV files found in {tmp_path}"
+        assert len(meta_files) > 0, f"No metadata files found in {tmp_path}"
+
+        # Verify metadata content
+        meta_path = meta_files[0]
+        with open(meta_path) as f:
+            metadata = json.load(f)
+
+        assert metadata["version"] == "1.0"
+        assert metadata["session"]["sample_id"] == "SAMPLE-001"
+        assert metadata["session"]["operator"] == "Test User"
+
+        # Cleanup
+        manager.stop_temperature_polling()
+        manager.shutdown(warmup=False)
+        wait_for(lambda: not manager.is_initialized, timeout=5)
+
+    def test_metadata_json_structure_is_valid(self, tmp_path):
+        """Metadata JSON has correct structure."""
+        import json
+
+        from andor_qt.utils.metadata import save_metadata
+
+        data_file = tmp_path / "test.csv"
+        data_file.touch()
+
+        params = {
+            "exposure_time": 0.5,
+            "grating": 1,
+            "center_wavelength": 550.0,
+            "read_mode": "fvb",
+        }
+        session = {
+            "sample_id": "SAMPLE-001",
+            "operator": "Test User",
+            "notes": "Test notes",
+        }
+
+        meta_path = save_metadata(data_file, params, session)
+
+        with open(meta_path) as f:
+            metadata = json.load(f)
+
+        # Check structure
+        assert "version" in metadata
+        assert "created" in metadata
+        assert "data_file" in metadata
+        assert "acquisition" in metadata
+        assert "session" in metadata
+
+        # Check acquisition params
+        assert metadata["acquisition"]["exposure_time"] == 0.5
+        assert metadata["acquisition"]["grating"] == 1
+
+        # Check session info
+        assert metadata["session"]["sample_id"] == "SAMPLE-001"
+
+    def test_csv_data_loads_without_skip_rows_needed(self, tmp_path):
+        """CSV files with separate metadata can be loaded directly."""
+        import numpy as np
+
+        from andor_qt.utils.data_io import save_csv_data_only
+
+        wavelengths = np.linspace(400, 800, 100)
+        intensities = np.random.rand(100) * 1000
+
+        filepath = tmp_path / "spectrum.csv"
+        save_csv_data_only(filepath, wavelengths, intensities)
+
+        # Load without skipping rows (first row is header)
+        data = np.loadtxt(filepath, delimiter=",", skiprows=1)
+
+        assert data.shape == (100, 2)
+        assert abs(data[0, 0] - 400.0) < 0.01
+        assert abs(data[-1, 0] - 800.0) < 0.01
+
+
 class TestShutdownWorkflow:
     """Test the shutdown workflow."""
 

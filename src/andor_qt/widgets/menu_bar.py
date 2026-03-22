@@ -17,6 +17,7 @@ class AndorMenuBar(QMenuBar):
     Signals:
         save_requested: Emitted when user requests to save.
         load_calibration_requested: Emitted when user wants to load calibration.
+        create_shortcut_requested: Emitted when user wants to create desktop shortcut.
         exit_requested: Emitted when user wants to exit.
         acquire_requested: Emitted when user wants to start acquisition.
         abort_requested: Emitted when user wants to abort acquisition.
@@ -26,9 +27,11 @@ class AndorMenuBar(QMenuBar):
 
     save_requested = Signal()
     load_calibration_requested = Signal()
+    create_shortcut_requested = Signal()
     exit_requested = Signal()
     acquire_requested = Signal()
     abort_requested = Signal()
+    realtime_requested = Signal()
     benchmark_requested = Signal()
     about_requested = Signal()
 
@@ -56,6 +59,14 @@ class AndorMenuBar(QMenuBar):
 
         file_menu.addSeparator()
 
+        self.create_shortcut_action = QAction("Create &Desktop Shortcut", self)
+        self.create_shortcut_action.triggered.connect(
+            self.create_shortcut_requested.emit
+        )
+        file_menu.addAction(self.create_shortcut_action)
+
+        file_menu.addSeparator()
+
         self.exit_action = QAction("E&xit", self)
         self.exit_action.setShortcut(QKeySequence("Alt+F4"))
         self.exit_action.triggered.connect(self.exit_requested.emit)
@@ -76,6 +87,10 @@ class AndorMenuBar(QMenuBar):
         acq_menu.addAction(self.abort_action)
 
         acq_menu.addSeparator()
+
+        self.realtime_action = QAction("&Real-Time Mode...", self)
+        self.realtime_action.triggered.connect(self.realtime_requested.emit)
+        acq_menu.addAction(self.realtime_action)
 
         self.benchmark_action = QAction("&Benchmark...", self)
         self.benchmark_action.triggered.connect(self.benchmark_requested.emit)

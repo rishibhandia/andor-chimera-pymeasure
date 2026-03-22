@@ -260,6 +260,8 @@ class AndorSpectrometerWindow(QMainWindow):
         self._menu_bar.exit_requested.connect(self.close)
         self._menu_bar.acquire_requested.connect(self._on_queue_clicked)
         self._menu_bar.abort_requested.connect(self._on_abort_clicked)
+        self._menu_bar.create_shortcut_requested.connect(self._on_create_shortcut)
+        self._menu_bar.realtime_requested.connect(self._on_realtime_mode)
 
         # Acquire control signals
         self._acquire_control.acquire_requested.connect(self._on_queue_clicked)
@@ -624,6 +626,37 @@ class AndorSpectrometerWindow(QMainWindow):
         if self._current_exp_id:
             self._results_table.update_status(self._current_exp_id, "aborted")
 
+    @Slot()
+    def _on_create_shortcut(self) -> None:
+        """Handle Create Desktop Shortcut menu action."""
+        try:
+            from andor_qt.utils.shortcut import create_desktop_shortcut
+
+            shortcut_path = create_desktop_shortcut(name="Andor Spectrometer")
+            QMessageBox.information(
+                self,
+                "Shortcut Created",
+                f"Desktop shortcut created:\n{shortcut_path}",
+            )
+        except Exception as e:
+            log.error(f"Failed to create shortcut: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to create desktop shortcut:\n{e}",
+            )
+
+    @Slot()
+    def _on_realtime_mode(self) -> None:
+        """Handle Real-Time Mode menu action."""
+        from andor_qt.windows.realtime_window import RealtimeWindow
+
+        if not hasattr(self, "_realtime_window") or self._realtime_window is None:
+            self._realtime_window = RealtimeWindow(self._hw_manager, self)
+        self._realtime_window.show()
+        self._realtime_window.raise_()
+        self._realtime_window.activateWindow()
+
     def _load_calibration_file(self, filepath: str) -> Optional[np.ndarray]:
         """Load wavelength calibration from a file.
 
@@ -702,47 +735,64 @@ class AndorSpectrometerWindow(QMainWindow):
     ) -> None:
         """Save acquisition data to file.
 
+        Supports two metadata modes:
+        - 'separate': Creates clean data file + .meta.json sidecar
+        - 'embedded': Stores metadata in file headers (legacy)
+
         Args:
             data: Acquired data (1D or 2D).
             calibration: Wavelength calibration array.
             params: Acquisition parameters.
         """
         try:
-            filepath = self._data_settings.get_next_filepath(".csv")
+            use_separate = self._data_settings.metadata_format == "separate"
+            session_meta = self._data_settings.get_metadata()
 
             if data.ndim == 1:
-                # 1D spectrum
-                import csv
+                # 1D spectrum - save as CSV
+                filepath = self._data_settings.get_next_filepath(".csv")
 
-                with open(filepath, "w", newline="") as f:
-                    writer = csv.writer(f)
+                if use_separate:
+                    from andor_qt.utils.data_io import save_csv_data_only
+                    from andor_qt.utils.metadata import save_metadata
 
-                    # Write header with metadata
-                    writer.writerow(["# Andor Spectrum Data"])
-                    for key, value in params.items():
-                        writer.writerow([f"# {key}", value])
-                    writer.writerow(["# sample_id", self._data_settings.sample_id])
-                    writer.writerow(["# operator", self._data_settings.operator])
-                    writer.writerow([])
-                    writer.writerow(["Wavelength (nm)", "Intensity"])
-
-                    # Write data
                     if calibration is not None:
-                        for wl, intensity in zip(calibration, data):
-                            writer.writerow([f"{wl:.3f}", f"{intensity:.1f}"])
+                        save_csv_data_only(filepath, calibration, data)
                     else:
-                        for i, intensity in enumerate(data):
-                            writer.writerow([i, f"{intensity:.1f}"])
+                        # Fallback: use pixel indices as x-axis
+                        wavelengths = np.arange(len(data), dtype=float)
+                        save_csv_data_only(filepath, wavelengths, data)
+
+                    save_metadata(filepath, params, session_meta)
+                else:
+                    from andor_qt.utils.data_io import save_csv_with_metadata
+
+                    if calibration is not None:
+                        save_csv_with_metadata(
+                            filepath, calibration, data, params, session_meta
+                        )
+                    else:
+                        wavelengths = np.arange(len(data), dtype=float)
+                        save_csv_with_metadata(
+                            filepath, wavelengths, data, params, session_meta
+                        )
 
             else:
                 # 2D image - save as NPZ
-                filepath = filepath.with_suffix(".npz")
-                np.savez(
-                    filepath,
-                    data=data,
-                    wavelengths=calibration,
-                    **params,
-                )
+                filepath = self._data_settings.get_next_filepath(".npz")
+
+                if use_separate:
+                    from andor_qt.utils.data_io import save_npz_data_only
+                    from andor_qt.utils.metadata import save_metadata
+
+                    save_npz_data_only(filepath, calibration, data)
+                    save_metadata(filepath, params, session_meta)
+                else:
+                    from andor_qt.utils.data_io import save_npz_with_metadata
+
+                    save_npz_with_metadata(
+                        filepath, calibration, data, params, session_meta
+                    )
 
             log.info(f"Data saved to {filepath}")
             self._status_label.setText(f"Saved: {filepath.name}")

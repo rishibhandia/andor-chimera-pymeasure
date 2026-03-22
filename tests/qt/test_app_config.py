@@ -89,3 +89,25 @@ calibration:
         assert isinstance(path, Path)
         # Should be in user's home or app data directory
         assert "andor" in str(path).lower() or "config" in str(path).lower()
+
+
+class TestCLIArguments:
+    """Tests for CLI argument parsing."""
+
+    def test_create_shortcut_cli_argument(self):
+        """--create-shortcut argument is parsed correctly."""
+        from andor_qt.app import create_argument_parser
+
+        parser = create_argument_parser()
+        args = parser.parse_args(["--create-shortcut"])
+
+        assert args.create_shortcut is True
+
+    def test_create_shortcut_defaults_to_false(self):
+        """--create-shortcut defaults to False when not provided."""
+        from andor_qt.app import create_argument_parser
+
+        parser = create_argument_parser()
+        args = parser.parse_args([])
+
+        assert args.create_shortcut is False

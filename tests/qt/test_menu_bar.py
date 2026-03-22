@@ -161,3 +161,69 @@ class TestMenuBarSignals:
         menu_bar.about_action.trigger()
 
         handler.assert_called_once()
+
+    def test_create_shortcut_action_emits_signal(self, qt_app, handler_factory):
+        """Create shortcut action triggers create_shortcut_requested signal."""
+        from andor_qt.widgets.menu_bar import AndorMenuBar
+
+        menu_bar = AndorMenuBar()
+        handler = handler_factory("shortcut_handler")
+        menu_bar.create_shortcut_requested.connect(handler)
+
+        menu_bar.create_shortcut_action.trigger()
+
+        handler.assert_called_once()
+
+
+class TestMenuBarShortcutAction:
+    """Tests for Create Desktop Shortcut menu action."""
+
+    def test_menu_bar_has_create_shortcut_action(self, qt_app):
+        """Menu bar has a Create Desktop Shortcut action."""
+        from andor_qt.widgets.menu_bar import AndorMenuBar
+
+        menu_bar = AndorMenuBar()
+
+        assert hasattr(menu_bar, "create_shortcut_action")
+        assert menu_bar.create_shortcut_action is not None
+
+    def test_create_shortcut_action_text(self, qt_app):
+        """Create shortcut action has correct text."""
+        from andor_qt.widgets.menu_bar import AndorMenuBar
+
+        menu_bar = AndorMenuBar()
+
+        assert "Desktop Shortcut" in menu_bar.create_shortcut_action.text()
+
+
+class TestMenuBarRealtimeAction:
+    """Tests for Real-Time Mode menu action."""
+
+    def test_menu_bar_has_realtime_action(self, qt_app):
+        """Menu bar has a Real-Time Mode action."""
+        from andor_qt.widgets.menu_bar import AndorMenuBar
+
+        menu_bar = AndorMenuBar()
+
+        assert hasattr(menu_bar, "realtime_action")
+        assert menu_bar.realtime_action is not None
+
+    def test_realtime_action_text(self, qt_app):
+        """Real-Time action has correct text."""
+        from andor_qt.widgets.menu_bar import AndorMenuBar
+
+        menu_bar = AndorMenuBar()
+
+        assert "Real-Time" in menu_bar.realtime_action.text()
+
+    def test_realtime_action_emits_signal(self, qt_app, handler_factory):
+        """Real-Time action triggers realtime_requested signal."""
+        from andor_qt.widgets.menu_bar import AndorMenuBar
+
+        menu_bar = AndorMenuBar()
+        handler = handler_factory("realtime_handler")
+        menu_bar.realtime_requested.connect(handler)
+
+        menu_bar.realtime_action.trigger()
+
+        handler.assert_called_once()
