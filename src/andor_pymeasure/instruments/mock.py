@@ -45,6 +45,17 @@ class MockCameraState:
     hbin: int = 1
     vbin: int = 1
     acquiring: bool = False
+    # Camera settings (DU970P EMCCD)
+    vs_speed_index: int = 1         # default: 9.8 µs/pixel (optimum CTE)
+    hs_speed_index: int = 0         # default: 3 MHz
+    amplifier_type: int = 0         # 0=EM, 1=conventional
+    em_gain: int = 1
+    preamp_gain_index: int = 0
+    single_track_centre: int = 128
+    single_track_height: int = 10
+    crop_mode_active: bool = False
+    crop_height: int = 16
+    crop_width: int = 1024
 
 
 @dataclass
@@ -212,6 +223,84 @@ class MockAtmcd:
         IMPORTANT: SetImage is IGNORED in FVB mode. Use this method instead.
         """
         self._state.hbin = hbin
+        return DRV_SUCCESS
+
+    # -- Camera settings: VS/HS speed, amplifier, gain ------------------------
+
+    # DU970P VS speeds (µs/pixel): index → speed
+    _VS_SPEEDS = [4.9, 9.8, 19.0, 38.0, 57.0]
+    # DU970P HS speeds (MHz): index → speed (same for both amplifier types)
+    _HS_SPEEDS = [3.0, 1.0, 0.05]
+    # Pre-amp gain options: index → gain factor
+    _PREAMP_GAINS = [1.0, 2.0, 4.0]
+
+    def GetNumberVSSpeeds(self) -> Tuple[int, int]:
+        """Get number of vertical shift speeds."""
+        return (DRV_SUCCESS, len(self._VS_SPEEDS))
+
+    def GetVSSpeed(self, index: int) -> Tuple[int, float]:
+        """Get vertical shift speed in µs/pixel for given index."""
+        return (DRV_SUCCESS, self._VS_SPEEDS[index])
+
+    def SetVSSpeed(self, index: int) -> int:
+        """Set vertical shift speed by index."""
+        self._state.vs_speed_index = index
+        return DRV_SUCCESS
+
+    def GetFastestRecommendedVSSpeed(self) -> Tuple[int, int, float]:
+        """Get fastest recommended VS speed index and value."""
+        return (DRV_SUCCESS, 0, self._VS_SPEEDS[0])
+
+    def GetNumberHSSpeeds(self, channel: int, typ: int) -> Tuple[int, int]:
+        """Get number of horizontal shift speeds."""
+        return (DRV_SUCCESS, len(self._HS_SPEEDS))
+
+    def GetHSSpeed(self, channel: int, typ: int, index: int) -> Tuple[int, float]:
+        """Get horizontal shift speed in MHz for given index."""
+        return (DRV_SUCCESS, self._HS_SPEEDS[index])
+
+    def SetHSSpeed(self, typ: int, index: int) -> int:
+        """Set horizontal shift speed."""
+        self._state.amplifier_type = typ
+        self._state.hs_speed_index = index
+        return DRV_SUCCESS
+
+    def SetOutputAmplifier(self, typ: int) -> int:
+        """Set output amplifier: 0=EM, 1=conventional."""
+        self._state.amplifier_type = typ
+        return DRV_SUCCESS
+
+    def SetEMCCDGain(self, gain: int) -> int:
+        """Set EM gain."""
+        self._state.em_gain = gain
+        return DRV_SUCCESS
+
+    def GetNumberPreAmpGains(self) -> Tuple[int, int]:
+        """Get number of pre-amplifier gain settings."""
+        return (DRV_SUCCESS, len(self._PREAMP_GAINS))
+
+    def GetPreAmpGain(self, index: int) -> Tuple[int, float]:
+        """Get pre-amplifier gain for given index."""
+        return (DRV_SUCCESS, self._PREAMP_GAINS[index])
+
+    def SetPreAmpGain(self, index: int) -> int:
+        """Set pre-amplifier gain by index."""
+        self._state.preamp_gain_index = index
+        return DRV_SUCCESS
+
+    def SetSingleTrack(self, centre: int, height: int) -> int:
+        """Set single track readout mode parameters."""
+        self._state.single_track_centre = centre
+        self._state.single_track_height = height
+        return DRV_SUCCESS
+
+    def SetIsolatedCropMode(
+        self, active: int, cropheight: int, cropwidth: int, vbin: int, hbin: int
+    ) -> int:
+        """Set isolated crop mode."""
+        self._state.crop_mode_active = bool(active)
+        self._state.crop_height = cropheight
+        self._state.crop_width = cropwidth
         return DRV_SUCCESS
 
     def PrepareAcquisition(self) -> int:

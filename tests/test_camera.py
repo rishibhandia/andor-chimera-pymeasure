@@ -237,3 +237,124 @@ class TestAndorCameraTemperatureNotInitialized:
     def test_temperature_status_not_initialized(self, camera):
         """Temperature status returns NOT_INITIALIZED if not initialized."""
         assert camera.temperature_status == "NOT_INITIALIZED"
+
+
+class TestMockCameraSDKSettings:
+    """Tests for mock SDK camera settings methods (VS/HS speed, amplifier, gain)."""
+
+    def test_mock_get_vs_speeds_returns_5_options(self, initialized_camera):
+        """Mock VS speed query returns 5 options."""
+        speeds = initialized_camera.get_vs_speeds()
+        assert len(speeds) == 5
+
+    def test_mock_vs_speeds_have_correct_values(self, initialized_camera):
+        """Mock VS speeds match DU970P hardware values."""
+        speeds = initialized_camera.get_vs_speeds()
+        us_values = [s[1] for s in speeds]
+        assert us_values == pytest.approx([4.9, 9.8, 19.0, 38.0, 57.0], rel=0.01)
+
+    def test_mock_set_vs_speed_valid_index(self, initialized_camera):
+        """set_vs_speed accepts valid indices 0-4."""
+        for i in range(5):
+            initialized_camera.set_vs_speed(i)  # Should not raise
+
+    def test_mock_set_vs_speed_not_initialized_raises(self, camera):
+        """set_vs_speed raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_vs_speed(0)
+
+    def test_mock_get_hs_speeds_em_amplifier(self, initialized_camera):
+        """HS speeds for EM amplifier (type=0) returns 3 options."""
+        speeds = initialized_camera.get_hs_speeds(amplifier_type=0)
+        assert len(speeds) == 3
+
+    def test_mock_get_hs_speeds_conventional_amplifier(self, initialized_camera):
+        """HS speeds for conventional amplifier (type=1) returns 3 options."""
+        speeds = initialized_camera.get_hs_speeds(amplifier_type=1)
+        assert len(speeds) == 3
+
+    def test_mock_hs_speeds_values(self, initialized_camera):
+        """HS speed values are 3.0, 1.0, 0.05 MHz."""
+        speeds = initialized_camera.get_hs_speeds(amplifier_type=0)
+        mhz_values = [s[1] for s in speeds]
+        assert mhz_values == pytest.approx([3.0, 1.0, 0.05], rel=0.01)
+
+    def test_mock_set_hs_speed_not_initialized_raises(self, camera):
+        """set_hs_speed raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_hs_speed(amplifier_type=0, index=0)
+
+    def test_mock_set_amplifier_em(self, initialized_camera):
+        """set_amplifier(0) selects EM output."""
+        initialized_camera.set_amplifier(0)  # Should not raise
+
+    def test_mock_set_amplifier_conventional(self, initialized_camera):
+        """set_amplifier(1) selects conventional output."""
+        initialized_camera.set_amplifier(1)  # Should not raise
+
+    def test_mock_set_amplifier_not_initialized_raises(self, camera):
+        """set_amplifier raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_amplifier(0)
+
+    def test_mock_set_em_gain_valid(self, initialized_camera):
+        """set_em_gain accepts integer in valid range."""
+        initialized_camera.set_em_gain(100)  # Should not raise
+
+    def test_mock_set_em_gain_not_initialized_raises(self, camera):
+        """set_em_gain raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_em_gain(100)
+
+    def test_mock_get_preamp_gains_returns_list(self, initialized_camera):
+        """get_preamp_gains returns a list of (index, gain) tuples."""
+        gains = initialized_camera.get_preamp_gains()
+        assert len(gains) >= 1
+        assert all(len(g) == 2 for g in gains)
+
+    def test_mock_set_preamp_gain_valid(self, initialized_camera):
+        """set_preamp_gain accepts valid index."""
+        initialized_camera.set_preamp_gain(0)  # Should not raise
+
+    def test_mock_set_preamp_gain_not_initialized_raises(self, camera):
+        """set_preamp_gain raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_preamp_gain(0)
+
+    def test_mock_set_single_track(self, initialized_camera):
+        """set_single_track accepts centre and height."""
+        initialized_camera.set_single_track(centre=100, height=10)  # Should not raise
+
+    def test_mock_set_single_track_not_initialized_raises(self, camera):
+        """set_single_track raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_single_track(centre=100, height=10)
+
+    def test_mock_set_crop_mode_active(self, initialized_camera):
+        """set_crop_mode enables crop mode."""
+        initialized_camera.set_crop_mode(active=True, crop_height=20, crop_width=1600, vbin=1, hbin=1)
+
+    def test_mock_set_crop_mode_inactive(self, initialized_camera):
+        """set_crop_mode disables crop mode."""
+        initialized_camera.set_crop_mode(active=False, crop_height=20, crop_width=1600, vbin=1, hbin=1)
+
+    def test_mock_set_crop_mode_not_initialized_raises(self, camera):
+        """set_crop_mode raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.set_crop_mode(active=True, crop_height=20, crop_width=1600, vbin=1, hbin=1)
+
+    def test_apply_camera_settings_applies_all(self, initialized_camera):
+        """apply_camera_settings applies a full settings dict without error."""
+        settings = {
+            "vs_speed_index": 1,
+            "hs_speed_index": 0,
+            "amplifier_type": 0,
+            "em_gain": 50,
+            "preamp_gain_index": 1,
+        }
+        initialized_camera.apply_camera_settings(settings)  # Should not raise
+
+    def test_apply_camera_settings_not_initialized_raises(self, camera):
+        """apply_camera_settings raises if not initialized."""
+        with pytest.raises(RuntimeError, match="not initialized"):
+            camera.apply_camera_settings({"vs_speed_index": 0})

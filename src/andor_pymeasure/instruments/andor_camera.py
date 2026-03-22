@@ -347,6 +347,219 @@ class AndorCamera:
             self._sdk.AbortAcquisition()
             log.info("Acquisition aborted")
 
+    # -- Camera settings: VS/HS speed, amplifier, gain -----------------------
+
+    def get_vs_speeds(self) -> list:
+        """Get available vertical shift speeds.
+
+        Returns:
+            List of (index, speed_us) tuples.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            _, n = self._sdk.GetNumberVSSpeeds()
+            return [(i, self._sdk.GetVSSpeed(i)[1]) for i in range(n)]
+
+    def set_vs_speed(self, index: int) -> None:
+        """Set vertical shift speed by index.
+
+        Args:
+            index: VS speed index (0=fastest, higher=slower).
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetVSSpeed(index)
+            log.debug(f"VS speed set to index {index}")
+
+    def get_hs_speeds(self, amplifier_type: int = 0) -> list:
+        """Get available horizontal shift speeds for an amplifier type.
+
+        Args:
+            amplifier_type: 0=EM, 1=conventional.
+
+        Returns:
+            List of (index, speed_mhz) tuples.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            _, n = self._sdk.GetNumberHSSpeeds(0, amplifier_type)
+            return [(i, self._sdk.GetHSSpeed(0, amplifier_type, i)[1]) for i in range(n)]
+
+    def set_hs_speed(self, amplifier_type: int, index: int) -> None:
+        """Set horizontal shift speed.
+
+        Args:
+            amplifier_type: 0=EM, 1=conventional.
+            index: HS speed index (0=fastest).
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetHSSpeed(amplifier_type, index)
+            log.debug(f"HS speed set to index {index} (amplifier type {amplifier_type})")
+
+    def set_amplifier(self, amplifier_type: int) -> None:
+        """Set output amplifier.
+
+        Args:
+            amplifier_type: 0=EM (EMCCD), 1=conventional CCD.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetOutputAmplifier(amplifier_type)
+            log.debug(f"Amplifier set to type {amplifier_type}")
+
+    def set_em_gain(self, gain: int) -> None:
+        """Set EM gain.
+
+        Args:
+            gain: EM gain value (within range from GetEMGainRange).
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetEMCCDGain(gain)
+            log.debug(f"EM gain set to {gain}")
+
+    def get_preamp_gains(self) -> list:
+        """Get available pre-amplifier gain options.
+
+        Returns:
+            List of (index, gain_factor) tuples.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            _, n = self._sdk.GetNumberPreAmpGains()
+            return [(i, self._sdk.GetPreAmpGain(i)[1]) for i in range(n)]
+
+    def set_preamp_gain(self, index: int) -> None:
+        """Set pre-amplifier gain by index.
+
+        Args:
+            index: Pre-amp gain index.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetPreAmpGain(index)
+            log.debug(f"Pre-amp gain set to index {index}")
+
+    def set_single_track(self, centre: int, height: int) -> None:
+        """Configure single track readout mode.
+
+        Args:
+            centre: Centre row of the track (1-indexed from bottom).
+            height: Number of rows to bin.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetSingleTrack(centre, height)
+            log.debug(f"Single track: centre={centre}, height={height}")
+
+    def set_crop_mode(
+        self, active: bool, crop_height: int, crop_width: int, vbin: int = 1, hbin: int = 1
+    ) -> None:
+        """Configure isolated crop mode for fast readout.
+
+        WARNING: Light must not fall on rows outside the cropped region.
+
+        Args:
+            active: True to enable crop mode.
+            crop_height: Number of active rows.
+            crop_width: Number of active columns (typically full width).
+            vbin: Vertical binning within the crop.
+            hbin: Horizontal binning within the crop.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        with self._lock:
+            self._sdk.SetIsolatedCropMode(int(active), crop_height, crop_width, vbin, hbin)
+            log.debug(f"Crop mode: active={active}, {crop_height}x{crop_width}, vbin={vbin}, hbin={hbin}")
+
+    def apply_camera_settings(self, settings: dict) -> None:
+        """Apply a camera settings dict before acquisition.
+
+        Applies VS speed, HS speed, amplifier type, EM gain, and pre-amp gain
+        from the provided dict. Missing keys are silently skipped.
+
+        Args:
+            settings: Dict with any of: vs_speed_index, hs_speed_index,
+                amplifier_type, em_gain, preamp_gain_index.
+
+        Raises:
+            RuntimeError: If camera not initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        amplifier_type = settings.get("amplifier_type", 0)
+
+        with self._lock:
+            if "vs_speed_index" in settings:
+                self._sdk.SetVSSpeed(settings["vs_speed_index"])
+            if "amplifier_type" in settings:
+                self._sdk.SetOutputAmplifier(amplifier_type)
+            if "hs_speed_index" in settings:
+                self._sdk.SetHSSpeed(amplifier_type, settings["hs_speed_index"])
+            if "em_gain" in settings and amplifier_type == 0:
+                _, em_low, em_high = self._sdk.GetEMGainRange()
+                gain = max(em_low, min(settings["em_gain"], em_high))
+                if gain != settings["em_gain"]:
+                    log.warning(
+                        f"EM gain {settings['em_gain']} clamped to [{em_low}, {em_high}] → {gain}"
+                    )
+                self._sdk.SetEMCCDGain(gain)
+            if "preamp_gain_index" in settings:
+                self._sdk.SetPreAmpGain(settings["preamp_gain_index"])
+
+        log.debug(f"Camera settings applied: {settings}")
+
     def warmup(self, target: float = -20.0, timeout: float = 300.0) -> bool:
         """Warm up camera to safe shutdown temperature.
 
