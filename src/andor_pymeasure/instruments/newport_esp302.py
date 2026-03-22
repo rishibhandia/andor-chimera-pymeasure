@@ -213,12 +213,12 @@ class NewportESP302(MotionController):
         else:
             raise ValueError(f"Unknown transport: {transport!r}")
 
-        configs = axis_configs or [{"name": "delay", "index": 1}]
+        configs = axis_configs or [{"name": "delay", "index": 2}]
         for cfg in configs:
             axis = NewportESP302Axis(
-                index=cfg.get("index", 1),
+                index=cfg.get("index", 2),
                 controller=self,
-                name=cfg.get("name", f"axis{cfg.get('index', 1)}"),
+                name=cfg.get("name", f"axis{cfg.get('index', 2)}"),
                 position_min=cfg.get("position_min", 0.0),
                 position_max=cfg.get("position_max", 600.0),
                 velocity=cfg.get("velocity", 0.5),
@@ -344,12 +344,12 @@ class MockNewportESP302(MockMotionController):
         # Bypass parent __init__ to use our axis type
         MotionController.__init__(self, name=name, home_on_startup=home_on_startup)
 
-        configs = axis_configs or [{"name": "delay", "index": 1}]
+        configs = axis_configs or [{"name": "delay", "index": 2}]
         for cfg in configs:
             axis = MockNewportESP302Axis(
-                index=cfg.get("index", 1),
+                index=cfg.get("index", 2),
                 controller=self,
-                name=cfg.get("name", f"axis{cfg.get('index', 1)}"),
+                name=cfg.get("name", f"axis{cfg.get('index', 2)}"),
                 position_min=cfg.get("position_min", 0.0),
                 position_max=cfg.get("position_max", 600.0),
                 velocity=cfg.get("velocity", 1000.0),
