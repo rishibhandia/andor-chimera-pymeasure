@@ -39,8 +39,9 @@ class ImagePlotWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Use ImageView which has built-in histogram and colorbar
-        self._image_view = pg.ImageView()
+        # Use ImageView with an explicit PlotItem so axis ticks/labels are shown.
+        # Without this, ImageView uses a plain ViewBox which has no labeled axes.
+        self._image_view = pg.ImageView(view=pg.PlotItem())
         self._image_view.ui.roiBtn.hide()  # Hide ROI button
         self._image_view.ui.menuBtn.hide()  # Hide menu button
 
