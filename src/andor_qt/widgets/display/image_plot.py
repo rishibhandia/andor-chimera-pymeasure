@@ -47,6 +47,12 @@ class ImagePlotWidget(QWidget):
         # Set colormap
         self._image_view.setColorMap(pg.colormap.get("viridis"))
 
+        # Label the axes
+        view = self._image_view.getView()
+        if hasattr(view, "setLabel"):
+            view.setLabel("bottom", "Wavelength (nm)")
+            view.setLabel("left", "Row")
+
         layout.addWidget(self._image_view)
 
         # Cursor readout
@@ -63,21 +69,27 @@ class ImagePlotWidget(QWidget):
         if self._image_data is None:
             return
 
-        # Map position to image coordinates
+        # Map position to view coordinates (wavelength units when calibrated)
         view_box = self._image_view.getView()
         if view_box.sceneBoundingRect().contains(pos):
             mouse_point = view_box.mapSceneToView(pos)
-            x, y = int(mouse_point.x()), int(mouse_point.y())
+            n_rows, n_cols = self._image_data.shape
 
-            if 0 <= x < self._image_data.shape[1] and 0 <= y < self._image_data.shape[0]:
-                intensity = self._image_data[y, x]
-
-                if self._wavelengths is not None and x < len(self._wavelengths):
-                    wl = self._wavelengths[x]
+            if self._wavelengths is not None:
+                wl = mouse_point.x()
+                y = int(mouse_point.y())
+                # Find nearest pixel column from wavelength
+                x = int(np.searchsorted(self._wavelengths, wl))
+                x = max(0, min(x, n_cols - 1))
+                if 0 <= y < n_rows:
+                    intensity = self._image_data[y, x]
                     self._cursor_label.setText(
                         f"λ: {wl:.1f} nm, Y: {y}, Intensity: {intensity:.0f}"
                     )
-                else:
+            else:
+                x, y = int(mouse_point.x()), int(mouse_point.y())
+                if 0 <= x < n_cols and 0 <= y < n_rows:
+                    intensity = self._image_data[y, x]
                     self._cursor_label.setText(
                         f"X: {x}, Y: {y}, Intensity: {intensity:.0f}"
                     )
@@ -96,8 +108,21 @@ class ImagePlotWidget(QWidget):
         self._image_data = image
         self._wavelengths = wavelengths
 
-        # Set image (ImageView expects [x, y] so we transpose)
-        self._image_view.setImage(image.T, autoLevels=True, autoRange=True)
+        # Set image (ImageView expects [x, y] so we transpose).
+        # When wavelengths are provided, map the x-axis to wavelength units so
+        # the axis ticks show nm rather than pixel indices.
+        if wavelengths is not None and len(wavelengths) >= 2:
+            wl_start = float(wavelengths[0])
+            wl_scale = float(wavelengths[-1] - wavelengths[0]) / (image.shape[1] - 1)
+            self._image_view.setImage(
+                image.T,
+                autoLevels=True,
+                autoRange=True,
+                pos=(wl_start, 0),
+                scale=(wl_scale, 1),
+            )
+        else:
+            self._image_view.setImage(image.T, autoLevels=True, autoRange=True)
 
     def clear(self) -> None:
         """Clear the image."""
