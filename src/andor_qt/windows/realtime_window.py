@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from andor_qt.core.hardware_manager import HardwareManager
 from andor_qt.widgets.display import ImagePlotWidget, SpectrumPlotWidget
 from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
+from andor_qt.widgets.hardware.spectrograph_control import SpectrographControlWidget
 
 log = logging.getLogger(__name__)
 
@@ -111,6 +112,10 @@ class RealtimeWindow(QMainWindow):
         mode_layout.addWidget(self._mode_combo)
 
         layout.addWidget(mode_group)
+
+        # Spectrograph control (center wavelength + grating)
+        self._spec_control = SpectrographControlWidget(self._hw_manager)
+        layout.addWidget(self._spec_control)
 
         # Exposure settings
         exposure_group = QGroupBox("Exposure")
@@ -297,6 +302,7 @@ class RealtimeWindow(QMainWindow):
         self._start_button.setEnabled(False)
         self._stop_button.setEnabled(True)
         self._mode_combo.setEnabled(False)
+        self._spec_control.setEnabled(False)
         self._camera_settings.setEnabled(False)
         self._status_label.setText("Running")
         self._fps_timer.start()
@@ -307,6 +313,7 @@ class RealtimeWindow(QMainWindow):
         self._start_button.setEnabled(True)
         self._stop_button.setEnabled(False)
         self._mode_combo.setEnabled(True)
+        self._spec_control.setEnabled(True)
         self._camera_settings.setEnabled(True)
         self._status_label.setText("Stopped")
         self._fps_timer.stop()
