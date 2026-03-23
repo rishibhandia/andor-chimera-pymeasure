@@ -213,14 +213,58 @@ class CameraSettingsWidget(QGroupBox):
     # ------------------------------------------------------------------
 
     def populate_from_camera(self, camera) -> None:
-        """Populate pre-amp gain options and EM gain range from live camera.
+        """Populate speed, gain, and EM range options from live camera.
 
         Call this after hardware initialization so the widget reflects
-        the actual camera capabilities.
+        the actual camera capabilities and shows SDK-accurate speed labels.
 
         Args:
             camera: AndorCamera instance (must be initialized).
         """
+        # VS speeds — query actual µs values from SDK
+        try:
+            vs_speeds = camera.get_vs_speeds()
+            saved_vs = self.vs_speed_combo.currentIndex()
+            self.vs_speed_combo.blockSignals(True)
+            self.vs_speed_combo.clear()
+            for idx, us in vs_speeds:
+                label = f"{us:.4g} µs"
+                if idx == 1:
+                    label += "  (recommended)"
+                elif idx == 0:
+                    label += "  (fastest)"
+                elif idx == len(vs_speeds) - 1:
+                    label += "  (slowest)"
+                self.vs_speed_combo.addItem(label, idx)
+            restore = saved_vs if 0 <= saved_vs < self.vs_speed_combo.count() else 1
+            self.vs_speed_combo.setCurrentIndex(restore)
+            self.vs_speed_combo.blockSignals(False)
+        except Exception as e:
+            log.warning(f"Could not populate VS speeds: {e}")
+
+        # HS speeds — query actual MHz values from SDK for current amplifier
+        try:
+            amp_type = self.amplifier_combo.itemData(self.amplifier_combo.currentIndex()) or 0
+            hs_speeds = camera.get_hs_speeds(amp_type)
+            saved_hs = self.hs_speed_combo.currentIndex()
+            self.hs_speed_combo.blockSignals(True)
+            self.hs_speed_combo.clear()
+            for idx, mhz in hs_speeds:
+                if mhz >= 1.0:
+                    label = f"{mhz:.4g} MHz"
+                else:
+                    label = f"{mhz * 1000:.4g} kHz"
+                if idx == 0:
+                    label += "  (fastest)"
+                elif idx == len(hs_speeds) - 1:
+                    label += "  (lowest noise)"
+                self.hs_speed_combo.addItem(label, idx)
+            restore = saved_hs if 0 <= saved_hs < self.hs_speed_combo.count() else 0
+            self.hs_speed_combo.setCurrentIndex(restore)
+            self.hs_speed_combo.blockSignals(False)
+        except Exception as e:
+            log.warning(f"Could not populate HS speeds: {e}")
+
         # Pre-amp gains
         try:
             gains = camera.get_preamp_gains()
