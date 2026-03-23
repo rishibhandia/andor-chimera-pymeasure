@@ -21,6 +21,9 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.1.0",
 ]
+hardware = [
+    "nidaqmx>=0.6",
+]
 
 [project.scripts]
 andor-pymeasure = "andor_pymeasure.app:main"
