@@ -823,6 +823,11 @@ class AndorSpectrometerWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Handle window close - shutdown hardware safely."""
+        # Force quit bypasses warmup (QApplication.quit re-triggers closeEvent)
+        if getattr(self, "_force_quitting", False):
+            event.accept()
+            return
+
         # Check if hardware is initialized and needs warmup
         if not self._hw_manager.is_initialized:
             event.accept()
@@ -933,7 +938,8 @@ class AndorSpectrometerWindow(QMainWindow):
 
     def _on_force_quit(self) -> None:
         """Handle force quit request from shutdown dialog."""
-        log.warning("Force quit requested")
+        log.warning("Force quit requested - bypassing warmup")
+        self._force_quitting = True
         QApplication.instance().quit()
 
     @Slot()
