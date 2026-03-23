@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from pymeasure.experiment import Procedure
 
+from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
+
 log = logging.getLogger(__name__)
 
 
@@ -102,6 +104,10 @@ class DynamicInputsWidget(QGroupBox):
 
         layout.addLayout(form)
 
+        # Camera settings (VS/HS speed, amplifier, gain, read area)
+        self._camera_settings = CameraSettingsWidget()
+        layout.addWidget(self._camera_settings)
+
     def _connect_signals(self) -> None:
         """Connect internal signals."""
         self._read_mode_combo.currentIndexChanged.connect(self._on_read_mode_changed)
@@ -109,6 +115,7 @@ class DynamicInputsWidget(QGroupBox):
         self._accum_spin.valueChanged.connect(self._emit_parameters_changed)
         self._hbin_spin.valueChanged.connect(self._emit_parameters_changed)
         self._vbin_spin.valueChanged.connect(self._emit_parameters_changed)
+        self._camera_settings.settings_changed.connect(self._emit_parameters_changed)
 
     @Slot(int)
     def _on_read_mode_changed(self, index: int) -> None:
@@ -176,11 +183,26 @@ class DynamicInputsWidget(QGroupBox):
         """Set vertical binning."""
         self._vbin_spin.setValue(value)
 
+    @property
+    def camera_settings(self) -> CameraSettingsWidget:
+        """Get the embedded CameraSettingsWidget."""
+        return self._camera_settings
+
+    def populate_from_camera(self, camera) -> None:
+        """Populate camera-specific options from a live camera instance.
+
+        Delegates to CameraSettingsWidget.populate_from_camera().
+
+        Args:
+            camera: AndorCamera instance (must be initialized).
+        """
+        self._camera_settings.populate_from_camera(camera)
+
     def get_parameters(self) -> Dict[str, any]:
         """Get all current parameters as a dictionary.
 
         Returns:
-            Dictionary of parameter name to value.
+            Dictionary of parameter name to value, including camera settings.
         """
         params = {
             "read_mode": self.read_mode,
@@ -192,6 +214,8 @@ class DynamicInputsWidget(QGroupBox):
             params["num_accumulations"] = self.num_accumulations
         else:
             params["vbin"] = self.vbin
+
+        params["camera_settings"] = self._camera_settings.get_settings()
 
         return params
 
@@ -211,6 +235,8 @@ class DynamicInputsWidget(QGroupBox):
         """
         from andor_qt.procedures import ImageProcedure, SpectrumProcedure
 
+        cam = self._camera_settings.get_settings()
+
         if self.read_mode == "fvb":
             procedure = SpectrumProcedure()
             procedure.exposure_time = self.exposure_time
@@ -225,5 +251,11 @@ class DynamicInputsWidget(QGroupBox):
             procedure.grating = grating
             procedure.hbin = self.hbin
             procedure.vbin = self.vbin
+
+        procedure.vs_speed_index = cam["vs_speed_index"]
+        procedure.hs_speed_index = cam["hs_speed_index"]
+        procedure.amplifier_type = cam["amplifier_type"]
+        procedure.em_gain = cam["em_gain"]
+        procedure.preamp_gain_index = cam["preamp_gain_index"]
 
         return procedure

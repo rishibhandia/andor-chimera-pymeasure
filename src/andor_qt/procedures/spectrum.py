@@ -63,6 +63,36 @@ class SpectrumProcedure(SharedHardwareMixin, Procedure):
         minimum=1,
         maximum=1000,
     )
+    vs_speed_index = IntegerParameter(
+        "VS Speed Index",
+        default=1,
+        minimum=0,
+        maximum=4,
+    )
+    hs_speed_index = IntegerParameter(
+        "HS Speed Index",
+        default=0,
+        minimum=0,
+        maximum=2,
+    )
+    amplifier_type = IntegerParameter(
+        "Amplifier Type",
+        default=0,
+        minimum=0,
+        maximum=1,
+    )
+    em_gain = IntegerParameter(
+        "EM Gain",
+        default=1,
+        minimum=1,
+        maximum=1000,
+    )
+    preamp_gain_index = IntegerParameter(
+        "Pre-Amp Gain Index",
+        default=0,
+        minimum=0,
+        maximum=10,
+    )
     delay_position = FloatParameter(
         "Delay Position",
         units="ps",
@@ -111,6 +141,15 @@ class SpectrumProcedure(SharedHardwareMixin, Procedure):
 
         if self.should_stop():
             return
+
+        # Apply camera settings (amplifier, speeds, gain) before acquisition
+        self.camera.apply_camera_settings({
+            "vs_speed_index": self.vs_speed_index,
+            "hs_speed_index": self.hs_speed_index,
+            "amplifier_type": self.amplifier_type,
+            "em_gain": self.em_gain,
+            "preamp_gain_index": self.preamp_gain_index,
+        })
 
         # Set exposure and acquire
         log.info(f"Acquiring spectrum with {self.exposure_time}s exposure, hbin={self.hbin}...")
@@ -184,6 +223,36 @@ class ImageProcedure(SharedHardwareMixin, Procedure):
         minimum=1,
         maximum=16,
     )
+    vs_speed_index = IntegerParameter(
+        "VS Speed Index",
+        default=1,
+        minimum=0,
+        maximum=4,
+    )
+    hs_speed_index = IntegerParameter(
+        "HS Speed Index",
+        default=0,
+        minimum=0,
+        maximum=2,
+    )
+    amplifier_type = IntegerParameter(
+        "Amplifier Type",
+        default=0,
+        minimum=0,
+        maximum=1,
+    )
+    em_gain = IntegerParameter(
+        "EM Gain",
+        default=1,
+        minimum=1,
+        maximum=1000,
+    )
+    preamp_gain_index = IntegerParameter(
+        "Pre-Amp Gain Index",
+        default=0,
+        minimum=0,
+        maximum=10,
+    )
     delay_position = FloatParameter(
         "Delay Position",
         units="ps",
@@ -232,6 +301,15 @@ class ImageProcedure(SharedHardwareMixin, Procedure):
 
         # Calculate effective dimensions
         eff_ypixels = self.camera.ypixels // self.vbin
+
+        # Apply camera settings (amplifier, speeds, gain) before acquisition
+        self.camera.apply_camera_settings({
+            "vs_speed_index": self.vs_speed_index,
+            "hs_speed_index": self.hs_speed_index,
+            "amplifier_type": self.amplifier_type,
+            "em_gain": self.em_gain,
+            "preamp_gain_index": self.preamp_gain_index,
+        })
 
         # Set exposure and acquire
         log.info(
