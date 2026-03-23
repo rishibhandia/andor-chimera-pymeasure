@@ -61,7 +61,7 @@ class CameraSettingsWidget(QGroupBox):
         super().__init__("Camera Settings", parent)
         self._setup_ui()
         self._connect_signals()
-        self._on_amplifier_changed(0)       # apply initial enable/disable
+        self._on_amplifier_changed(1)       # apply initial enable/disable (default: Conventional)
         self._on_read_area_changed(0)        # show/hide initial groups
 
     # ------------------------------------------------------------------
@@ -80,6 +80,7 @@ class CameraSettingsWidget(QGroupBox):
         self.amplifier_combo = QComboBox()
         self.amplifier_combo.addItem("EM (EMCCD)", 0)
         self.amplifier_combo.addItem("Conventional CCD", 1)
+        self.amplifier_combo.setCurrentIndex(1)  # default: Conventional (no EM gain)
         speed_form.addRow("Amplifier:", self.amplifier_combo)
 
         self.hs_speed_combo = QComboBox()

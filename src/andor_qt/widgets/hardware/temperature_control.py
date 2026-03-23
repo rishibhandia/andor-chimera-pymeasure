@@ -66,7 +66,7 @@ class TemperatureControlWidget(QGroupBox):
 
         self._target_spin = QSpinBox()
         self._target_spin.setRange(-100, 20)
-        self._target_spin.setValue(-60)
+        self._target_spin.setValue(-80)
         self._target_spin.setSuffix(" °C")
         self._target_spin.setToolTip("Target temperature")
         cooler_row.addWidget(self._target_spin)

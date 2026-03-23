@@ -118,7 +118,7 @@ class TestCameraSettingsSignals:
     def test_settings_changed_emits_on_amplifier_change(self, widget):
         fired = []
         widget.settings_changed.connect(lambda: fired.append(1))
-        widget.amplifier_combo.setCurrentIndex(1)
+        widget.amplifier_combo.setCurrentIndex(0)  # switch to EM (default is now Conventional)
         assert len(fired) >= 1
 
     def test_settings_changed_emits_on_hs_speed_change(self, widget):
