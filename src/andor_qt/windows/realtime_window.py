@@ -124,10 +124,10 @@ class RealtimeWindow(QMainWindow):
         exposure_row = QHBoxLayout()
         exposure_row.addWidget(QLabel("Exposure:"))
         self._exposure_spin = QDoubleSpinBox()
-        self._exposure_spin.setRange(0.001, 300.0)
+        self._exposure_spin.setRange(0.000001, 300.0)
         self._exposure_spin.setValue(0.1)
         self._exposure_spin.setSuffix(" s")
-        self._exposure_spin.setDecimals(3)
+        self._exposure_spin.setDecimals(6)
         exposure_row.addWidget(self._exposure_spin)
         exposure_layout.addLayout(exposure_row)
 

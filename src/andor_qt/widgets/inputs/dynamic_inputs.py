@@ -72,10 +72,10 @@ class DynamicInputsWidget(QGroupBox):
 
         # Exposure time
         self._exposure_spin = QDoubleSpinBox()
-        self._exposure_spin.setRange(0.001, 600.0)
+        self._exposure_spin.setRange(0.000001, 600.0)
         self._exposure_spin.setValue(0.1)
         self._exposure_spin.setSuffix(" s")
-        self._exposure_spin.setDecimals(3)
+        self._exposure_spin.setDecimals(6)
         self._exposure_spin.setToolTip("Exposure time in seconds")
         form.addRow("Exposure:", self._exposure_spin)
 
