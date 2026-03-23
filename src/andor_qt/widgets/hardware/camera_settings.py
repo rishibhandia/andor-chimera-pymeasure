@@ -140,10 +140,19 @@ class CameraSettingsWidget(QGroupBox):
         self._crop_mode_group = QGroupBox("Crop Mode")
         crop_form = QFormLayout(self._crop_mode_group)
         crop_form.setSpacing(4)
+
+        # Newton DU970P: crop region is always anchored to bottom of sensor
+        # (nearest readout register). Position cannot be changed (SetIsolatedCropModeEx
+        # is iXon Ultra only). Light must not fall on excluded rows.
+        crop_note = QLabel("⚠ Region anchored to bottom of sensor.\nNo light on excluded rows.")
+        crop_note.setWordWrap(True)
+        crop_note.setStyleSheet("color: gray; font-size: 10px;")
+        crop_form.addRow(crop_note)
+
         self._crop_height_spin = QSpinBox()
         self._crop_height_spin.setRange(1, 200)
         self._crop_height_spin.setValue(16)
-        crop_form.addRow("Crop height:", self._crop_height_spin)
+        crop_form.addRow("Crop height (rows):", self._crop_height_spin)
         self._crop_width_spin = QSpinBox()
         self._crop_width_spin.setRange(1, 1600)
         self._crop_width_spin.setValue(1600)

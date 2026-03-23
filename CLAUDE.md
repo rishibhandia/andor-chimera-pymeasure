@@ -143,6 +143,8 @@ uv run ruff check src/
 ### SDK Location
 - **Windows**: `C:\Program Files\Andor SDK`
 - The SDK path is configured in `HardwareManager` at `src/andor_qt/core/hardware_manager.py:77`
+- **API reference**: `C:\Users\katsumilab\Downloads\Software Development Kit.pdf` (346 pages)
+- **Hardware manual**: `C:\Users\katsumilab\Downloads\Andor_Newton_Manual.pdf` (44 pages)
 
 ### Required DLLs
 - `atmcd64d.dll` — Camera control (CCD operations)
@@ -160,6 +162,64 @@ The Andor SDK uses integer return codes. Key ones:
 - `20034` (DRV_TEMPERATURE_NOT_REACHED) — Still cooling
 - `20035` (DRV_TEMPERATURE_DRIFT) — Temperature drifting
 - `20036` (DRV_TEMPERATURE_NOT_STABILIZED) — Not yet stabilized
+
+### DU970P Newton EMCCD — Hardware Specifics
+
+The camera is a **Newton DU970P EMCCD** (1600 × 200 pixels, 16 × 16 µm pixels, 16-bit).
+It has **two output amplifiers** selectable in software:
+- `type=0` → EM amplifier (use with EM gain for weak-signal / low-noise work)
+- `type=1` → Conventional CCD amplifier (no EM multiplication, lower dark current)
+
+#### VS Speeds (vertical shift, `SetVSSpeed(index)`)
+| Index | Speed | Notes |
+|-------|-------|-------|
+| 0 | 4.9 µs/pixel | Fastest; slight CTE degradation possible |
+| 1 | 9.8 µs/pixel | **Recommended default** (optimum CTE) |
+| 2 | 19 µs/pixel | |
+| 3 | 38 µs/pixel | |
+| 4 | 57 µs/pixel | Slowest; best CTE |
+
+Faster VS speeds increase clock-induced charge and heat at high frame rates (see Newton manual §6.2).
+
+#### HS Speeds (horizontal readout, `SetHSSpeed(type, index)`)
+| Index | Speed | Noise |
+|-------|-------|-------|
+| 0 | 3 MHz | Higher read noise (~tens of e⁻) |
+| 1 | 1 MHz | Mid |
+| 2 | 50 kHz | Lowest read noise |
+
+Same speeds available for both EM and conventional amplifier.
+
+#### EM Gain (`SetEMCCDGain(gain)`)
+- Range: 1–1000 (queried at runtime via `GetEMGainRange()`)
+- Only meaningful when EM amplifier (`type=0`) is selected
+- Use ≥10 for EM noise benefit; at high gain EM noise factor = √2 (excess noise)
+- Do NOT set EM gain when using conventional amplifier
+
+#### Pre-Amplifier Gain (`SetPreAmpGain(index)`)
+- Typically 3 options: ×1, ×2, ×4 (exact values queried at runtime via `GetNumberPreAmpGains / GetPreAmpGain`)
+- Higher gain = better SNR for weak signals (lower effective read noise in e⁻/ADU)
+
+#### Read Modes
+- **FVB** (Full Vertical Binning): all 200 rows summed → 1D spectrum. Fastest for spectroscopy.
+- **Image**: 2D readout with `SetImage(hbin, vbin, hstart, hend, vstart, vend)`
+- **Single Track**: `SetSingleTrack(centre, height)` — bin `height` rows centred on `centre` (1-indexed from bottom)
+- **Crop Mode**: `SetIsolatedCropMode(active, cropheight, cropwidth, vbin, hbin)`
+
+#### Crop Mode — Critical Constraints (from SDK manual)
+- Region is **always anchored to the bottom of the sensor** (nearest readout register). **Position CANNOT be adjusted on Newton cameras.**
+- `SetIsolatedCropModeEx` (which allows position via `cropleft`/`cropbottom`) is **iXon Ultra only** — not available on DU970P.
+- `SetCropMode` (simpler, FVB-only Newton variant) also anchors to bottom; only `cropHeight` parameter.
+- **Light must NOT fall on excluded rows** — any charge there corrupts data through charge smear.
+- `cropheight` and `cropwidth` must each be a multiple of their respective bin value.
+- Newton supports FVB or Image read mode in isolated crop mode (iDus is FVB only).
+- Achieves up to 1,515 spectra/sec with 20-row crop + 3 MHz HS speed.
+
+#### `CameraSettingsWidget` — Usage Pattern
+Shared widget in `src/andor_qt/widgets/hardware/camera_settings.py`.
+Call `populate_from_camera(camera)` after hardware init to set runtime pre-amp options and EM gain range.
+Returns settings via `get_settings()` dict → passed to `camera.apply_camera_settings(dict)`.
+Used in: `DynamicInputsWidget`, `RealtimeWindow`, `TAScanConfigWidget`.
 
 ### Camera Shutdown
 Always warm up before shutdown to prevent thermal damage:
