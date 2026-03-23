@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QProgressDialog,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -155,6 +156,12 @@ class AndorSpectrometerWindow(QMainWindow):
 
         col1.addStretch()
 
+        col1_scroll = QScrollArea()
+        col1_scroll.setWidget(col1_widget)
+        col1_scroll.setWidgetResizable(True)
+        col1_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        col1_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
         # Column 2: Queue and data settings
         col2_widget = QWidget()
         col2 = QVBoxLayout(col2_widget)
@@ -190,7 +197,7 @@ class AndorSpectrometerWindow(QMainWindow):
 
         col2.addStretch()
 
-        left_main_layout.addWidget(col1_widget, stretch=1)
+        left_main_layout.addWidget(col1_scroll, stretch=1)
         left_main_layout.addWidget(col2_widget, stretch=1)
 
         # Right panel - Display
@@ -347,6 +354,10 @@ class AndorSpectrometerWindow(QMainWindow):
 
         self._hw_manager.inject_into_procedure(SpectrumProcedure)
         self._hw_manager.inject_into_procedure(ImageProcedure)
+
+        # Populate camera-specific options (pre-amp gains, EM gain range)
+        if self._hw_manager.camera:
+            self._inputs_widget.populate_from_camera(self._hw_manager.camera)
 
     @Slot(str)
     def _on_hardware_error(self, error_msg: str) -> None:
