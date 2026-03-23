@@ -525,12 +525,14 @@ class AndorCamera:
     def apply_camera_settings(self, settings: dict) -> None:
         """Apply a camera settings dict before acquisition.
 
-        Applies VS speed, HS speed, amplifier type, EM gain, and pre-amp gain
-        from the provided dict. Missing keys are silently skipped.
+        Applies VS speed, HS speed, amplifier type, EM gain, pre-amp gain,
+        and read area mode (full / single_track / crop) from the provided dict.
+        Missing keys are silently skipped.
 
         Args:
             settings: Dict with any of: vs_speed_index, hs_speed_index,
-                amplifier_type, em_gain, preamp_gain_index.
+                amplifier_type, em_gain, preamp_gain_index, read_area_mode,
+                single_track_centre, single_track_height, crop_height, crop_width.
 
         Raises:
             RuntimeError: If camera not initialized.
@@ -557,6 +559,22 @@ class AndorCamera:
                 self._sdk.SetEMCCDGain(gain)
             if "preamp_gain_index" in settings:
                 self._sdk.SetPreAmpGain(settings["preamp_gain_index"])
+
+            # Read area mode
+            mode = settings.get("read_area_mode", "full")
+            if mode == "crop":
+                crop_h = settings.get("crop_height", 16)
+                crop_w = settings.get("crop_width", 1600)
+                self._sdk.SetIsolatedCropMode(1, crop_h, crop_w, 1, 1)
+                log.debug(f"Crop mode enabled: {crop_h}×{crop_w}")
+            elif mode == "single_track":
+                centre = settings.get("single_track_centre", 100)
+                height_rows = settings.get("single_track_height", 10)
+                self._sdk.SetSingleTrack(centre, height_rows)
+                log.debug(f"Single track: centre={centre}, height={height_rows}")
+            else:
+                # Full CCD — ensure crop mode is deactivated
+                self._sdk.SetIsolatedCropMode(0, 200, 1600, 1, 1)
 
         log.debug(f"Camera settings applied: {settings}")
 

@@ -229,6 +229,108 @@ camera.set_cooler(False)  # Turn off cooler
 ```
 The GUI handles this automatically via `ShutdownDialog`.
 
+## Motion Controllers
+
+### Newport ESP302 — Delay Stage Controller
+
+**Full API reference:** `ESP302-API-Reference.md` (in repo root)
+
+#### Serial / TCP
+- **RS-232**: 8N1, `rtscts=True` (**CRITICAL** — without it commands are silently dropped), 19200 baud typical
+- **TCP port 5001**: raw ASCII (Telnet-style); **port 5002**: MKS Python wrapper library
+- Commands end with `\r` (CR); responses end with `\r\n` (CR LF)
+
+#### Command format (raw ASCII)
+```
+xxAAnnn\r      # xx = axis number (1–3), AA = mnemonic, nnn = params
+1VA10\r        # set axis 1 velocity to 10 units/s
+1TP\r          # query axis 1 position
+```
+Multiple commands in one line: semicolon-separated, max 80 chars.
+
+#### Critical rules
+| Rule | Detail |
+|------|--------|
+| **Motor on before move** | `xxMO` required; error `x13 MOTOR NOT ENABLED` if omitted |
+| **No implicit wait** | ESP302 queues commands — always poll `xxMD?` (done=`1`) or send `xxWS` |
+| **WS blocks serial** | In immediate mode `WS` freezes the port; use `MD?` polling from Python |
+| **Home every power cycle** | `xxOR1` (switch + index); `MF` (soft off) retains position; `MK` clears it |
+| **AB is all-axes** | `AB` stops and powers off ALL axes; no axis parameter |
+| **PA over PR for precision** | Successive `PR` moves accumulate rounding error |
+
+#### Key commands
+| Command | Description |
+|---------|-------------|
+| `xxMO` / `xxMF` / `xxMK` | Motor ON / soft OFF / kill+clear-home |
+| `xxOR1` | Home search (switch + index) |
+| `xxPA{pos}` | Move to absolute position |
+| `xxPR{delta}` | Move relative |
+| `xxTP` | Read actual position |
+| `xxMD?` | Motion done? `1`=done, `0`=moving |
+| `xxVA{v}` / `xxAC{a}` | Set velocity / acceleration |
+| `ST{ax}` / `AB` | Stop axis / emergency stop all |
+| `TB` | Read oldest error (code, timestamp, message) |
+
+#### Delay ↔ position conversion
+```python
+C_MM_PER_PS = 0.29979   # speed of light in mm/ps
+def delay_ps_to_mm(delay_ps, reference_mm=0.0):
+    return reference_mm + (delay_ps * C_MM_PER_PS) / 2   # /2 for double-pass
+```
+
+**Current project axis:** axis **2** (default changed from 1 to 2 in commit b5977be).
+
+---
+
+### OptoSigma GSC-02C + OSMS-YAW — Rotation Stage Controller
+
+**Full API reference:** `GSC02-SGSP-YAW-Reference.md` (in repo root)
+
+#### Serial connection
+```python
+serial.Serial(port='COM3', baudrate=9600, bytesize=8,
+              parity='N', stopbits=1, rtscts=True, timeout=5)
+```
+- Factory DIP default: 9600 baud (SW2=OFF, SW1=ON)
+- **`rtscts=True` required** — flow control is mandatory
+- Commands end with `\r\n` (CR LF)
+
+#### Critical rules
+| Rule | Detail |
+|------|--------|
+| **M:/A:/J: need G:** | Motion commands only queue; **nothing moves until `G:` is sent** |
+| **While BUSY** | Only `L:`, `Q:`, `!:`, `?:` accepted; all others silently ignored |
+| **Homing direction** | OSMS-YAW: always `H:1-` (CW toward limit sensor) — `H:1+` runs CCW indefinitely |
+| **No origin sensor** | OSMS-YAW has only a CW limit sensor; MINI homing touches it twice at two speeds |
+| **`L:` won't stop `H:`** | Use `L:W` or `L:E` to abort a homing move |
+
+#### Key commands
+| Command | Returns | Description |
+|---------|---------|-------------|
+| `H:1-` | — | Home axis 1 CW (OSMS-YAW) |
+| `M:1+P{n}` then `G:` | — | Relative move, n pulses CCW |
+| `A:1+P{n}` then `G:` | — | Absolute move to pulse n (GSC-02C only) |
+| `L:W` | — | Decelerate-stop all axes |
+| `L:E` | — | Emergency stop all axes |
+| `!:` | `B` or `R` | Quick busy check |
+| `Q:` | `pos1,pos2,ACK1,ACK2,ACK3` | Full status (ACK3: `B`=busy, `R`=ready) |
+| `R:W` | — | Zero coordinate at current position |
+
+#### Stage specs (OSMS-YAW)
+- 5-phase stepper, worm gear 1:144
+- **400 pulses/degree** (half-step default, 0.0025°/pulse)
+- CW hard stop at ~−2.5° (−1000 pulses); no CCW limit
+- Positioning accuracy: 0.1°; repeatability: 0.02°; backlash: 0.1°
+
+```python
+PULSES_PER_DEGREE = 400
+pulses = round(abs(degrees) * PULSES_PER_DEGREE)
+```
+
+#### DIP switch (OSMS-YAW required settings)
+- SW3 = **OFF** (MINI homing — uses CW limit as reference)
+- SW4 = **OFF** (Normal close limit sensor logic)
+
 ## Architecture
 
 ### Singleton Pattern
