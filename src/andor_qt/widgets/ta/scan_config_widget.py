@@ -42,6 +42,7 @@ from andor_qt.ta.scan_config import (
     log_delays,
     manual_delays,
 )
+from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -98,6 +99,10 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Sample name:", self._sample_name_edit)
 
         root.addWidget(common_group)
+
+        # --- Camera settings ---
+        self._camera_settings = CameraSettingsWidget()
+        root.addWidget(self._camera_settings)
 
         # --- Preview label ---
         self._preview_label = QLabel("0 delay points")
@@ -275,3 +280,17 @@ class TAScanConfigWidget(QGroupBox):
     @property
     def scan_button(self) -> QPushButton:
         return self._scan_btn
+
+    @property
+    def camera_settings_widget(self) -> CameraSettingsWidget:
+        """Get the embedded CameraSettingsWidget."""
+        return self._camera_settings
+
+    @property
+    def camera_settings(self) -> dict:
+        """Get current camera settings as a dict for apply_camera_settings()."""
+        return self._camera_settings.get_settings()
+
+    def populate_from_camera(self, camera) -> None:
+        """Populate camera-specific options from a live camera instance."""
+        self._camera_settings.populate_from_camera(camera)

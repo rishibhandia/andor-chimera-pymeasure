@@ -22,6 +22,7 @@ def acquire_delta_signal_at_delay(
     hw_manager,
     config: TAScanConfig,
     dark: Optional[np.ndarray] = None,
+    camera_settings: Optional[dict] = None,
 ) -> np.ndarray:
     """Acquire ΔI/I₀ spectrum at a specific time delay.
 
@@ -36,6 +37,8 @@ def acquire_delta_signal_at_delay(
         hw_manager: Hardware manager with ``.camera``, ``.motion`` attributes.
         config: Scan configuration (``n_averages``, ``acquisition_mode``).
         dark: Optional dark spectrum to subtract before computing ΔI/I₀.
+        camera_settings: Optional dict passed to camera.apply_camera_settings()
+            before acquisition. If None, current camera settings are unchanged.
 
     Returns:
         Averaged ΔI/I₀ spectrum (1-D numpy array).
@@ -44,6 +47,12 @@ def acquire_delta_signal_at_delay(
     axis = hw_manager.motion.get_axis("delay")
     if axis is not None:
         axis.position_ps = delay_ps
+
+    # Apply camera settings once before the averaging loop
+    if camera_settings is not None:
+        apply = getattr(hw_manager.camera, "apply_camera_settings", None)
+        if callable(apply):
+            apply(camera_settings)
 
     delta_signal_list = []
     for _ in range(config.n_averages):

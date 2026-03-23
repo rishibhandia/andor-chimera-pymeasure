@@ -72,7 +72,9 @@ class TAWindowPanel(QWidget):
         log.info(f"TA scan requested: {config.sample_name}, "
                  f"{len(config.delay_list)} delays, {config.n_scans} scans")
         self._live_display.clear()
-        self._engine.start_scan(config, self._hw_manager, writer=None)
+        camera_settings = self._config_widget.camera_settings
+        self._engine.start_scan(config, self._hw_manager, writer=None,
+                                 camera_settings=camera_settings)
 
     @Slot()
     def _on_scan_completed(self) -> None:

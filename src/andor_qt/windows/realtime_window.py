@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from andor_qt.core.hardware_manager import HardwareManager
 from andor_qt.widgets.display import ImagePlotWidget, SpectrumPlotWidget
+from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +126,10 @@ class RealtimeWindow(QMainWindow):
         exposure_layout.addLayout(exposure_row)
 
         layout.addWidget(exposure_group)
+
+        # Camera settings
+        self._camera_settings = CameraSettingsWidget()
+        layout.addWidget(self._camera_settings)
 
         # Control buttons
         control_group = QGroupBox("Control")
@@ -225,12 +230,14 @@ class RealtimeWindow(QMainWindow):
         self._signals.acquisition_started.emit()
 
         mode = self._mode_combo.currentData()
+        exposure = self._exposure_spin.value()
+        camera_settings = self._camera_settings.get_settings()
 
         def _acquisition_loop():
             """Background acquisition loop."""
             try:
                 while self._running:
-                    exposure = self._exposure_spin.value()
+                    self._hw_manager.camera.apply_camera_settings(camera_settings)
                     self._hw_manager.camera.set_exposure(exposure)
 
                     if mode == "fvb":
@@ -282,6 +289,7 @@ class RealtimeWindow(QMainWindow):
         self._start_button.setEnabled(False)
         self._stop_button.setEnabled(True)
         self._mode_combo.setEnabled(False)
+        self._camera_settings.setEnabled(False)
         self._status_label.setText("Running")
         self._fps_timer.start()
 
@@ -291,6 +299,7 @@ class RealtimeWindow(QMainWindow):
         self._start_button.setEnabled(True)
         self._stop_button.setEnabled(False)
         self._mode_combo.setEnabled(True)
+        self._camera_settings.setEnabled(True)
         self._status_label.setText("Stopped")
         self._fps_timer.stop()
 
@@ -306,6 +315,10 @@ class RealtimeWindow(QMainWindow):
         fps = self._frame_count - self._last_frame_count
         self._last_frame_count = self._frame_count
         self._fps_label.setText(f"FPS: {fps}")
+
+    def populate_from_camera(self, camera) -> None:
+        """Populate camera-specific options (pre-amp gain, EM range) from live camera."""
+        self._camera_settings.populate_from_camera(camera)
 
     def closeEvent(self, event) -> None:
         """Handle window close - stop acquisition first."""

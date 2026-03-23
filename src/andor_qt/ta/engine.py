@@ -67,11 +67,12 @@ class _ScanWorker(QObject):
         self._hw_manager = None
         self._writer = None
 
-    def setup(self, config: TAScanConfig, hw_manager, writer) -> None:
+    def setup(self, config: TAScanConfig, hw_manager, writer, camera_settings=None) -> None:
         """Configure the worker before starting."""
         self._config = config
         self._hw_manager = hw_manager
         self._writer = writer
+        self._camera_settings = camera_settings
         self._abort_event.clear()
         self._pause_event.set()
 
@@ -113,7 +114,10 @@ class _ScanWorker(QObject):
 
                     self.point_started.emit(scan_idx, delay_ps)
 
-                    delta_signal = acquire_delta_signal_at_delay(delay_ps, hw, config, dark=None)
+                    delta_signal = acquire_delta_signal_at_delay(
+                        delay_ps, hw, config, dark=None,
+                        camera_settings=self._camera_settings,
+                    )
 
                     if writer is not None:
                         writer.write_point(scan_idx, delay_ps, delta_signal)
@@ -179,19 +183,21 @@ class TransientAbsorptionEngine(QObject):
 
         self._thread.started.connect(self._worker.run)
 
-    def start_scan(self, config: TAScanConfig, hw_manager, writer=None) -> None:
+    def start_scan(self, config: TAScanConfig, hw_manager, writer=None, camera_settings=None) -> None:
         """Start the TA scan in a background thread.
 
         Args:
             config: Scan parameters.
             hw_manager: Hardware manager.
             writer: Optional ``TADataWriter`` (already opened).
+            camera_settings: Optional dict passed to apply_camera_settings()
+                before each acquisition point.
         """
         if self._thread.isRunning():
             log.warning("Scan already running")
             return
 
-        self._worker.setup(config, hw_manager, writer)
+        self._worker.setup(config, hw_manager, writer, camera_settings=camera_settings)
         self._thread.start()
 
     def pause(self) -> None:
