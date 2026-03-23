@@ -664,6 +664,8 @@ class AndorSpectrometerWindow(QMainWindow):
 
         if not hasattr(self, "_realtime_window") or self._realtime_window is None:
             self._realtime_window = RealtimeWindow(self._hw_manager, self)
+            if self._hw_manager.camera:
+                self._realtime_window.populate_from_camera(self._hw_manager.camera)
         self._realtime_window.show()
         self._realtime_window.raise_()
         self._realtime_window.activateWindow()

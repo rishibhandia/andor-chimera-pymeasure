@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QStatusBar,
     QVBoxLayout,
@@ -161,7 +162,14 @@ class RealtimeWindow(QMainWindow):
         layout.addWidget(stats_group)
 
         layout.addStretch()
-        return panel
+
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setMinimumWidth(260)
+        return scroll
 
     def _create_display_panel(self) -> QWidget:
         """Create the display panel with plot stack."""
