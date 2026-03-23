@@ -94,6 +94,23 @@ class AndorCamera:
             return float(temp)
 
     @property
+    def _acq_ok_codes(self) -> set:
+        """Return codes that indicate a successful acquisition result.
+
+        The Andor SDK may return temperature status codes (e.g. DRV_TEMPERATURE_STABILIZED)
+        from acquisition functions when the cooler reaches its target mid-acquisition.
+        These are informational — the image data is still valid.
+        """
+        ec = self._errors.Error_Codes
+        return {
+            ec.DRV_SUCCESS,
+            ec.DRV_TEMPERATURE_STABILIZED,
+            ec.DRV_TEMPERATURE_NOT_REACHED,
+            ec.DRV_TEMPERATURE_DRIFT,
+            ec.DRV_TEMPERATURE_NOT_STABILIZED,
+        }
+
+    @property
     def temperature_status(self) -> str:
         """Get temperature status string."""
         if not self._initialized:
@@ -264,7 +281,7 @@ class AndorCamera:
 
         # Wait for acquisition (outside lock so abort can work)
         ret = self._sdk.WaitForAcquisition()
-        if ret != self._errors.Error_Codes.DRV_SUCCESS:
+        if ret not in self._acq_ok_codes:
             with self._lock:
                 self._sdk.AbortAcquisition()
             raise RuntimeError(f"WaitForAcquisition failed with code: {ret}")
@@ -274,7 +291,7 @@ class AndorCamera:
             ret, arr, validfirst, validlast = self._sdk.GetImages16(
                 1, 1, eff_pixels
             )
-            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+            if ret not in self._acq_ok_codes:
                 raise RuntimeError(f"GetImages16 failed with code: {ret}")
 
         data = np.array(arr, dtype=np.float64)
@@ -323,7 +340,7 @@ class AndorCamera:
 
         # Wait for acquisition
         ret = self._sdk.WaitForAcquisition()
-        if ret != self._errors.Error_Codes.DRV_SUCCESS:
+        if ret not in self._acq_ok_codes:
             with self._lock:
                 self._sdk.AbortAcquisition()
             raise RuntimeError(f"WaitForAcquisition failed with code: {ret}")
@@ -331,7 +348,7 @@ class AndorCamera:
         # Get data
         with self._lock:
             ret, arr, validfirst, validlast = self._sdk.GetImages16(1, 1, image_size)
-            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+            if ret not in self._acq_ok_codes:
                 raise RuntimeError(f"GetImages16 failed with code: {ret}")
 
         data = np.array(arr, dtype=np.float64).reshape(eff_y, eff_x)
