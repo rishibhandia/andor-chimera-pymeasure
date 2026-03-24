@@ -190,3 +190,79 @@ class TestCameraSettingsPopulateFromCamera:
         widget.populate_from_camera(mock_camera)
         assert widget.em_gain_spin.minimum() == 1
         assert widget.em_gain_spin.maximum() == 1000
+
+
+class TestBinningControls:
+    def test_has_hbin_combo(self, widget):
+        assert hasattr(widget, "hbin_combo")
+
+    def test_hbin_default_is_1(self, widget):
+        assert widget.hbin_combo.currentData() == 1
+
+    def test_hbin_options_are_powers_of_two(self, widget):
+        values = [widget.hbin_combo.itemData(i) for i in range(widget.hbin_combo.count())]
+        assert values == [1, 2, 4, 8]
+
+    def test_has_vbin_spin(self, widget):
+        assert hasattr(widget, "vbin_spin")
+
+    def test_vbin_default_is_1(self, widget):
+        assert widget.vbin_spin.value() == 1
+
+    def test_get_settings_includes_hbin(self, widget):
+        assert "hbin" in widget.get_settings()
+
+    def test_get_settings_hbin_reflects_combo(self, widget):
+        widget.hbin_combo.setCurrentIndex(1)  # hbin=2
+        assert widget.get_settings()["hbin"] == 2
+
+    def test_get_settings_includes_vbin(self, widget):
+        assert "vbin" in widget.get_settings()
+
+    def test_crop_width_auto_rounded_to_hbin_multiple(self, widget):
+        idx = widget.read_area_combo.findData("crop")
+        widget.read_area_combo.setCurrentIndex(idx)
+        widget._crop_width_spin.setValue(1599)
+        widget.hbin_combo.setCurrentIndex(1)  # hbin=2
+        # crop_width should be rounded down to nearest multiple of 2
+        assert widget._crop_width_spin.value() % 2 == 0
+
+    def test_crop_height_auto_rounded_to_vbin_multiple(self, widget):
+        idx = widget.read_area_combo.findData("crop")
+        widget.read_area_combo.setCurrentIndex(idx)
+        widget._crop_height_spin.setValue(21)
+        widget.vbin_spin.setValue(4)
+        assert widget._crop_height_spin.value() % 4 == 0
+
+
+class TestTriggerModeControl:
+    def test_has_trigger_mode_combo(self, widget):
+        assert hasattr(widget, "trigger_mode_combo")
+
+    def test_default_trigger_is_internal(self, widget):
+        assert widget.trigger_mode_combo.currentData() == "internal"
+
+    def test_external_trigger_option_exists(self, widget):
+        values = [widget.trigger_mode_combo.itemData(i)
+                  for i in range(widget.trigger_mode_combo.count())]
+        assert "external" in values
+
+    def test_get_settings_includes_trigger_mode(self, widget):
+        assert "trigger_mode" in widget.get_settings()
+
+    def test_get_settings_trigger_mode_internal(self, widget):
+        widget.trigger_mode_combo.setCurrentIndex(0)
+        assert widget.get_settings()["trigger_mode"] == "internal"
+
+    def test_get_settings_trigger_mode_external(self, widget):
+        idx = widget.trigger_mode_combo.findData("external")
+        widget.trigger_mode_combo.setCurrentIndex(idx)
+        assert widget.get_settings()["trigger_mode"] == "external"
+
+
+class TestReadoutTimeDisplay:
+    def test_has_readout_time_label(self, widget):
+        assert hasattr(widget, "_readout_label")
+
+    def test_readout_label_contains_ms(self, widget):
+        assert "ms" in widget._readout_label.text()

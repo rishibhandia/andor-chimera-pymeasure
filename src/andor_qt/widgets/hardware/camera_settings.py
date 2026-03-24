@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from andor_qt.utils.readout_time import VS_SPEEDS_US, HS_RATES_HZ, calculate_readout_time_ms
+
 log = logging.getLogger(__name__)
 
 # DU970P VS speed options: (index, label, µs/pixel)
@@ -57,12 +59,18 @@ class CameraSettingsWidget(QGroupBox):
 
     settings_changed = Signal()
 
+    # Actual VS speed values in µs; overwritten by populate_from_camera
+    _vs_speeds_us: dict = VS_SPEEDS_US
+    # Actual HS rates in Hz; overwritten by populate_from_camera
+    _hs_rates_hz: dict = HS_RATES_HZ
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Camera Settings", parent)
         self._setup_ui()
         self._connect_signals()
         self._on_amplifier_changed(1)       # apply initial enable/disable (default: Conventional)
         self._on_read_area_changed(0)        # show/hide initial groups
+        self._update_readout_label()         # initialise readout time display
 
     # ------------------------------------------------------------------
     # UI construction
@@ -162,6 +170,45 @@ class CameraSettingsWidget(QGroupBox):
 
         layout.addWidget(area_group)
 
+        # --- Binning ---
+        bin_group = QGroupBox("Binning")
+        bin_form = QFormLayout(bin_group)
+        bin_form.setSpacing(4)
+
+        self.hbin_combo = QComboBox()
+        for v in (1, 2, 4, 8):
+            self.hbin_combo.addItem(f"{v}×", v)
+        bin_form.addRow("H bin:", self.hbin_combo)
+
+        self.vbin_spin = QSpinBox()
+        self.vbin_spin.setRange(1, 200)
+        self.vbin_spin.setValue(1)
+        bin_form.addRow("V bin:", self.vbin_spin)
+
+        layout.addWidget(bin_group)
+
+        # --- Trigger mode ---
+        trig_group = QGroupBox("Trigger")
+        trig_form = QFormLayout(trig_group)
+        trig_form.setSpacing(4)
+
+        self.trigger_mode_combo = QComboBox()
+        self.trigger_mode_combo.addItem("Internal (free-run)", "internal")
+        self.trigger_mode_combo.addItem("External (laser sync)", "external")
+        trig_form.addRow("Mode:", self.trigger_mode_combo)
+
+        ext_note = QLabel("⚠ External: acquisition blocks\nuntil hardware trigger arrives.")
+        ext_note.setWordWrap(True)
+        ext_note.setStyleSheet("color: gray; font-size: 10px;")
+        trig_form.addRow(ext_note)
+
+        layout.addWidget(trig_group)
+
+        # --- Readout time display ---
+        self._readout_label = QLabel("Readout: -- ms")
+        self._readout_label.setStyleSheet("font-size: 11px;")
+        layout.addWidget(self._readout_label)
+
     def _populate_hs_speeds(self, amplifier_type: int) -> None:
         """Repopulate HS speed combo for the selected amplifier type."""
         self.hs_speed_combo.blockSignals(True)
@@ -181,22 +228,81 @@ class CameraSettingsWidget(QGroupBox):
     def _connect_signals(self) -> None:
         self.amplifier_combo.currentIndexChanged.connect(self._on_amplifier_changed)
         self.read_area_combo.currentIndexChanged.connect(self._on_read_area_changed)
+        self.hbin_combo.currentIndexChanged.connect(self._on_hbin_changed)
+        self.vbin_spin.valueChanged.connect(self._on_vbin_changed)
 
         # Emit settings_changed for any control change
-        self.vs_speed_combo.currentIndexChanged.connect(self.settings_changed)
-        self.hs_speed_combo.currentIndexChanged.connect(self.settings_changed)
-        self.amplifier_combo.currentIndexChanged.connect(self.settings_changed)
-        self.em_gain_spin.valueChanged.connect(self.settings_changed)
-        self.preamp_gain_combo.currentIndexChanged.connect(self.settings_changed)
-        self.read_area_combo.currentIndexChanged.connect(self.settings_changed)
-        self._st_centre_spin.valueChanged.connect(self.settings_changed)
-        self._st_height_spin.valueChanged.connect(self.settings_changed)
-        self._crop_height_spin.valueChanged.connect(self.settings_changed)
-        self._crop_width_spin.valueChanged.connect(self.settings_changed)
+        for widget in (
+            self.vs_speed_combo, self.hs_speed_combo, self.amplifier_combo,
+            self.preamp_gain_combo, self.read_area_combo, self.trigger_mode_combo,
+            self.hbin_combo,
+        ):
+            widget.currentIndexChanged.connect(self.settings_changed)
+        for spinbox in (
+            self.em_gain_spin, self.vbin_spin,
+            self._st_centre_spin, self._st_height_spin,
+            self._crop_height_spin, self._crop_width_spin,
+        ):
+            spinbox.valueChanged.connect(self.settings_changed)
+
+        self.settings_changed.connect(self._update_readout_label)
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
+
+    def _on_hbin_changed(self, _index: int) -> None:
+        """Round crop width down to nearest multiple of hbin."""
+        hbin = self.hbin_combo.currentData() or 1
+        if hbin > 1:
+            w = self._crop_width_spin.value()
+            self._crop_width_spin.blockSignals(True)
+            self._crop_width_spin.setValue(max(hbin, (w // hbin) * hbin))
+            self._crop_width_spin.blockSignals(False)
+
+    def _on_vbin_changed(self, _value: int) -> None:
+        """Round crop height down to nearest multiple of vbin."""
+        vbin = self.vbin_spin.value()
+        if vbin > 1:
+            h = self._crop_height_spin.value()
+            self._crop_height_spin.blockSignals(True)
+            self._crop_height_spin.setValue(max(vbin, (h // vbin) * vbin))
+            self._crop_height_spin.blockSignals(False)
+
+    def _update_readout_label(self) -> None:
+        """Recompute and display the estimated readout time."""
+        vs_idx = self.vs_speed_combo.currentData()
+        hs_idx = self.hs_speed_combo.currentData()
+        if vs_idx is None or hs_idx is None:
+            return
+        hbin = self.hbin_combo.currentData() or 1
+        vbin = self.vbin_spin.value()
+        mode = self.read_area_combo.currentData() or "full"
+
+        if mode == "crop":
+            n_rows = self._crop_height_spin.value()
+            n_px = self._crop_width_spin.value()
+            calc_mode = "crop"
+        elif mode == "single_track":
+            n_rows = self._st_height_spin.value()
+            n_px = 1600
+            calc_mode = "single_track"
+        else:
+            # full CCD — show FVB time (worst-case for TA/spectroscopy)
+            n_rows = 200
+            n_px = 1600
+            calc_mode = "fvb"
+
+        t_ms = calculate_readout_time_ms(calc_mode, n_rows, n_px, vs_idx, hs_idx, hbin, vbin)
+
+        color = "red" if t_ms > 1.0 else "green" if t_ms < 0.8 else "orange"
+        self._readout_label.setText(
+            f"<span style='color:{color}'>Readout: {t_ms:.2f} ms</span>"
+            + (" ⚠ &gt;1 ms" if t_ms > 1.0 else "")
+        )
+        self._readout_label.setTextFormat(
+            __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.TextFormat.RichText
+        )
 
     def _on_amplifier_changed(self, index: int) -> None:
         amplifier_type = self.amplifier_combo.itemData(index) if index >= 0 else 0
@@ -300,6 +406,9 @@ class CameraSettingsWidget(QGroupBox):
 
         mode = self.read_area_combo.itemData(self.read_area_combo.currentIndex()) or "full"
 
+        trig_idx = self.trigger_mode_combo.currentIndex()
+        trigger_mode = self.trigger_mode_combo.itemData(trig_idx) if trig_idx >= 0 else "internal"
+
         settings: dict = {
             "vs_speed_index": self.vs_speed_combo.itemData(vs_idx) if vs_idx >= 0 else 1,
             "hs_speed_index": self.hs_speed_combo.itemData(hs_idx) if hs_idx >= 0 else 0,
@@ -307,6 +416,9 @@ class CameraSettingsWidget(QGroupBox):
             "em_gain": self.em_gain_spin.value(),
             "preamp_gain_index": self.preamp_gain_combo.itemData(pa_idx) if pa_idx >= 0 else 0,
             "read_area_mode": mode,
+            "hbin": self.hbin_combo.currentData() or 1,
+            "vbin": self.vbin_spin.value(),
+            "trigger_mode": trigger_mode,
         }
 
         if mode == "single_track":
