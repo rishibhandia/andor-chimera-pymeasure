@@ -1,0 +1,41 @@
+# TA Scan Configuration
+# Edit this file and load it from the TA panel in the GUI.
+
+# --- Delay list ---
+delay_list:
+  - -10.0
+  - -5.0
+  - 0.0
+  - 1.0
+  - 2.0
+  - 5.0
+  - 10.0
+  - 20.0
+  - 50.0
+  - 100.0
+  - 200.0
+  - 500.0
+  - 1000.0
+
+# --- Averaging / scan control ---
+n_averages: 10          # pump-on/pump-off pairs averaged per delay point
+n_scans: 1              # number of complete passes through delay_list
+acquisition_mode: boxcar  # boxcar | shot_to_shot
+scan_direction: alternating  # forward | alternating (reverses on odd scans)
+
+# --- Sample metadata ---
+sample_name: ""
+notes: ""
+
+# --- NI DAQ hardware phase reader ---
+# Chopper 500 Hz REF OUT  →  Connector 0, P0.0  (nidaq_di_channel)
+# Laser sync OUT          →  Connector 1, PFI0  (nidaq_clock_source)
+# Laser sync OUT          →  Camera Ext Trigger SMB  (same signal, T-split)
+nidaq_device: Dev1
+nidaq_di_channel: port1/line4   # USER 2 BNC (PFI4) — chopper 500 Hz REF OUT
+nidaq_clock_source: /Dev1/PFI0  # trigger area BNC (PFI0) — laser sync 1 kHz
+nidaq_clock_rate: 1000.0        # laser repetition rate in Hz
+
+# --- Wavelengths (optional) ---
+# Leave as null to use the full detector range.
+wavelengths: null
