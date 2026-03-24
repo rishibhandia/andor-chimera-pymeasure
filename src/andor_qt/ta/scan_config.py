@@ -43,6 +43,11 @@ class TAScanConfig:
     wavelengths: Optional[List[float]] = None
     sample_name: str = ""
     notes: str = ""
+    # NI DAQ hardware phase reader settings
+    nidaq_device: str = "Dev1"
+    nidaq_di_channel: str = "port0/line0"
+    nidaq_clock_source: str = "/Dev1/PFI0"
+    nidaq_clock_rate: float = 1000.0
 
     def ordered_delays(self, scan_index: int) -> List[float]:
         """Return delay list in scan order for the given scan index.
@@ -73,6 +78,10 @@ class TAScanConfig:
             "wavelengths": self.wavelengths,
             "sample_name": self.sample_name,
             "notes": self.notes,
+            "nidaq_device": self.nidaq_device,
+            "nidaq_di_channel": self.nidaq_di_channel,
+            "nidaq_clock_source": self.nidaq_clock_source,
+            "nidaq_clock_rate": self.nidaq_clock_rate,
         }
         with open(path, "w", encoding="utf-8") as fh:
             yaml.dump(data, fh, default_flow_style=False)
