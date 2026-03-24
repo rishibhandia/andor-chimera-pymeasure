@@ -56,6 +56,23 @@ class TestApplyCameraSettingsTriggerMode:
         cam.apply_camera_settings({"hbin": 1})  # no trigger_mode key
         assert cam._sdk._state.trigger_mode == 1
 
+    def test_trigger_fast_external_sets_sdk_1_and_fast(self, cam):
+        cam.apply_camera_settings({"trigger_mode": "fast_external"})
+        assert cam._sdk._state.trigger_mode == 1
+        assert cam._sdk._state.fast_ext_trigger == 1
+
+    def test_trigger_external_disables_fast_ext(self, cam):
+        cam.apply_camera_settings({"trigger_mode": "fast_external"})
+        cam.apply_camera_settings({"trigger_mode": "external"})
+        assert cam._sdk._state.trigger_mode == 1
+        assert cam._sdk._state.fast_ext_trigger == 0
+
+    def test_trigger_internal_disables_fast_ext(self, cam):
+        cam.apply_camera_settings({"trigger_mode": "fast_external"})
+        cam.apply_camera_settings({"trigger_mode": "internal"})
+        assert cam._sdk._state.trigger_mode == 0
+        assert cam._sdk._state.fast_ext_trigger == 0
+
 
 class TestApplyCameraSettingsCropBinning:
     def test_crop_mode_passes_hbin_vbin_to_sdk(self, cam):

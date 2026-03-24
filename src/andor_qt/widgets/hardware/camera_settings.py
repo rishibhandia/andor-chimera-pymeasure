@@ -196,11 +196,17 @@ class CameraSettingsWidget(QGroupBox):
         self.trigger_mode_combo = QComboBox()
         self.trigger_mode_combo.addItem("Internal (free-run)", "internal")
         self.trigger_mode_combo.addItem("External (laser sync)", "external")
+        self.trigger_mode_combo.addItem("External Fast (overlap readout)", "fast_external")
         trig_form.addRow("Mode:", self.trigger_mode_combo)
 
-        ext_note = QLabel("⚠ External: acquisition blocks\nuntil hardware trigger arrives.")
+        ext_note = QLabel(
+            "⚠ External: blocks until trigger.\n"
+            "Fast: overlaps readout — higher rep rate,\n"
+            "requires readout time &lt; laser period."
+        )
         ext_note.setWordWrap(True)
         ext_note.setStyleSheet("color: gray; font-size: 10px;")
+        ext_note.setTextFormat(__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.TextFormat.RichText)
         trig_form.addRow(ext_note)
 
         layout.addWidget(trig_group)

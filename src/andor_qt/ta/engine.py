@@ -151,7 +151,7 @@ class _ScanWorker(QObject):
 
         finally:
             # Always restore to internal trigger after scan ends or aborts
-            if trigger_mode == "external" and callable(_apply):
+            if trigger_mode in ("external", "fast_external") and callable(_apply):
                 try:
                     _apply({"trigger_mode": "internal"})
                 except Exception:

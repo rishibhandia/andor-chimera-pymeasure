@@ -630,9 +630,17 @@ class AndorCamera:
 
             # Trigger mode
             if "trigger_mode" in settings:
-                sdk_mode = 1 if settings["trigger_mode"] == "external" else 0
-                self._sdk.SetTriggerMode(sdk_mode)
-                log.debug(f"Trigger mode: {settings['trigger_mode']} ({sdk_mode})")
+                trig = settings["trigger_mode"]
+                if trig == "fast_external":
+                    self._sdk.SetTriggerMode(1)   # external
+                    self._sdk.SetFastExtTrigger(1)
+                elif trig == "external":
+                    self._sdk.SetTriggerMode(1)
+                    self._sdk.SetFastExtTrigger(0)
+                else:  # internal
+                    self._sdk.SetTriggerMode(0)
+                    self._sdk.SetFastExtTrigger(0)
+                log.debug(f"Trigger mode: {trig}")
 
         log.debug(f"Camera settings applied: {settings}")
 

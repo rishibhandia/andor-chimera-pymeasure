@@ -56,7 +56,8 @@ class MockCameraState:
     crop_mode_active: bool = False
     crop_height: int = 16
     crop_width: int = 1024
-    trigger_mode: int = 0  # 0=internal, 1=external
+    trigger_mode: int = 0       # 0=internal, 1=external
+    fast_ext_trigger: int = 0  # 0=disabled, 1=enabled (SetFastExtTrigger)
 
 
 @dataclass
@@ -209,6 +210,14 @@ class MockAtmcd:
     def SetTriggerMode(self, mode: int) -> int:
         """Set trigger mode (0=internal, 1=external)."""
         self._state.trigger_mode = mode
+        return DRV_SUCCESS
+
+    def SetFastExtTrigger(self, mode: int) -> int:
+        """Enable (1) or disable (0) fast external trigger.
+
+        Only meaningful when trigger mode is external (1).
+        """
+        self._state.fast_ext_trigger = mode
         return DRV_SUCCESS
 
     def SetImage(
