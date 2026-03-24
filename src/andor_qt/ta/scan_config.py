@@ -44,9 +44,9 @@ class TAScanConfig:
     sample_name: str = ""
     notes: str = ""
     # NI DAQ hardware phase reader settings
-    nidaq_device: str = "Dev1"
-    nidaq_di_channel: str = "port0/line0"
-    nidaq_clock_source: str = "/Dev1/PFI0"
+    nidaq_device: str = "Astrella DAQ"
+    nidaq_di_channel: str = "port1/line4"
+    nidaq_clock_source: str = "/Astrella DAQ/PFI0"
     nidaq_clock_rate: float = 1000.0
 
     def ordered_delays(self, scan_index: int) -> List[float]:

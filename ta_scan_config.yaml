@@ -28,12 +28,13 @@ sample_name: ""
 notes: ""
 
 # --- NI DAQ hardware phase reader ---
-# Chopper 500 Hz REF OUT  →  Connector 0, P0.0  (nidaq_di_channel)
-# Laser sync OUT          →  Connector 1, PFI0  (nidaq_clock_source)
+# Chopper 500 Hz REF OUT  →  USER 2 BNC  →  jumper to PFI4 screw terminal  (nidaq_di_channel)
+# Any DI line works here — PFI not required, the chopper signal is just data being sampled.
+# Laser sync OUT          →  PFI0 BNC  (nidaq_clock_source) — MUST be PFI, used as sample clock
 # Laser sync OUT          →  Camera Ext Trigger SMB  (same signal, T-split)
-nidaq_device: Dev1
-nidaq_di_channel: port1/line4   # USER 2 BNC (PFI4) — chopper 500 Hz REF OUT
-nidaq_clock_source: /Dev1/PFI0  # trigger area BNC (PFI0) — laser sync 1 kHz
+nidaq_device: "Astrella DAQ"
+nidaq_di_channel: port1/line4   # USER 2 BNC → PFI4 screw terminal — chopper 500 Hz REF OUT
+nidaq_clock_source: "/Astrella DAQ/PFI0"  # PFI0 BNC — laser sync 1 kHz (sample clock)
 nidaq_clock_rate: 1000.0        # laser repetition rate in Hz
 
 # --- Wavelengths (optional) ---
