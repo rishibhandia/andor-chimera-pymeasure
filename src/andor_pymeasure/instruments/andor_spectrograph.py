@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -175,8 +174,6 @@ class AndorSpectrograph:
                 desc = self._spc.GetFunctionReturnDescription(ret, 64)[1]
                 raise RuntimeError(f"SetWavelength failed: {desc}")
 
-        # SDK SetWavelength is blocking, but add small delay to be safe
-        time.sleep(0.5)
         log.info(f"Wavelength set to {value}nm")
 
     def get_wavelength_limits(self, grating: Optional[int] = None) -> Tuple[float, float]:

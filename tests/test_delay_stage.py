@@ -165,7 +165,7 @@ class TestMockDelayStageMotion:
         thread = threading.Thread(target=slow_move)
         thread.start()
 
-        time.sleep(0.05)  # Let move start
+        time.sleep(0.005)  # Let move start (5 ms is enough for thread scheduling)
         initialized_delay_stage.stop()
 
         # Moving flag should be cleared

@@ -348,8 +348,8 @@ class MockAtmcd:
 
     def WaitForAcquisition(self) -> int:
         """Wait for acquisition to complete."""
-        # Simulate exposure time
-        time.sleep(min(self._state.exposure_time, 0.1))  # Cap at 0.1s for tests
+        # Simulate exposure time (capped at 10 ms so tests stay fast)
+        time.sleep(min(self._state.exposure_time, 0.010))
         self._state.acquiring = False
         return DRV_SUCCESS
 
@@ -480,8 +480,7 @@ class MockATSpectrograph:
         """Set grating (blocking call)."""
         if 1 <= grating <= self._state.num_gratings:
             self._state.current_grating = grating
-            # Simulate blocking wait for grating movement
-            time.sleep(0.01)  # Small delay for tests
+            time.sleep(0.001)  # 1 ms — just enough for async state tests
             return ATSPECTROGRAPH_SUCCESS
         return 1  # Error
 
@@ -495,8 +494,7 @@ class MockATSpectrograph:
         g = self._state.gratings[grating - 1]
         if g["wl_min"] <= wavelength <= g["wl_max"]:
             self._state.current_wavelength = wavelength
-            # Simulate blocking wait for wavelength motor
-            time.sleep(0.01)  # Small delay for tests
+            time.sleep(0.001)  # 1 ms — just enough for async state tests
             return ATSPECTROGRAPH_SUCCESS
         return 1  # Error
 
