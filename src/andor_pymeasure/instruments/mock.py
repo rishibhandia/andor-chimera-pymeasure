@@ -56,6 +56,7 @@ class MockCameraState:
     crop_mode_active: bool = False
     crop_height: int = 16
     crop_width: int = 1024
+    trigger_mode: int = 0  # 0=internal, 1=external
 
 
 @dataclass
@@ -206,7 +207,8 @@ class MockAtmcd:
         return DRV_SUCCESS
 
     def SetTriggerMode(self, mode: int) -> int:
-        """Set trigger mode."""
+        """Set trigger mode (0=internal, 1=external)."""
+        self._state.trigger_mode = mode
         return DRV_SUCCESS
 
     def SetImage(
@@ -301,6 +303,8 @@ class MockAtmcd:
         self._state.crop_mode_active = bool(active)
         self._state.crop_height = cropheight
         self._state.crop_width = cropwidth
+        self._state.vbin = vbin
+        self._state.hbin = hbin
         return DRV_SUCCESS
 
     def PrepareAcquisition(self) -> int:

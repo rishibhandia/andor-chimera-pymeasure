@@ -67,6 +67,7 @@ class AndorCamera:
         self._lock = threading.Lock()
         self._info: Optional[CameraInfo] = None
         self._cooler_on = False
+        self._current_hbin: int = 1  # tracks last applied hbin for get_spectrum()
 
     @property
     def info(self) -> Optional[CameraInfo]:
@@ -297,6 +298,17 @@ class AndorCamera:
         data = np.array(arr, dtype=np.float64)
         log.debug(f"FVB acquisition complete: {len(data)} pixels (hbin={hbin})")
         return data
+
+    def get_spectrum(self) -> np.ndarray:
+        """Acquire one FVB spectrum using the current hbin setting.
+
+        Convenience wrapper for TA acquisition loops.  Uses ``_current_hbin``
+        set by the last ``apply_camera_settings`` call (default 1).
+
+        Returns:
+            1-D numpy array of intensities.
+        """
+        return self.acquire_fvb(hbin=self._current_hbin)
 
     def acquire_image(self, hbin: int = 1, vbin: int = 1) -> np.ndarray:
         """Acquire 2D image with optional binning.
@@ -577,13 +589,17 @@ class AndorCamera:
             if "preamp_gain_index" in settings:
                 self._sdk.SetPreAmpGain(settings["preamp_gain_index"])
 
+            hbin = settings.get("hbin", 1)
+            vbin = settings.get("vbin", 1)
+            self._current_hbin = hbin
+
             # Read area mode
             mode = settings.get("read_area_mode", "full")
             if mode == "crop":
                 crop_h = settings.get("crop_height", 16)
                 crop_w = settings.get("crop_width", 1600)
-                self._sdk.SetIsolatedCropMode(1, crop_h, crop_w, 1, 1)
-                log.debug(f"Crop mode enabled: {crop_h}×{crop_w}")
+                self._sdk.SetIsolatedCropMode(1, crop_h, crop_w, vbin, hbin)
+                log.debug(f"Crop mode enabled: {crop_h}×{crop_w} vbin={vbin} hbin={hbin}")
             elif mode == "single_track":
                 centre = settings.get("single_track_centre", 100)
                 height_rows = settings.get("single_track_height", 10)
@@ -592,6 +608,14 @@ class AndorCamera:
             else:
                 # Full CCD — ensure crop mode is deactivated
                 self._sdk.SetIsolatedCropMode(0, 200, 1600, 1, 1)
+                if hbin > 1:
+                    self._sdk.SetFVBHBin(hbin)
+
+            # Trigger mode
+            if "trigger_mode" in settings:
+                sdk_mode = 1 if settings["trigger_mode"] == "external" else 0
+                self._sdk.SetTriggerMode(sdk_mode)
+                log.debug(f"Trigger mode: {settings['trigger_mode']} ({sdk_mode})")
 
         log.debug(f"Camera settings applied: {settings}")
 
