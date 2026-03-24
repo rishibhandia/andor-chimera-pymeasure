@@ -86,6 +86,12 @@ class _ScanWorker(QObject):
         all_delays = []
         all_signals = []  # list of 1-D arrays
 
+        # Apply trigger mode once before the scan, restore on exit
+        trigger_mode = (self._camera_settings or {}).get("trigger_mode", "internal")
+        _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
+        if callable(_apply) and self._camera_settings:
+            _apply(self._camera_settings)
+
         try:
             for scan_idx in range(config.n_scans):
                 if self._abort_event.is_set():
@@ -142,6 +148,14 @@ class _ScanWorker(QObject):
         except Exception as exc:
             log.exception("TA engine error")
             self.error.emit(str(exc))
+
+        finally:
+            # Always restore to internal trigger after scan ends or aborts
+            if trigger_mode == "external" and callable(_apply):
+                try:
+                    _apply({"trigger_mode": "internal"})
+                except Exception:
+                    pass
 
 
 class TransientAbsorptionEngine(QObject):
