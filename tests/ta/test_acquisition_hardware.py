@@ -69,7 +69,7 @@ class TestTAScanConfigNIDAQFields:
     def test_defaults(self):
         cfg = TAScanConfig(delay_list=[0.0])
         assert cfg.nidaq_device == "Astrella DAQ"
-        assert cfg.nidaq_di_channel == "port1/line4"
+        assert cfg.nidaq_di_channel == "port0/line0"
         assert cfg.nidaq_clock_source == "/Astrella DAQ/PFI0"
         assert cfg.nidaq_clock_rate == 1000.0
 

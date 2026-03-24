@@ -45,7 +45,7 @@ class TAScanConfig:
     notes: str = ""
     # NI DAQ hardware phase reader settings
     nidaq_device: str = "Astrella DAQ"
-    nidaq_di_channel: str = "port1/line4"
+    nidaq_di_channel: str = "port0/line0"
     nidaq_clock_source: str = "/Astrella DAQ/PFI0"
     nidaq_clock_rate: float = 1000.0
 
