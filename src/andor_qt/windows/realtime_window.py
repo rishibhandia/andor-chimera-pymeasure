@@ -13,6 +13,8 @@ from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QGroupBox,
@@ -165,6 +167,28 @@ class RealtimeWindow(QMainWindow):
         stats_layout.addWidget(self._fps_label)
 
         layout.addWidget(stats_group)
+
+        # Display settings
+        display_group = QGroupBox("Display")
+        display_layout = QVBoxLayout(display_group)
+
+        self._lock_y_check = QCheckBox("Lock Y range")
+        self._lock_y_check.toggled.connect(self._on_lock_y_toggled)
+        display_layout.addWidget(self._lock_y_check)
+
+        color_row = QHBoxLayout()
+        color_row.addWidget(QLabel("Trace color:"))
+        self._color_button = QPushButton()
+        self._color_button.setFixedWidth(40)
+        self._color_button.setToolTip("Click to choose trace color")
+        self._color_button.clicked.connect(self._pick_trace_color)
+        self._live_trace_color = "#1f77b4"
+        self._color_button.setStyleSheet(f"background-color: {self._live_trace_color}")
+        color_row.addWidget(self._color_button)
+        color_row.addStretch()
+        display_layout.addLayout(color_row)
+
+        layout.addWidget(display_group)
 
         layout.addStretch()
 
@@ -330,6 +354,21 @@ class RealtimeWindow(QMainWindow):
         fps = self._frame_count - self._last_frame_count
         self._last_frame_count = self._frame_count
         self._fps_label.setText(f"FPS: {fps}")
+
+    @Slot(bool)
+    def _on_lock_y_toggled(self, locked: bool) -> None:
+        """Freeze or unfreeze the Y axis on the spectrum plot."""
+        self._spectrum_plot.set_auto_range(not locked)
+
+    def _pick_trace_color(self) -> None:
+        """Open a color dialog and apply the chosen color to the live trace."""
+        from PySide6.QtGui import QColor
+        initial = QColor(self._live_trace_color)
+        color = QColorDialog.getColor(initial, self, "Choose trace color")
+        if color.isValid():
+            self._live_trace_color = color.name()
+            self._color_button.setStyleSheet(f"background-color: {self._live_trace_color}")
+            self._spectrum_plot.set_live_color(self._live_trace_color)
 
     def populate_from_camera(self, camera) -> None:
         """Populate camera-specific options (pre-amp gain, EM range) from live camera."""

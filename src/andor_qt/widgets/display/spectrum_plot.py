@@ -65,6 +65,8 @@ class SpectrumPlotWidget(QWidget):
         self._next_trace_id: int = 1
         self._color_index: int = 0
         self._live_trace_id: Optional[int] = None  # ID of the "live" trace for set_data()
+        self._auto_range: bool = True
+        self._live_color: str = self.COLOR_CYCLE[0]
 
         self._setup_ui()
 
@@ -266,25 +268,79 @@ class SpectrumPlotWidget(QWidget):
         wavelengths: Optional[np.ndarray],
         intensities: np.ndarray,
     ) -> None:
-        """Set spectrum data to display (backward-compatible).
+        """Update the live trace in-place (no color cycling, no forced auto-range).
 
-        Replaces the current "live" trace with the new data.
-        If no live trace exists, creates one.
+        Creates the live trace on the first call; subsequent calls update the
+        existing PlotCurveItem directly so the color stays fixed and the Y range
+        only resets when auto-range is enabled.
 
         Args:
             wavelengths: Wavelength array (or None for pixel axis).
             intensities: Intensity values.
         """
-        # Remove previous live trace if it exists
-        if self._live_trace_id is not None and self._live_trace_id in self._traces:
-            self._remove_trace_internal(self._live_trace_id)
+        x_data = wavelengths if wavelengths is not None else np.arange(len(intensities))
 
-        self._live_trace_id = self.add_trace(wavelengths, intensities, label="Live")
+        if self._live_trace_id is not None and self._live_trace_id in self._traces:
+            # Fast in-place update — no color change, no trace list churn
+            trace = self._traces[self._live_trace_id]
+            trace.wavelengths = wavelengths
+            trace.intensities = intensities
+            if trace.plot_item is not None:
+                trace.plot_item.setData(x_data, intensities)
+        else:
+            # First call: create the live trace using the fixed live color
+            plot_item = self._plot_widget.plot(
+                x_data, intensities,
+                pen=pg.mkPen(color=self._live_color, width=2),
+            )
+            trace_id = self._next_trace_id
+            self._next_trace_id += 1
+            trace = TraceData(
+                id=trace_id, label="Live",
+                wavelengths=wavelengths, intensities=intensities,
+                color=self._live_color, visible=True, plot_item=plot_item,
+            )
+            self._traces[trace_id] = trace
+            self._trace_order.append(trace_id)
+            self._live_trace_id = trace_id
+            self.trace_added.emit(trace_id, "Live", self._live_color)
+
+        self._wavelengths = wavelengths
+        self._intensities = intensities
+
+        if self._auto_range:
+            self._plot_widget.autoRange()
 
         if wavelengths is not None:
             self._plot_widget.setLabel("bottom", "Wavelength", units="nm")
         else:
             self._plot_widget.setLabel("bottom", "Pixel")
+
+    def set_auto_range(self, enabled: bool) -> None:
+        """Enable or disable automatic Y-range adjustment on live data updates.
+
+        When disabled the view stays fixed so fluctuations are easier to judge.
+        Immediately triggers a single autoRange when re-enabled.
+
+        Args:
+            enabled: True to auto-range on every update, False to lock the range.
+        """
+        self._auto_range = enabled
+        if enabled:
+            self._plot_widget.autoRange()
+
+    def set_live_color(self, color: str) -> None:
+        """Set the color of the live trace.
+
+        Args:
+            color: Color string (hex, e.g. ``"#1f77b4"``).
+        """
+        self._live_color = color
+        if self._live_trace_id is not None and self._live_trace_id in self._traces:
+            trace = self._traces[self._live_trace_id]
+            trace.color = color
+            if trace.plot_item is not None:
+                trace.plot_item.setPen(pg.mkPen(color=color, width=2))
 
     def clear(self) -> None:
         """Clear the plot (backward-compatible)."""
