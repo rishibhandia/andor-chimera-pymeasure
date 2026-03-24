@@ -53,6 +53,8 @@ class ImagePlotWidget(QWidget):
         if hasattr(view, "setLabel"):
             view.setLabel("bottom", "Wavelength (nm)")
             view.setLabel("left", "Row")
+            view.setLabel("top", "Pixel")
+            view.showAxis("top")
 
         layout.addWidget(self._image_view)
 
@@ -70,8 +72,10 @@ class ImagePlotWidget(QWidget):
         if self._image_data is None:
             return
 
-        # Map position to view coordinates (wavelength units when calibrated)
-        view_box = self._image_view.getView()
+        # getView() returns a PlotItem when constructed with view=pg.PlotItem().
+        # mapSceneToView / sceneBoundingRect live on the ViewBox, not the PlotItem.
+        view = self._image_view.getView()
+        view_box = view.getViewBox() if hasattr(view, "getViewBox") else view
         if view_box.sceneBoundingRect().contains(pos):
             mouse_point = view_box.mapSceneToView(pos)
             n_rows, n_cols = self._image_data.shape
@@ -122,8 +126,29 @@ class ImagePlotWidget(QWidget):
                 pos=(wl_start, 0),
                 scale=(wl_scale, 1),
             )
+            self._update_pixel_axis(wl_start, wl_scale, image.shape[1])
         else:
             self._image_view.setImage(image.T, autoLevels=True, autoRange=True)
+            self._clear_pixel_axis()
+
+    def _update_pixel_axis(self, wl_start: float, wl_scale: float, n_pixels: int) -> None:
+        """Set top-axis ticks to show pixel indices at their wavelength positions."""
+        view = self._image_view.getView()
+        if not hasattr(view, "getAxis"):
+            return
+        top_axis = view.getAxis("top")
+        # ~8 evenly spaced ticks across the pixel range
+        n_ticks = min(8, n_pixels)
+        indices = np.round(np.linspace(0, n_pixels - 1, n_ticks)).astype(int)
+        wl_positions = wl_start + indices * wl_scale
+        major = [(float(wl), str(int(px))) for wl, px in zip(wl_positions, indices)]
+        top_axis.setTicks([major, []])
+
+    def _clear_pixel_axis(self) -> None:
+        """Remove custom pixel ticks from the top axis."""
+        view = self._image_view.getView()
+        if hasattr(view, "getAxis"):
+            view.getAxis("top").setTicks(None)
 
     def clear(self) -> None:
         """Clear the image."""

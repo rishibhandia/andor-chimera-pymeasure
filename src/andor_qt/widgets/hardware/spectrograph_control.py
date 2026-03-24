@@ -56,6 +56,11 @@ class SpectrographControlWidget(QGroupBox):
         self._setup_ui()
         self._connect_signals()
 
+        # Populate immediately if spectrograph is already initialized
+        # (signal was emitted before this widget was created)
+        if self._hw.spectrograph and getattr(self._hw.spectrograph, "info", None):
+            self._on_spectrograph_initialized({})
+
     def _setup_ui(self) -> None:
         """Set up the widget UI."""
         layout = QVBoxLayout(self)

@@ -285,7 +285,7 @@ class CameraSettingsWidget(QGroupBox):
         if self._camera is not None:
             try:
                 self._camera.apply_camera_settings(self.get_settings())
-                t_ms = self._camera.get_readout_time() * 1000.0
+                t_ms = float(self._camera.get_readout_time()) * 1000.0
             except Exception as exc:
                 log.debug(f"SDK GetReadOutTime failed, falling back to formula: {exc}")
                 t_ms = None

@@ -178,7 +178,7 @@ class TestRealtimeWindowWorkflow:
         assert window._exposure_spin.value() == 0.5
 
         # Check range
-        assert window._exposure_spin.minimum() >= 0.001
+        assert window._exposure_spin.minimum() >= 1e-6  # minimum is 1 µs
         assert window._exposure_spin.maximum() <= 300.0
 
 
