@@ -70,3 +70,35 @@ class TestApplyCameraSettingsCropBinning:
         assert state.hbin == 2
         assert state.vbin == 4
         assert state.crop_mode_active
+
+
+class TestGetReadoutTime:
+    def test_get_readout_time_returns_float(self, cam):
+        t = cam.get_readout_time()
+        assert isinstance(t, float)
+
+    def test_get_readout_time_positive(self, cam):
+        t = cam.get_readout_time()
+        assert t > 0
+
+    def test_get_readout_time_fvb_3mhz_under_2ms(self, cam):
+        cam.apply_camera_settings({"vs_speed_index": 0, "hs_speed_index": 0})
+        t_ms = cam.get_readout_time() * 1000.0
+        assert t_ms < 2.0
+
+    def test_get_readout_time_crop_faster_than_full(self, cam):
+        cam.apply_camera_settings({"read_area_mode": "full"})
+        t_full = cam.get_readout_time()
+        cam.apply_camera_settings({
+            "read_area_mode": "crop", "crop_height": 20, "crop_width": 1600,
+            "hbin": 1, "vbin": 1,
+        })
+        t_crop = cam.get_readout_time()
+        assert t_crop < t_full
+
+    def test_get_readout_time_hbin2_faster_than_hbin1(self, cam):
+        cam.apply_camera_settings({"hbin": 1, "hs_speed_index": 2})
+        t1 = cam.get_readout_time()
+        cam.apply_camera_settings({"hbin": 2, "hs_speed_index": 2})
+        t2 = cam.get_readout_time()
+        assert t2 < t1

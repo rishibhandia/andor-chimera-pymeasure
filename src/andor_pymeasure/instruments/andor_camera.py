@@ -299,6 +299,23 @@ class AndorCamera:
         log.debug(f"FVB acquisition complete: {len(data)} pixels (hbin={hbin})")
         return data
 
+    def get_readout_time(self) -> float:
+        """Return SDK-calculated readout time in seconds.
+
+        Call after applying all acquisition settings.  Returns 0.0 if the
+        camera is not initialized or the SDK call fails.
+
+        Returns:
+            Readout time in seconds.
+        """
+        if not self._initialized:
+            return 0.0
+        with self._lock:
+            ret, t = self._sdk.GetReadOutTime()
+            if ret == self._errors.Error_Codes.DRV_SUCCESS:
+                return float(t)
+        return 0.0
+
     def get_spectrum(self) -> np.ndarray:
         """Acquire one FVB spectrum using the current hbin setting.
 

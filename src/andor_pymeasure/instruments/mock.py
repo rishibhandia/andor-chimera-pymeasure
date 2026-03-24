@@ -267,6 +267,31 @@ class MockAtmcd:
         self._state.hs_speed_index = index
         return DRV_SUCCESS
 
+    def GetReadOutTime(self) -> Tuple[int, float]:
+        """Return estimated readout time in seconds based on current state.
+
+        Uses the same formula as the readout time calculator but avoids
+        importing from andor_qt to prevent circular dependencies.
+        """
+        _VS_US = {0: 4.9, 1: 9.8, 2: 19.0, 3: 38.0, 4: 57.0}
+        _HS_HZ = {0: 3_000_000.0, 1: 1_000_000.0, 2: 50_000.0}
+
+        vs_us = _VS_US.get(self._state.vs_speed_index, 9.8)
+        hs_hz = _HS_HZ.get(self._state.hs_speed_index, 1_000_000.0)
+        hbin = max(1, self._state.hbin)
+
+        if self._state.crop_mode_active:
+            n_rows = self._state.crop_height
+            n_px = self._state.crop_width
+        else:
+            n_rows = self._state.ypixels
+            n_px = self._state.xpixels
+
+        # Crop / FVB: all rows shift in, then one horizontal readout
+        eff_px = max(1, n_px // hbin)
+        t_s = (n_rows * vs_us / 1_000_000.0) + (eff_px / hs_hz)
+        return DRV_SUCCESS, t_s
+
     def SetOutputAmplifier(self, typ: int) -> int:
         """Set output amplifier: 0=EM, 1=conventional."""
         self._state.amplifier_type = typ

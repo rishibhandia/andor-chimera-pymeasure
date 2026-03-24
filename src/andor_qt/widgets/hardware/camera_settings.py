@@ -66,6 +66,7 @@ class CameraSettingsWidget(QGroupBox):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Camera Settings", parent)
+        self._camera = None  # set by populate_from_camera(); enables SDK readout time
         self._setup_ui()
         self._connect_signals()
         self._on_amplifier_changed(1)       # apply initial enable/disable (default: Conventional)
@@ -270,39 +271,56 @@ class CameraSettingsWidget(QGroupBox):
             self._crop_height_spin.blockSignals(False)
 
     def _update_readout_label(self) -> None:
-        """Recompute and display the estimated readout time."""
-        vs_idx = self.vs_speed_combo.currentData()
-        hs_idx = self.hs_speed_combo.currentData()
-        if vs_idx is None or hs_idx is None:
-            return
-        hbin = self.hbin_combo.currentData() or 1
-        vbin = self.vbin_spin.value()
-        mode = self.read_area_combo.currentData() or "full"
+        """Recompute and display the readout time.
 
-        if mode == "crop":
-            n_rows = self._crop_height_spin.value()
-            n_px = self._crop_width_spin.value()
-            calc_mode = "crop"
-        elif mode == "single_track":
-            n_rows = self._st_height_spin.value()
-            n_px = 1600
-            calc_mode = "single_track"
-        else:
-            # full CCD — show FVB time (worst-case for TA/spectroscopy)
-            n_rows = 200
-            n_px = 1600
-            calc_mode = "fvb"
+        When a camera reference is available (set by populate_from_camera),
+        queries the SDK via GetReadOutTime() for an authoritative value.
+        Falls back to the analytical formula otherwise.
+        """
+        from PySide6.QtCore import Qt
 
-        t_ms = calculate_readout_time_ms(calc_mode, n_rows, n_px, vs_idx, hs_idx, hbin, vbin)
+        t_ms: Optional[float] = None
+
+        # --- SDK path (authoritative) ---
+        if self._camera is not None:
+            try:
+                self._camera.apply_camera_settings(self.get_settings())
+                t_ms = self._camera.get_readout_time() * 1000.0
+            except Exception as exc:
+                log.debug(f"SDK GetReadOutTime failed, falling back to formula: {exc}")
+                t_ms = None
+
+        # --- Formula fallback ---
+        if t_ms is None:
+            vs_idx = self.vs_speed_combo.currentData()
+            hs_idx = self.hs_speed_combo.currentData()
+            if vs_idx is None or hs_idx is None:
+                return
+            hbin = self.hbin_combo.currentData() or 1
+            vbin = self.vbin_spin.value()
+            mode = self.read_area_combo.currentData() or "full"
+
+            if mode == "crop":
+                n_rows = self._crop_height_spin.value()
+                n_px = self._crop_width_spin.value()
+                calc_mode = "crop"
+            elif mode == "single_track":
+                n_rows = self._st_height_spin.value()
+                n_px = 1600
+                calc_mode = "single_track"
+            else:
+                n_rows = 200
+                n_px = 1600
+                calc_mode = "fvb"
+
+            t_ms = calculate_readout_time_ms(calc_mode, n_rows, n_px, vs_idx, hs_idx, hbin, vbin)
 
         color = "red" if t_ms > 1.0 else "green" if t_ms < 0.8 else "orange"
         self._readout_label.setText(
             f"<span style='color:{color}'>Readout: {t_ms:.2f} ms</span>"
             + (" ⚠ &gt;1 ms" if t_ms > 1.0 else "")
         )
-        self._readout_label.setTextFormat(
-            __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.TextFormat.RichText
-        )
+        self._readout_label.setTextFormat(Qt.TextFormat.RichText)
 
     def _on_amplifier_changed(self, index: int) -> None:
         amplifier_type = self.amplifier_combo.itemData(index) if index >= 0 else 0
@@ -388,6 +406,10 @@ class CameraSettingsWidget(QGroupBox):
             self.em_gain_spin.setRange(em_low, em_high)
         except Exception as e:
             log.warning(f"Could not set EM gain range: {e}")
+
+        # Store camera ref so _update_readout_label() can query GetReadOutTime()
+        self._camera = camera
+        self._update_readout_label()
 
     def get_settings(self) -> dict:
         """Return current settings as a dict suitable for apply_camera_settings().
