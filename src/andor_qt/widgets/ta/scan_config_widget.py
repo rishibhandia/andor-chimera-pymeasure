@@ -19,6 +19,7 @@ from typing import List
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -41,6 +42,7 @@ from andor_qt.ta.scan_config import (
     linear_delays,
     log_delays,
     manual_delays,
+    stage_delays_ps,
 )
 from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
 
@@ -69,6 +71,7 @@ class TAScanConfigWidget(QGroupBox):
         self._tabs.addTab(self._build_linear_tab(), "Linear")
         self._tabs.addTab(self._build_log_tab(), "Log")
         self._tabs.addTab(self._build_manual_tab(), "Manual")
+        self._tabs.addTab(self._build_stage_tab(), "Stage")
         self._tabs.currentChanged.connect(self._update_preview)
         root.addWidget(self._tabs)
 
@@ -77,8 +80,8 @@ class TAScanConfigWidget(QGroupBox):
         form = QFormLayout(common_group)
 
         self._n_averages_spin = QSpinBox()
-        self._n_averages_spin.setRange(1, 1000)
-        self._n_averages_spin.setValue(3)
+        self._n_averages_spin.setRange(1, 10000)
+        self._n_averages_spin.setValue(2000)
         form.addRow("Averages per point:", self._n_averages_spin)
 
         self._n_scans_spin = QSpinBox()
@@ -97,6 +100,24 @@ class TAScanConfigWidget(QGroupBox):
         self._sample_name_edit = QLineEdit()
         self._sample_name_edit.setPlaceholderText("sample_name")
         form.addRow("Sample name:", self._sample_name_edit)
+
+        # Save individual spectra option
+        self._save_spectra_check = QCheckBox("Save individual spectra")
+        save_dir_row = QHBoxLayout()
+        self._save_spectra_dir_edit = QLineEdit()
+        self._save_spectra_dir_edit.setPlaceholderText("Output directory…")
+        self._save_spectra_dir_edit.setEnabled(False)
+        self._save_spectra_dir_btn = QPushButton("…")
+        self._save_spectra_dir_btn.setFixedWidth(28)
+        self._save_spectra_dir_btn.setEnabled(False)
+        save_dir_row.addWidget(self._save_spectra_dir_edit)
+        save_dir_row.addWidget(self._save_spectra_dir_btn)
+        form.addRow(self._save_spectra_check)
+        form.addRow("Spectra directory:", save_dir_row)
+
+        self._save_spectra_check.toggled.connect(self._save_spectra_dir_edit.setEnabled)
+        self._save_spectra_check.toggled.connect(self._save_spectra_dir_btn.setEnabled)
+        self._save_spectra_dir_btn.clicked.connect(self._on_choose_spectra_dir)
 
         root.addWidget(common_group)
 
@@ -182,6 +203,44 @@ class TAScanConfigWidget(QGroupBox):
         layout.addWidget(self._manual_text)
         return w
 
+    def _build_stage_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+
+        self._stage_axis_spin = QSpinBox()
+        self._stage_axis_spin.setRange(1, 3)
+        self._stage_axis_spin.setValue(2)
+        form.addRow("ESP302 axis:", self._stage_axis_spin)
+
+        self._stage_start_spin = QDoubleSpinBox()
+        self._stage_start_spin.setRange(-200000.0, 200000.0)
+        self._stage_start_spin.setDecimals(1)
+        self._stage_start_spin.setValue(-57000.0)
+        self._stage_start_spin.setSuffix(" µm")
+        form.addRow("Start position:", self._stage_start_spin)
+
+        self._stage_step_spin = QDoubleSpinBox()
+        self._stage_step_spin.setRange(0.1, 10000.0)
+        self._stage_step_spin.setDecimals(2)
+        self._stage_step_spin.setValue(3.0)
+        self._stage_step_spin.setSuffix(" µm")
+        form.addRow("Step size:", self._stage_step_spin)
+
+        self._stage_n_steps_spin = QSpinBox()
+        self._stage_n_steps_spin.setRange(1, 10000)
+        self._stage_n_steps_spin.setValue(400)
+        form.addRow("Number of steps:", self._stage_n_steps_spin)
+
+        for spin in (self._stage_start_spin, self._stage_step_spin, self._stage_n_steps_spin):
+            spin.valueChanged.connect(self._update_preview)
+
+        return w
+
+    def _on_choose_spectra_dir(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select spectra output directory")
+        if path:
+            self._save_spectra_dir_edit.setText(path)
+
     def _get_delay_list(self) -> List[float]:
         tab = self._tabs.currentIndex()
         try:
@@ -197,7 +256,7 @@ class TAScanConfigWidget(QGroupBox):
                     self._log_end.value(),
                     self._log_ppd.value(),
                 )
-            else:  # Manual
+            elif tab == 2:  # Manual
                 text = self._manual_text.toPlainText()
                 values = []
                 for part in text.replace(",", "\n").split("\n"):
@@ -205,6 +264,12 @@ class TAScanConfigWidget(QGroupBox):
                     if part:
                         values.append(float(part))
                 return manual_delays(values)
+            else:  # Stage (tab == 3)
+                return stage_delays_ps(
+                    self._stage_start_spin.value(),
+                    self._stage_step_spin.value(),
+                    self._stage_n_steps_spin.value(),
+                )
         except Exception as exc:
             log.warning(f"Delay list error: {exc}")
             return []
@@ -214,6 +279,10 @@ class TAScanConfigWidget(QGroupBox):
         self._preview_label.setText(f"{len(delays)} delay points")
 
     def _build_config(self) -> TAScanConfig:
+        save_dir = None
+        if self._save_spectra_check.isChecked():
+            d = self._save_spectra_dir_edit.text().strip()
+            save_dir = d if d else None
         return TAScanConfig(
             delay_list=self._get_delay_list(),
             n_averages=self._n_averages_spin.value(),
@@ -221,6 +290,11 @@ class TAScanConfigWidget(QGroupBox):
             acquisition_mode=self._acq_mode_combo.currentText(),
             scan_direction=self._scan_dir_combo.currentText(),
             sample_name=self._sample_name_edit.text(),
+            stage_start_um=self._stage_start_spin.value(),
+            stage_step_um=self._stage_step_spin.value(),
+            stage_n_steps=self._stage_n_steps_spin.value(),
+            stage_axis=self._stage_axis_spin.value(),
+            save_spectra_dir=save_dir,
         )
 
     def _on_start_scan(self) -> None:
@@ -280,6 +354,22 @@ class TAScanConfigWidget(QGroupBox):
     @property
     def scan_button(self) -> QPushButton:
         return self._scan_btn
+
+    @property
+    def stage_axis_spin(self) -> QSpinBox:
+        return self._stage_axis_spin
+
+    @property
+    def stage_start_spin(self) -> QDoubleSpinBox:
+        return self._stage_start_spin
+
+    @property
+    def stage_step_spin(self) -> QDoubleSpinBox:
+        return self._stage_step_spin
+
+    @property
+    def stage_n_steps_spin(self) -> QSpinBox:
+        return self._stage_n_steps_spin
 
     @property
     def camera_settings_widget(self) -> CameraSettingsWidget:

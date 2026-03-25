@@ -88,6 +88,62 @@ class TestTAScanConfigWidgetSignal:
         assert emitted[0].sample_name == "my_sample"
 
 
+class TestTAScanConfigWidgetStageTab:
+    def _select_stage_tab(self, widget):
+        from PySide6.QtWidgets import QTabWidget
+        tabs = widget.findChildren(QTabWidget)[0]
+        for i in range(tabs.count()):
+            if "stage" in tabs.tabText(i).lower():
+                tabs.setCurrentIndex(i)
+                return True
+        return False
+
+    def test_has_stage_tab(self, widget):
+        assert self._select_stage_tab(widget), "No 'Stage' tab found"
+
+    def test_stage_tab_default_start_um(self, widget):
+        self._select_stage_tab(widget)
+        assert widget.stage_start_spin.value() == pytest.approx(-57000.0)
+
+    def test_stage_tab_default_step_um(self, widget):
+        self._select_stage_tab(widget)
+        assert widget.stage_step_spin.value() == pytest.approx(3.0)
+
+    def test_stage_tab_default_n_steps(self, widget):
+        self._select_stage_tab(widget)
+        assert widget.stage_n_steps_spin.value() == 400
+
+    def test_stage_tab_default_axis(self, widget):
+        self._select_stage_tab(widget)
+        assert widget.stage_axis_spin.value() == 2
+
+    def test_stage_scan_emits_correct_delay_count(self, widget):
+        self._select_stage_tab(widget)
+        widget.stage_n_steps_spin.setValue(10)
+        emitted = []
+        widget.scan_requested.connect(lambda cfg: emitted.append(cfg))
+        widget.scan_button.click()
+        assert len(emitted[0].delay_list) == 10
+
+    def test_stage_scan_delay_list_monotone(self, widget):
+        self._select_stage_tab(widget)
+        widget.stage_n_steps_spin.setValue(5)
+        widget.stage_start_spin.setValue(0.0)
+        widget.stage_step_spin.setValue(3.0)
+        emitted = []
+        widget.scan_requested.connect(lambda cfg: emitted.append(cfg))
+        widget.scan_button.click()
+        delays = emitted[0].delay_list
+        assert all(delays[i] < delays[i + 1] for i in range(len(delays) - 1))
+
+    def test_n_averages_default_2000(self, widget):
+        assert widget.n_averages_spin.value() == 2000
+
+    def test_n_averages_range_up_to_10000(self, widget):
+        widget.n_averages_spin.setValue(10000)
+        assert widget.n_averages_spin.value() == 10000
+
+
 class TestTAScanConfigWidgetYAML:
     def test_save_load_roundtrip(self, widget, tmp_path):
         widget.n_averages_spin.setValue(7)
