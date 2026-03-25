@@ -21,6 +21,7 @@ from andor_qt.ta.scan_config import (
     linear_delays,
     log_delays,
     manual_delays,
+    stage_delays_ps,
 )
 
 
@@ -258,3 +259,105 @@ class TestManualDelays:
     def test_single_value(self):
         result = manual_delays([42.0])
         assert result == [42.0]
+
+
+# ---------------------------------------------------------------------------
+# stage_delays_ps
+# ---------------------------------------------------------------------------
+
+_C_MM_PS = 0.299792458
+
+
+class TestStageScanHelpers:
+    def test_stage_delays_ps_count(self):
+        delays = stage_delays_ps(-57000.0, 3.0, 400)
+        assert len(delays) == 400
+
+    def test_stage_delays_ps_first_position(self):
+        delays = stage_delays_ps(-57000.0, 3.0, 10)
+        expected_first = (2 * (-57.0)) / _C_MM_PS
+        assert delays[0] == pytest.approx(expected_first, rel=1e-6)
+
+    def test_stage_delays_ps_uniform_step(self):
+        delays = stage_delays_ps(0.0, 3.0, 5)
+        step_ps = (2 * 0.003) / _C_MM_PS
+        for i in range(1, len(delays)):
+            assert delays[i] - delays[i - 1] == pytest.approx(step_ps, rel=1e-6)
+
+    def test_stage_delays_ps_single_step(self):
+        delays = stage_delays_ps(0.0, 3.0, 1)
+        assert len(delays) == 1
+        assert delays[0] == pytest.approx(0.0, abs=1e-10)
+
+    def test_stage_delays_ps_returns_list(self):
+        delays = stage_delays_ps(0.0, 1.0, 3)
+        assert isinstance(delays, list)
+
+
+# ---------------------------------------------------------------------------
+# TAScanConfig — stage fields
+# ---------------------------------------------------------------------------
+
+
+class TestTAScanConfigStageFields:
+    def test_default_stage_axis(self):
+        config = TAScanConfig(delay_list=[0.0])
+        assert config.stage_axis == 2
+
+    def test_default_stage_start_um(self):
+        config = TAScanConfig(delay_list=[0.0])
+        assert config.stage_start_um == pytest.approx(-57000.0)
+
+    def test_default_stage_step_um(self):
+        config = TAScanConfig(delay_list=[0.0])
+        assert config.stage_step_um == pytest.approx(3.0)
+
+    def test_default_stage_n_steps(self):
+        config = TAScanConfig(delay_list=[0.0])
+        assert config.stage_n_steps == 400
+
+    def test_save_spectra_dir_default_none(self):
+        config = TAScanConfig(delay_list=[0.0])
+        assert config.save_spectra_dir is None
+
+    def test_stage_fields_yaml_roundtrip(self, tmp_path):
+        config = TAScanConfig(
+            delay_list=[0.0, 1.0],
+            stage_start_um=-57000.0,
+            stage_step_um=3.0,
+            stage_n_steps=400,
+            stage_axis=2,
+            save_spectra_dir="/tmp/spectra",
+        )
+        yaml_path = tmp_path / "config.yaml"
+        config.to_yaml(yaml_path)
+        loaded = TAScanConfig.from_yaml(yaml_path)
+        assert loaded.stage_start_um == pytest.approx(-57000.0)
+        assert loaded.stage_step_um == pytest.approx(3.0)
+        assert loaded.stage_n_steps == 400
+        assert loaded.stage_axis == 2
+        assert loaded.save_spectra_dir == "/tmp/spectra"
+
+    def test_from_yaml_backward_compat(self, tmp_path):
+        """Old YAML without stage fields loads with defaults."""
+        import yaml
+
+        old_data = {
+            "delay_list": [0.0, 1.0],
+            "n_averages": 3,
+            "n_scans": 1,
+            "acquisition_mode": "boxcar",
+            "scan_direction": "forward",
+            "wavelengths": None,
+            "sample_name": "old",
+            "notes": "",
+            "nidaq_device": "Astrella DAQ",
+            "nidaq_di_channel": "port0/line0",
+            "nidaq_clock_source": "/Astrella DAQ/PFI0",
+            "nidaq_clock_rate": 1000.0,
+        }
+        yaml_path = tmp_path / "old_config.yaml"
+        yaml_path.write_text(yaml.dump(old_data))
+        loaded = TAScanConfig.from_yaml(yaml_path)
+        assert loaded.stage_axis == 2
+        assert loaded.save_spectra_dir is None

@@ -10,12 +10,15 @@ Delay generator functions are pure (no side effects) and return ``list[float]``.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dc_fields
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 import yaml
+
+# Speed of light in mm/ps (used for µm ↔ ps conversion)
+SPEED_OF_LIGHT_MM_PS = 0.299792458
 
 
 @dataclass
@@ -36,7 +39,7 @@ class TAScanConfig:
     """
 
     delay_list: List[float]
-    n_averages: int = 3
+    n_averages: int = 2000
     n_scans: int = 1
     acquisition_mode: str = "boxcar"
     scan_direction: str = "forward"
@@ -48,6 +51,13 @@ class TAScanConfig:
     nidaq_di_channel: str = "port0/line0"
     nidaq_clock_source: str = "/Astrella DAQ/PFI0"
     nidaq_clock_rate: float = 1000.0
+    # Delay stage scan parameters (positions in µm)
+    stage_start_um: float = -57000.0
+    stage_step_um: float = 3.0
+    stage_n_steps: int = 400
+    stage_axis: int = 2
+    # Optional directory to save individual spectrum files per delay point
+    save_spectra_dir: Optional[str] = None
 
     def ordered_delays(self, scan_index: int) -> List[float]:
         """Return delay list in scan order for the given scan index.
@@ -69,20 +79,7 @@ class TAScanConfig:
         Args:
             path: File path (str or Path).
         """
-        data = {
-            "delay_list": self.delay_list,
-            "n_averages": self.n_averages,
-            "n_scans": self.n_scans,
-            "acquisition_mode": self.acquisition_mode,
-            "scan_direction": self.scan_direction,
-            "wavelengths": self.wavelengths,
-            "sample_name": self.sample_name,
-            "notes": self.notes,
-            "nidaq_device": self.nidaq_device,
-            "nidaq_di_channel": self.nidaq_di_channel,
-            "nidaq_clock_source": self.nidaq_clock_source,
-            "nidaq_clock_rate": self.nidaq_clock_rate,
-        }
+        data = {f.name: getattr(self, f.name) for f in dc_fields(self)}
         with open(path, "w", encoding="utf-8") as fh:
             yaml.dump(data, fh, default_flow_style=False)
 
@@ -98,7 +95,9 @@ class TAScanConfig:
         """
         with open(path, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
-        return cls(**data)
+        # Filter unknown keys for forward-compatibility
+        known = {f.name for f in dc_fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 # ---------------------------------------------------------------------------
@@ -197,3 +196,25 @@ def manual_delays(values: List[float]) -> List[float]:
         List of delay values (copy).
     """
     return list(values)
+
+
+def stage_delays_ps(start_um: float, step_um: float, n_steps: int) -> List[float]:
+    """Convert delay stage positions to optical delays in picoseconds.
+
+    Positions are given in micrometres; the round-trip conversion is::
+
+        delay_ps = (2 * position_mm) / c_mm_ps
+
+    Args:
+        start_um: Starting stage position in µm.
+        step_um: Step size in µm (positive = increasing delay).
+        n_steps: Number of steps (scan points).
+
+    Returns:
+        List of delay values in picoseconds.
+    """
+    delays = []
+    for i in range(n_steps):
+        position_mm = (start_um + i * step_um) / 1000.0
+        delays.append((2.0 * position_mm) / SPEED_OF_LIGHT_MM_PS)
+    return delays
