@@ -82,8 +82,8 @@ class TALiveDisplayWidget(QGroupBox):
 
         # --- 2-D heatmap ---
         self._heatmap_plot = pg.PlotWidget(title="ΔI/I₀ Map")
-        self._heatmap_plot.setLabel("left", "Delay (ps)")
-        self._heatmap_plot.setLabel("bottom", "Wavelength (nm)")
+        self._heatmap_plot.setLabel("left", "Wavelength (nm)")
+        self._heatmap_plot.setLabel("bottom", "Delay (ps)")
         self._image_item = pg.ImageItem()
         self._heatmap_plot.addItem(self._image_item)
         self._colorbar = pg.ColorBarItem(
@@ -171,13 +171,14 @@ class TALiveDisplayWidget(QGroupBox):
         if mat.ndim != 2 or len(d) == 0 or len(wl) == 0:
             return
 
-        # setImage expects (x, y) = (wavelengths, delays) → transpose
-        self._image_item.setImage(mat.T)
+        # setImage expects (x, y): x = delay (columns), y = wavelength (rows)
+        # mat shape is (n_delays, n_wavelengths) so no transpose needed
+        self._image_item.setImage(mat)
 
         if len(wl) > 1 and len(d) > 1:
             self._image_item.setRect(
-                float(wl[0]), float(d[0]),
-                float(wl[-1] - wl[0]), float(d[-1] - d[0]),
+                float(d[0]), float(wl[0]),
+                float(d[-1] - d[0]), float(wl[-1] - wl[0]),
             )
 
         vmax = float(np.nanmax(np.abs(mat))) or 0.01
