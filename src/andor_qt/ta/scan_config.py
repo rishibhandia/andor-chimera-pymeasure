@@ -51,6 +51,9 @@ class TAScanConfig:
     nidaq_di_channel: str = "port0/line0"
     nidaq_clock_source: str = "/Astrella DAQ/PFI0"
     nidaq_clock_rate: float = 1000.0
+    # NI DAQ chopper_2x2 trigger generator settings
+    nidaq_chopper_sync_source: str = "/Astrella DAQ/PFI12"
+    nidaq_chopper_counter: str = "ctr1"
     # Delay stage scan parameters (positions in µm)
     stage_start_um: float = -57000.0
     stage_step_um: float = 3.0

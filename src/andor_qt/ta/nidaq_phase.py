@@ -182,3 +182,48 @@ class MockNIDAQPhaseReader:
 
     def __exit__(self, *args) -> None:
         self.stop()
+
+
+class MockNIDAQChopper2x2Reader:
+    """Mock phase reader for chopper_2x2 mode — no NI hardware required.
+
+    Simulates 250 Hz chopping of a 1 kHz laser: each pair of consecutive
+    shots has the same phase (pump-on: [1, 1], pump-off: [0, 0]).
+
+    ``read_tags(2)`` returns matched pairs, suitable for ``_acquire_chopper_2x2``.
+
+    Args:
+        initial_phase: Starting frame phase.  1 = pump-on frame first (default),
+            0 = pump-off frame first.
+    """
+
+    def __init__(self, initial_phase: int = 1, **kwargs) -> None:
+        if initial_phase not in (0, 1):
+            raise ValueError("initial_phase must be 0 or 1")
+        self._initial_phase = initial_phase
+        self._shot_counter = 0
+
+    def start(self) -> None:
+        self._shot_counter = 0
+
+    def stop(self) -> None:
+        pass
+
+    def read_one(self) -> int:
+        """Return the next shot tag (pattern: 1,1,0,0,1,1,0,0,…)."""
+        # Each group of 2 consecutive shots has the same phase
+        frame = self._shot_counter // 2
+        tag = (self._initial_phase + frame) % 2
+        self._shot_counter += 1
+        return int(tag)
+
+    def read_tags(self, n: int) -> np.ndarray:
+        """Return the next ``n`` shot tags as a numpy array."""
+        return np.array([self.read_one() for _ in range(n)], dtype=np.int8)
+
+    def __enter__(self) -> "MockNIDAQChopper2x2Reader":
+        self.start()
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.stop()

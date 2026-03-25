@@ -255,6 +255,72 @@ class TestEngineSaveSpectra:
         assert list(tmp_path.iterdir()) == []
 
 
+class TestEngineChopper2x2:
+    """Engine correctly starts/stops trigger_gen and phase_reader."""
+
+    def _run_engine(self, engine, config, hw, trigger_gen=None, phase_reader=None, timeout=10.0):
+        import time as _time
+        from PySide6.QtWidgets import QApplication
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda msg: done.__setitem__(0, True))
+        engine.start_scan(config, hw, writer=None, trigger_gen=trigger_gen, phase_reader=phase_reader)
+        start = _time.time()
+        while not done[0] and _time.time() - start < timeout:
+            QApplication.instance().processEvents()
+            _time.sleep(0.005)
+
+    def _make_chopper_config(self):
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        return TAScanConfig(
+            delay_list=[0.0, 1.0],
+            n_averages=1,
+            n_scans=1,
+            acquisition_mode="chopper_2x2",
+            scan_direction="forward",
+            sample_name="test",
+        )
+
+    def test_trigger_gen_started_and_stopped(self, qt_app):
+        from unittest.mock import MagicMock
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        hw = make_mock_hw()
+        config = self._make_chopper_config()
+        trigger_gen = MagicMock()
+        reader = MockNIDAQChopper2x2Reader()
+        self._run_engine(engine=TransientAbsorptionEngine(), config=config,
+                         hw=hw, trigger_gen=trigger_gen, phase_reader=reader)
+        trigger_gen.start.assert_called_once()
+        trigger_gen.stop.assert_called_once()
+
+    def test_phase_reader_started_and_stopped(self, qt_app):
+        from unittest.mock import MagicMock
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        hw = make_mock_hw()
+        config = self._make_chopper_config()
+        trigger_gen = MagicMock()
+        reader = MagicMock()
+        reader.read_tags.return_value = np.array([1, 1])
+        self._run_engine(engine=TransientAbsorptionEngine(), config=config,
+                         hw=hw, trigger_gen=trigger_gen, phase_reader=reader)
+        reader.start.assert_called_once()
+        reader.stop.assert_called_once()
+
+    def test_scan_completes_with_chopper_2x2(self, qt_app):
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        hw = make_mock_hw()
+        config = self._make_chopper_config()
+        trigger_gen = MagicMock()
+        reader = MockNIDAQChopper2x2Reader()
+        done = []
+        engine = TransientAbsorptionEngine()
+        engine.scan_completed.connect(lambda: done.append(True))
+        self._run_engine(engine=engine, config=config, hw=hw,
+                         trigger_gen=trigger_gen, phase_reader=reader)
+        assert done
+
+
 class TestTransientAbsorptionEnginePauseResume:
     def test_pause_resume_completes_scan(self, qt_app):
         from PySide6.QtWidgets import QApplication

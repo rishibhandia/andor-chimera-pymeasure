@@ -103,12 +103,15 @@ class _ScanWorker(QObject):
         self._hw_manager = None
         self._writer = None
 
-    def setup(self, config: TAScanConfig, hw_manager, writer, camera_settings=None) -> None:
+    def setup(self, config: TAScanConfig, hw_manager, writer, camera_settings=None,
+              trigger_gen=None, phase_reader=None) -> None:
         """Configure the worker before starting."""
         self._config = config
         self._hw_manager = hw_manager
         self._writer = writer
         self._camera_settings = camera_settings
+        self._trigger_gen = trigger_gen
+        self._phase_reader = phase_reader
         self._abort_event.clear()
         self._pause_event.set()
 
@@ -117,6 +120,8 @@ class _ScanWorker(QObject):
         config = self._config
         hw = self._hw_manager
         writer = self._writer
+        trigger_gen = self._trigger_gen
+        phase_reader = self._phase_reader
 
         # Accumulated data for map updates
         all_delays = []
@@ -127,6 +132,12 @@ class _ScanWorker(QObject):
         _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
         if callable(_apply) and self._camera_settings:
             _apply(self._camera_settings)
+
+        # Start NI DAQ hardware tasks
+        if trigger_gen is not None:
+            trigger_gen.start()
+        if phase_reader is not None:
+            phase_reader.start()
 
         try:
             for scan_idx in range(config.n_scans):
@@ -159,6 +170,7 @@ class _ScanWorker(QObject):
                     delta_signal = acquire_delta_signal_at_delay(
                         delay_ps, hw, config, dark=None,
                         camera_settings=self._camera_settings,
+                        phase_reader=phase_reader,
                     )
 
                     if writer is not None:
@@ -197,6 +209,17 @@ class _ScanWorker(QObject):
             self.error.emit(str(exc))
 
         finally:
+            # Stop NI DAQ hardware tasks
+            if phase_reader is not None:
+                try:
+                    phase_reader.stop()
+                except Exception:
+                    pass
+            if trigger_gen is not None:
+                try:
+                    trigger_gen.stop()
+                except Exception:
+                    pass
             # Always restore to internal trigger after scan ends or aborts
             if trigger_mode in ("external", "fast_external") and callable(_apply):
                 try:
@@ -244,7 +267,8 @@ class TransientAbsorptionEngine(QObject):
 
         self._thread.started.connect(self._worker.run)
 
-    def start_scan(self, config: TAScanConfig, hw_manager, writer=None, camera_settings=None) -> None:
+    def start_scan(self, config: TAScanConfig, hw_manager, writer=None,
+                   camera_settings=None, trigger_gen=None, phase_reader=None) -> None:
         """Start the TA scan in a background thread.
 
         Args:
@@ -253,12 +277,17 @@ class TransientAbsorptionEngine(QObject):
             writer: Optional ``TADataWriter`` (already opened).
             camera_settings: Optional dict passed to apply_camera_settings()
                 before each acquisition point.
+            trigger_gen: Optional ``NIDAQChopper500Hz`` (or mock) that generates
+                the 500 Hz camera trigger for chopper_2x2 mode.
+            phase_reader: Optional ``NIDAQPhaseReader`` (or mock) that reads
+                chopper phase tags from P0.0 for frame labelling.
         """
         if self._thread.isRunning():
             log.warning("Scan already running")
             return
 
-        self._worker.setup(config, hw_manager, writer, camera_settings=camera_settings)
+        self._worker.setup(config, hw_manager, writer, camera_settings=camera_settings,
+                           trigger_gen=trigger_gen, phase_reader=phase_reader)
         self._thread.start()
 
     def pause(self) -> None:

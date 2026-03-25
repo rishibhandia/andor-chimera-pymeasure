@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
-from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader, MockNIDAQPhaseReader
 from andor_qt.ta.scan_config import TAScanConfig
 
 
@@ -169,3 +169,139 @@ class TestAcquireHardwarePhase:
         result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
         assert isinstance(result, np.ndarray)
         assert len(result) == n
+
+
+# ---------------------------------------------------------------------------
+# chopper_2x2 acquisition
+# ---------------------------------------------------------------------------
+
+
+def make_config_2x2(n_averages=1):
+    return TAScanConfig(
+        delay_list=[0.0],
+        n_averages=n_averages,
+        acquisition_mode="chopper_2x2",
+        scan_direction="forward",
+        sample_name="test",
+    )
+
+
+def make_hw_2x2(on_val, off_val, n_pairs):
+    """Camera alternates ON frame / OFF frame for n_pairs pairs."""
+    hw = MagicMock()
+    hw.motion.get_axis.return_value = MagicMock()
+    frames = []
+    for _ in range(n_pairs):
+        frames.append(np.array(on_val, dtype=float))
+        frames.append(np.array(off_val, dtype=float))
+    it = iter(frames)
+    hw.camera.get_spectrum.side_effect = lambda: next(it)
+    return hw
+
+
+class TestAcquireChopper2x2:
+    def test_returns_ndarray(self):
+        n = 10
+        hw = make_hw_2x2([1000.0] * n, [800.0] * n, n_pairs=1)
+        cfg = make_config_2x2(n_averages=1)
+        reader = MockNIDAQChopper2x2Reader()
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        assert isinstance(result, np.ndarray)
+        assert len(result) == n
+
+    def test_correct_delta_signal(self):
+        n = 5
+        on_val, off_val = 1200.0, 1000.0
+        hw = make_hw_2x2([on_val] * n, [off_val] * n, n_pairs=1)
+        cfg = make_config_2x2(n_averages=1)
+        reader = MockNIDAQChopper2x2Reader(initial_phase=1)
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        expected = (on_val - off_val) / off_val
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_n_averages_pairs_collected(self):
+        n = 4
+        hw = make_hw_2x2([1200.0] * n, [1000.0] * n, n_pairs=3)
+        cfg = make_config_2x2(n_averages=3)
+        reader = MockNIDAQChopper2x2Reader()
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        assert hw.camera.get_spectrum.call_count == 6  # 3 ON + 3 OFF frames
+
+    def test_mixed_tags_discarded(self):
+        """A reader that always returns mixed [1,0] should eventually exhaust limit."""
+        n = 4
+
+        class AllMixedReader:
+            def start(self): pass
+            def stop(self): pass
+            def read_tags(self, k):
+                return np.array([1, 0], dtype=np.int8)
+
+        # Provide enough spectra to hit the safety limit
+        frames = [np.ones(n) * 1000.0 for _ in range(200)]
+        hw = MagicMock()
+        hw.motion.get_axis.return_value = MagicMock()
+        it = iter(frames)
+        hw.camera.get_spectrum.side_effect = lambda: next(it)
+
+        cfg = make_config_2x2(n_averages=1)
+        with pytest.raises(RuntimeError, match="chopper_2x2"):
+            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=AllMixedReader())
+
+    def test_off_first_phase_still_correct(self):
+        """initial_phase=0 means OFF frame arrives first."""
+        n = 5
+        on_val, off_val = 1200.0, 1000.0
+        # OFF frame first, then ON frame
+        hw = make_hw_2x2([off_val] * n, [on_val] * n, n_pairs=1)
+        cfg = make_config_2x2(n_averages=1)
+        reader = MockNIDAQChopper2x2Reader(initial_phase=0)
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        expected = (on_val - off_val) / off_val
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_dark_subtraction_applied(self):
+        n = 6
+        on_val, off_val, dark_val = 1200.0, 1000.0, 100.0
+        hw = make_hw_2x2([on_val] * n, [off_val] * n, n_pairs=1)
+        cfg = make_config_2x2(n_averages=1)
+        reader = MockNIDAQChopper2x2Reader()
+        dark = np.ones(n) * dark_val
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, dark=dark, phase_reader=reader)
+        expected = (on_val - dark_val - (off_val - dark_val)) / (off_val - dark_val)
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# TAScanConfig — chopper_2x2 NI DAQ fields
+# ---------------------------------------------------------------------------
+
+
+class TestTAScanConfigChopper2x2Fields:
+    def test_has_nidaq_chopper_sync_source(self):
+        cfg = TAScanConfig(delay_list=[0.0])
+        assert hasattr(cfg, "nidaq_chopper_sync_source")
+
+    def test_has_nidaq_chopper_counter(self):
+        cfg = TAScanConfig(delay_list=[0.0])
+        assert hasattr(cfg, "nidaq_chopper_counter")
+
+    def test_default_sync_source(self):
+        cfg = TAScanConfig(delay_list=[0.0])
+        assert "PFI12" in cfg.nidaq_chopper_sync_source
+
+    def test_default_counter(self):
+        cfg = TAScanConfig(delay_list=[0.0])
+        assert cfg.nidaq_chopper_counter == "ctr1"
+
+    def test_yaml_roundtrip_chopper_fields(self, tmp_path):
+        cfg = TAScanConfig(
+            delay_list=[1.0],
+            nidaq_chopper_sync_source="/Dev2/PFI5",
+            nidaq_chopper_counter="ctr0",
+        )
+        path = tmp_path / "cfg.yaml"
+        cfg.to_yaml(path)
+        loaded = TAScanConfig.from_yaml(path)
+        assert loaded.nidaq_chopper_sync_source == "/Dev2/PFI5"
+        assert loaded.nidaq_chopper_counter == "ctr0"

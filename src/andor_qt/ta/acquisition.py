@@ -74,6 +74,8 @@ def acquire_delta_signal_at_delay(
         if callable(apply):
             apply(camera_settings)
 
+    if config.acquisition_mode == "chopper_2x2" and phase_reader is not None:
+        return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader)
     if phase_reader is not None:
         return _acquire_hardware(hw_manager, config, dark, phase_reader)
     return _acquire_software(hw_manager, config, dark)
@@ -114,6 +116,55 @@ def _acquire_hardware(hw_manager, config, dark, phase_reader) -> np.ndarray:
 
     if not delta_signal_list:
         raise RuntimeError("No valid pump-on/pump-off pairs acquired — check chopper sync")
+
+    mean, _ = average_delta_signal(delta_signal_list)
+    return mean
+
+
+def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader) -> np.ndarray:
+    """Acquire using chopper_2x2 mode (500 Hz camera trigger, 2 shots per frame).
+
+    Each ``get_spectrum()`` call returns one camera frame integrating 2 laser
+    shots.  ``read_tags(2)`` reads the chopper state for both shots from P0.0;
+    matched tags ([1,1] = pump-on, [0,0] = pump-off) confirm the frame type.
+    Mixed tags indicate a chopper transition and the frame is discarded.
+
+    ``n_averages`` pump-on / pump-off pairs are accumulated before returning
+    the averaged ΔI/I₀.
+    """
+    delta_signal_list = []
+    on_buf = []
+    off_buf = []
+    max_frames = config.n_averages * 6  # safety: allow up to 6× expected frames
+    frames = 0
+
+    while len(delta_signal_list) < config.n_averages:
+        if frames >= max_frames:
+            raise RuntimeError(
+                f"chopper_2x2: {frames} frames acquired without completing "
+                f"{config.n_averages} pairs — check chopper phase sync"
+            )
+
+        spectrum = np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
+        tags = phase_reader.read_tags(2)
+        frames += 1
+
+        if tags[0] != tags[1]:
+            log.debug(f"chopper_2x2: mixed tags {tags.tolist()}, discarding transition frame")
+            continue
+
+        if tags[0] == 1:
+            on_buf.append(spectrum)
+        else:
+            off_buf.append(spectrum)
+
+        if on_buf and off_buf:
+            pumped = on_buf.pop(0)
+            ref = off_buf.pop(0)
+            if dark is not None:
+                pumped = background_subtract(pumped, dark)
+                ref = background_subtract(ref, dark)
+            delta_signal_list.append(compute_delta_signal(pumped, ref))
 
     mean, _ = average_delta_signal(delta_signal_list)
     return mean
