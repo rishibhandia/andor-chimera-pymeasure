@@ -29,7 +29,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -66,16 +68,25 @@ class TAScanConfigWidget(QGroupBox):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
 
-        # --- Delay list tab widget ---
+        # Two-column splitter: left = delay + scan params, right = camera settings
+        from PySide6.QtCore import Qt
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # ---- Left column ----
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 4, 0)
+
+        # Delay list tab widget
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_linear_tab(), "Linear")
         self._tabs.addTab(self._build_log_tab(), "Log")
         self._tabs.addTab(self._build_manual_tab(), "Manual")
         self._tabs.addTab(self._build_stage_tab(), "Stage")
         self._tabs.currentChanged.connect(self._update_preview)
-        root.addWidget(self._tabs)
+        left_layout.addWidget(self._tabs)
 
-        # --- Common parameters ---
+        # Common parameters
         common_group = QGroupBox("Scan Parameters")
         form = QFormLayout(common_group)
 
@@ -119,11 +130,20 @@ class TAScanConfigWidget(QGroupBox):
         self._save_spectra_check.toggled.connect(self._save_spectra_dir_btn.setEnabled)
         self._save_spectra_dir_btn.clicked.connect(self._on_choose_spectra_dir)
 
-        root.addWidget(common_group)
+        left_layout.addWidget(common_group)
+        left_layout.addStretch()
+        splitter.addWidget(left_widget)
 
-        # --- Camera settings ---
+        # ---- Right column: camera settings in a scroll area ----
         self._camera_settings = CameraSettingsWidget()
-        root.addWidget(self._camera_settings)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._camera_settings)
+        splitter.addWidget(scroll)
+
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        root.addWidget(splitter)
 
         # --- Preview label ---
         self._preview_label = QLabel("0 delay points")
