@@ -642,6 +642,10 @@ class AndorCamera:
                     self._sdk.SetFastExtTrigger(0)
                 log.debug(f"Trigger mode: {trig}")
 
+            if "exposure_time" in settings:
+                self._sdk.SetExposureTime(settings["exposure_time"])
+                log.debug(f"Exposure time: {settings['exposure_time']} s")
+
         log.debug(f"Camera settings applied: {settings}")
 
     def warmup(self, target: float = -20.0, timeout: float = 300.0) -> bool:

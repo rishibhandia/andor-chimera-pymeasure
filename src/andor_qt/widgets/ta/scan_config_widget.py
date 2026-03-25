@@ -101,7 +101,8 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Number of scans:", self._n_scans_spin)
 
         self._acq_mode_combo = QComboBox()
-        self._acq_mode_combo.addItems(["boxcar", "shot_to_shot"])
+        self._acq_mode_combo.addItems(["boxcar", "shot_to_shot", "chopper_2x2"])
+        self._acq_mode_combo.currentTextChanged.connect(self._on_acq_mode_changed)
         form.addRow("Acquisition mode:", self._acq_mode_combo)
 
         self._scan_dir_combo = QComboBox()
@@ -255,6 +256,14 @@ class TAScanConfigWidget(QGroupBox):
             spin.valueChanged.connect(self._update_preview)
 
         return w
+
+    def _on_acq_mode_changed(self, mode: str) -> None:
+        """Auto-configure camera when chopper_2x2 mode is selected."""
+        if mode == "chopper_2x2":
+            self._camera_settings.exposure_spin.setValue(0.002)
+            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
 
     def _on_choose_spectra_dir(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select spectra output directory")

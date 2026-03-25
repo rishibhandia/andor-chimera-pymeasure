@@ -89,6 +89,17 @@ class TestApplyCameraSettingsCropBinning:
         assert state.crop_mode_active
 
 
+class TestApplyCameraSettingsExposure:
+    def test_exposure_time_applied_to_sdk(self, cam):
+        cam.apply_camera_settings({"exposure_time": 0.002})
+        assert cam._sdk._state.exposure_time == pytest.approx(0.002)
+
+    def test_missing_exposure_key_does_not_change(self, cam):
+        cam.apply_camera_settings({"exposure_time": 0.005})
+        cam.apply_camera_settings({"hbin": 1})  # no exposure_time key
+        assert cam._sdk._state.exposure_time == pytest.approx(0.005)
+
+
 class TestGetReadoutTime:
     def test_get_readout_time_returns_float(self, cam):
         t = cam.get_readout_time()

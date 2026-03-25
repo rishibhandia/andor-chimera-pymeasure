@@ -88,6 +88,39 @@ class TestTAScanConfigWidgetSignal:
         assert emitted[0].sample_name == "my_sample"
 
 
+class TestChopper2x2Mode:
+    def _select_chopper_mode(self, widget):
+        combo = widget._acq_mode_combo
+        idx = combo.findText("chopper_2x2")
+        assert idx >= 0, "chopper_2x2 not in acquisition mode combo"
+        combo.setCurrentIndex(idx)
+
+    def test_chopper_mode_in_combo(self, widget):
+        combo = widget._acq_mode_combo
+        texts = [combo.itemText(i) for i in range(combo.count())]
+        assert "chopper_2x2" in texts
+
+    def test_chopper_mode_sets_exposure_2ms(self, widget):
+        self._select_chopper_mode(widget)
+        assert widget._camera_settings.exposure_spin.value() == pytest.approx(0.002)
+
+    def test_chopper_mode_sets_trigger_fast_external(self, widget):
+        self._select_chopper_mode(widget)
+        trig = widget._camera_settings.trigger_mode_combo.currentData()
+        assert trig == "fast_external"
+
+    def test_camera_settings_has_exposure_spinbox(self, widget):
+        from PySide6.QtWidgets import QDoubleSpinBox
+        assert hasattr(widget._camera_settings, "exposure_spin")
+        assert isinstance(widget._camera_settings.exposure_spin, QDoubleSpinBox)
+
+    def test_exposure_in_get_settings(self, widget):
+        widget._camera_settings.exposure_spin.setValue(0.005)
+        settings = widget._camera_settings.get_settings()
+        assert "exposure_time" in settings
+        assert settings["exposure_time"] == pytest.approx(0.005)
+
+
 class TestTAScanConfigWidgetStageTab:
     def _select_stage_tab(self, widget):
         from PySide6.QtWidgets import QTabWidget

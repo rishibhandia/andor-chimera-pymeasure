@@ -20,6 +20,7 @@ from typing import Optional
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -193,6 +194,13 @@ class CameraSettingsWidget(QGroupBox):
         trig_form = QFormLayout(trig_group)
         trig_form.setSpacing(4)
 
+        self.exposure_spin = QDoubleSpinBox()
+        self.exposure_spin.setRange(0.000001, 300.0)
+        self.exposure_spin.setValue(0.002)
+        self.exposure_spin.setDecimals(6)
+        self.exposure_spin.setSuffix(" s")
+        trig_form.addRow("Exposure:", self.exposure_spin)
+
         self.trigger_mode_combo = QComboBox()
         self.trigger_mode_combo.addItem("Internal (free-run)", "internal")
         self.trigger_mode_combo.addItem("External (laser sync)", "external")
@@ -249,6 +257,7 @@ class CameraSettingsWidget(QGroupBox):
             self.em_gain_spin, self.vbin_spin,
             self._st_centre_spin, self._st_height_spin,
             self._crop_height_spin, self._crop_width_spin,
+            self.exposure_spin,
         ):
             spinbox.valueChanged.connect(self.settings_changed)
 
@@ -447,6 +456,7 @@ class CameraSettingsWidget(QGroupBox):
             "hbin": self.hbin_combo.currentData() or 1,
             "vbin": self.vbin_spin.value(),
             "trigger_mode": trigger_mode,
+            "exposure_time": self.exposure_spin.value(),
         }
 
         if mode == "single_track":
