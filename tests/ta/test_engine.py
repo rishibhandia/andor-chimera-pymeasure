@@ -199,6 +199,62 @@ class TestTransientAbsorptionEngineSignals:
         assert len(updates) == 2  # once per delay point
 
 
+class TestEngineSaveSpectra:
+    def _run_engine(self, engine, config, hw, writer=None, timeout=10.0):
+        import time as _time
+        from PySide6.QtWidgets import QApplication
+
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda msg: done.__setitem__(0, True))
+        engine.start_scan(config, hw, writer)
+        start = _time.time()
+        while not done[0] and _time.time() - start < timeout:
+            QApplication.instance().processEvents()
+            _time.sleep(0.005)
+
+    def _make_config(self, n_delays=3, save_spectra_dir=None):
+        return TAScanConfig(
+            delay_list=[float(i) for i in range(n_delays)],
+            n_averages=1,
+            n_scans=1,
+            acquisition_mode="boxcar",
+            scan_direction="forward",
+            sample_name="test",
+            save_spectra_dir=save_spectra_dir,
+        )
+
+    def test_saves_spectrum_file_for_each_point(self, qt_app, tmp_path):
+        hw = make_mock_hw(n_pixels=16)
+        hw.get_wavelengths.return_value = np.linspace(400, 800, 16)
+        config = self._make_config(n_delays=3, save_spectra_dir=str(tmp_path))
+        engine = TransientAbsorptionEngine()
+        self._run_engine(engine, config, hw)
+        files = sorted(tmp_path.iterdir())
+        assert len(files) == 3
+
+    def test_spectrum_file_is_two_column_text(self, qt_app, tmp_path):
+        hw = make_mock_hw(n_pixels=4)
+        hw.get_wavelengths.return_value = np.linspace(400, 800, 4)
+        config = self._make_config(n_delays=1, save_spectra_dir=str(tmp_path))
+        engine = TransientAbsorptionEngine()
+        self._run_engine(engine, config, hw)
+        files = list(tmp_path.iterdir())
+        assert len(files) == 1
+        lines = [ln for ln in files[0].read_text().splitlines() if not ln.startswith("#")]
+        assert len(lines) == 4  # 4 pixels
+        cols = lines[0].split("\t")
+        assert len(cols) == 2
+
+    def test_no_files_when_save_dir_none(self, qt_app, tmp_path):
+        hw = make_mock_hw(n_pixels=4)
+        config = self._make_config(n_delays=2, save_spectra_dir=None)
+        engine = TransientAbsorptionEngine()
+        self._run_engine(engine, config, hw)
+        assert list(tmp_path.iterdir()) == []
+
+
 class TestTransientAbsorptionEnginePauseResume:
     def test_pause_resume_completes_scan(self, qt_app):
         from PySide6.QtWidgets import QApplication

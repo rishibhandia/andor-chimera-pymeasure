@@ -14,10 +14,14 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from typing import Optional
+
+import numpy as np
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 
 from andor_qt.ta.engine import TransientAbsorptionEngine
+from andor_qt.ta.hdf5_writer import TADataWriter, auto_filename
 from andor_qt.ta.scan_config import TAScanConfig
 from andor_qt.widgets.ta.live_display import TALiveDisplayWidget
 from andor_qt.widgets.ta.scan_config_widget import TAScanConfigWidget
@@ -40,6 +44,7 @@ class TAWindowPanel(QWidget):
 
         # --- Engine ---
         self._engine = TransientAbsorptionEngine(self)
+        self._writer: Optional[TADataWriter] = None
 
         # --- Widgets ---
         self._config_widget = TAScanConfigWidget()
@@ -64,6 +69,7 @@ class TAWindowPanel(QWidget):
 
         # Status feedback
         self._engine.scan_completed.connect(self._on_scan_completed)
+        self._engine.aborted.connect(self._finalize_writer)
         self._engine.error.connect(self._on_engine_error)
 
     @Slot(object)
@@ -73,16 +79,48 @@ class TAWindowPanel(QWidget):
                  f"{len(config.delay_list)} delays, {config.n_scans} scans")
         self._live_display.clear()
         camera_settings = self._config_widget.camera_settings
-        self._engine.start_scan(config, self._hw_manager, writer=None,
+
+        # Create HDF5 writer if a save directory is configured
+        writer: Optional[TADataWriter] = None
+        if config.save_spectra_dir:
+            try:
+                get_wl = getattr(self._hw_manager, "get_wavelengths", None)
+                wavelengths = np.asarray(get_wl()) if callable(get_wl) else np.array([])
+                h5_path = auto_filename(
+                    config.sample_name or "ta_scan", config.save_spectra_dir
+                )
+                writer = TADataWriter(
+                    h5_path, wavelengths=wavelengths,
+                    sample_name=config.sample_name, notes=config.notes,
+                )
+                writer.open()
+                self._writer = writer
+                log.info(f"HDF5 writer opened: {h5_path}")
+            except Exception as exc:
+                log.error(f"Failed to create HDF5 writer: {exc}")
+                writer = None
+                self._writer = None
+
+        self._engine.start_scan(config, self._hw_manager, writer=writer,
                                  camera_settings=camera_settings)
+
+    def _finalize_writer(self) -> None:
+        if self._writer is not None:
+            try:
+                self._writer.finalize()
+            except Exception as exc:
+                log.warning(f"Error finalizing HDF5 writer: {exc}")
+            self._writer = None
 
     @Slot()
     def _on_scan_completed(self) -> None:
         log.info("TA scan completed")
+        self._finalize_writer()
 
     @Slot(str)
     def _on_engine_error(self, message: str) -> None:
         log.error(f"TA engine error: {message}")
+        self._finalize_writer()
 
     # -- public API --------------------------------------------------------
 

@@ -30,17 +30,53 @@ map_updated(object, object, object)
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
-from andor_qt.ta.scan_config import TAScanConfig
+from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
+
+
+def _save_spectrum_file(
+    save_dir: str,
+    scan_idx: int,
+    delay_ps: float,
+    wavelengths: np.ndarray,
+    delta_signal: np.ndarray,
+) -> None:
+    """Write one delta-signal spectrum to a tab-delimited text file.
+
+    Filename encodes scan index and stage position in µm.
+
+    Args:
+        save_dir: Directory to write into.
+        scan_idx: Zero-based scan index.
+        delay_ps: Delay in picoseconds (used to compute stage position).
+        wavelengths: Wavelength axis (nm).  May be empty.
+        delta_signal: ΔI/I₀ spectrum array.
+    """
+    position_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+    filename = f"scan{scan_idx:03d}_pos{position_um:+.1f}um.txt"
+    filepath = Path(save_dir) / filename
+
+    lines = [f"# scan_index={scan_idx}", f"# delay_ps={delay_ps:.6f}",
+             f"# position_um={position_um:.1f}"]
+    if len(wavelengths) == len(delta_signal):
+        for wl, ds in zip(wavelengths, delta_signal):
+            lines.append(f"{float(wl):.4f}\t{float(ds):.8e}")
+    else:
+        for ds in delta_signal:
+            lines.append(f"\t{float(ds):.8e}")
+
+    filepath.write_text("\n".join(lines), encoding="utf-8")
 
 
 class _ScanWorker(QObject):
@@ -126,11 +162,22 @@ class _ScanWorker(QObject):
                     )
 
                     if writer is not None:
-                        writer.write_point(scan_idx, delay_ps, delta_signal)
+                        stage_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                        writer.write_point(scan_idx, delay_ps, delta_signal,
+                                           stage_position_um=stage_um)
 
                     get_wl = getattr(hw, "get_wavelengths", None)
                     wavelengths = np.asarray(get_wl()) if callable(get_wl) else np.array([])
                     self.signal_updated.emit(delay_ps, wavelengths, delta_signal)
+
+                    if config.save_spectra_dir:
+                        try:
+                            _save_spectrum_file(
+                                config.save_spectra_dir, scan_idx, delay_ps,
+                                wavelengths, delta_signal,
+                            )
+                        except Exception as exc:
+                            log.warning(f"Failed to save spectrum file: {exc}")
 
                     # Update 2-D map
                     all_delays.append(delay_ps)
