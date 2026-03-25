@@ -70,6 +70,113 @@ class TestTAWindowPanel:
         panel.deleteLater()
 
 
+class TestChopper2x2Panel:
+    """TAWindowPanel creates mock NI DAQ objects for chopper_2x2 mode."""
+
+    def _make_panel(self, mock_hw_manager, qt_app):
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        return TAWindowPanel(hw_manager=mock_hw_manager)
+
+    def test_chopper_2x2_passes_trigger_gen_to_engine(self, qt_app, mock_hw_manager):
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="chopper_2x2", scan_direction="forward",
+            sample_name="test",
+        )
+        captured = {}
+        original = panel._engine.start_scan
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            return original(*args, **kwargs)
+
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+        panel.deleteLater()
+        assert captured.get("trigger_gen") is not None
+
+    def test_chopper_2x2_passes_phase_reader_to_engine(self, qt_app, mock_hw_manager):
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="chopper_2x2", scan_direction="forward",
+            sample_name="test",
+        )
+        captured = {}
+        original = panel._engine.start_scan
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            return original(*args, **kwargs)
+
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+        panel.deleteLater()
+        assert captured.get("phase_reader") is not None
+
+    def test_non_chopper_mode_has_no_trigger_gen(self, qt_app, mock_hw_manager):
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="test",
+        )
+        captured = {}
+        original = panel._engine.start_scan
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            return original(*args, **kwargs)
+
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+        panel.deleteLater()
+        assert captured.get("trigger_gen") is None
+        assert captured.get("phase_reader") is None
+
+    def test_chopper_2x2_uses_mock_objects_in_mock_mode(self, qt_app, mock_hw_manager):
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.ta.nidaq_trigger import MockNIDAQChopper500Hz
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="chopper_2x2", scan_direction="forward",
+            sample_name="test",
+        )
+        captured = {}
+        original = panel._engine.start_scan
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            return original(*args, **kwargs)
+
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+        panel.deleteLater()
+        assert isinstance(captured.get("trigger_gen"), MockNIDAQChopper500Hz)
+        assert isinstance(captured.get("phase_reader"), MockNIDAQChopper2x2Reader)
+
+
 class TestMainWindowTATab:
     def test_main_window_has_ta_tab(self, qt_app, mock_sdk):
         """Main window should have a TA tab."""

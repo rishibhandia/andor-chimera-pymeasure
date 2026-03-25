@@ -12,9 +12,8 @@ Wires engine data signals → live display slots.
 from __future__ import annotations
 
 import logging
-from typing import Optional
-
-from typing import Optional
+import os
+from typing import Optional, Tuple
 
 import numpy as np
 from PySide6.QtCore import Slot
@@ -28,6 +27,33 @@ from andor_qt.widgets.ta.scan_config_widget import TAScanConfigWidget
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
+
+
+def _make_chopper_2x2_hardware(config: TAScanConfig) -> Tuple:
+    """Create trigger generator and phase reader for chopper_2x2 mode.
+
+    Returns mock objects when ``ANDOR_MOCK=1``, real NI DAQ objects otherwise.
+    """
+    if os.environ.get("ANDOR_MOCK"):
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        from andor_qt.ta.nidaq_trigger import MockNIDAQChopper500Hz
+        return MockNIDAQChopper500Hz(), MockNIDAQChopper2x2Reader()
+
+    from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
+    from andor_qt.ta.nidaq_trigger import NIDAQChopper500Hz
+    trigger_gen = NIDAQChopper500Hz(
+        device=config.nidaq_device,
+        clock_source=config.nidaq_clock_source,
+        sync_source=config.nidaq_chopper_sync_source,
+        counter=config.nidaq_chopper_counter,
+    )
+    phase_reader = NIDAQPhaseReader(
+        device=config.nidaq_device,
+        di_channel=config.nidaq_di_channel,
+        clock_source=config.nidaq_clock_source,
+        clock_rate=config.nidaq_clock_rate,
+    )
+    return trigger_gen, phase_reader
 
 
 class TAWindowPanel(QWidget):
@@ -101,8 +127,15 @@ class TAWindowPanel(QWidget):
                 writer = None
                 self._writer = None
 
+        trigger_gen = None
+        phase_reader = None
+        if config.acquisition_mode == "chopper_2x2":
+            trigger_gen, phase_reader = _make_chopper_2x2_hardware(config)
+
         self._engine.start_scan(config, self._hw_manager, writer=writer,
-                                 camera_settings=camera_settings)
+                                 camera_settings=camera_settings,
+                                 trigger_gen=trigger_gen,
+                                 phase_reader=phase_reader)
 
     def _finalize_writer(self) -> None:
         if self._writer is not None:
