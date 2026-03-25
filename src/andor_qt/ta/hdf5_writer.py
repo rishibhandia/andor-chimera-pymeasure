@@ -73,9 +73,10 @@ class TADataWriter:
         self._sample_name = sample_name
         self._notes = notes
         self._file: Optional[h5py.File] = None
-        self._scan_groups: dict = {}  # scan_idx → h5py.Group
-        self._scan_delays: dict = {}  # scan_idx → list of delays
-        self._scan_data: dict = {}    # scan_idx → list of delta_signal arrays
+        self._scan_groups: dict = {}     # scan_idx → h5py.Group
+        self._scan_delays: dict = {}     # scan_idx → list of delays
+        self._scan_data: dict = {}       # scan_idx → list of delta_signal arrays
+        self._scan_stage_pos: dict = {}  # scan_idx → list of stage positions (µm)
 
     def open(self) -> None:
         """Open the HDF5 file and write header datasets."""
@@ -107,6 +108,7 @@ class TADataWriter:
         scan_idx: int,
         delay_ps: float,
         delta_signal: np.ndarray,
+        stage_position_um: Optional[float] = None,
     ) -> None:
         """Write one delay point to the current scan.
 
@@ -116,9 +118,14 @@ class TADataWriter:
             scan_idx: Scan index (must have called ``begin_scan`` first).
             delay_ps: Time delay in picoseconds.
             delta_signal: ΔI/I₀ spectrum at this delay (1-D array, n_wavelengths).
+            stage_position_um: Optional stage position in µm.  When provided,
+                a ``stage_positions_um`` dataset is maintained alongside
+                ``time_delays``.
         """
         self._scan_delays[scan_idx].append(float(delay_ps))
         self._scan_data[scan_idx].append(np.asarray(delta_signal, dtype=np.float64))
+        if stage_position_um is not None:
+            self._scan_stage_pos.setdefault(scan_idx, []).append(float(stage_position_um))
 
         grp = self._scan_groups[scan_idx]
         # Overwrite datasets each time (simplest crash-safe approach)
@@ -132,6 +139,13 @@ class TADataWriter:
 
         grp.create_dataset("time_delays", data=delays_arr)
         grp.create_dataset("delta_signal", data=data_arr)
+
+        if scan_idx in self._scan_stage_pos:
+            pos_arr = np.array(self._scan_stage_pos[scan_idx], dtype=np.float64)
+            if "stage_positions_um" in grp:
+                del grp["stage_positions_um"]
+            grp.create_dataset("stage_positions_um", data=pos_arr)
+
         self._file.flush()
 
     def finalize(self) -> None:

@@ -120,6 +120,25 @@ class TestTADataWriter:
             assert "scan_001" in f
             assert "scan_002" in f
 
+    def test_write_point_stores_stage_position_um(self, tmp_path):
+        path = tmp_path / "test.h5"
+        wavelengths = np.linspace(400.0, 800.0, 10)
+        with TADataWriter(path, wavelengths=wavelengths, sample_name="s") as writer:
+            writer.begin_scan(0)
+            writer.write_point(0, 1.0, np.ones(10), stage_position_um=-57000.0)
+        with h5py.File(path, "r") as f:
+            assert "stage_positions_um" in f["scan_000"]
+            assert f["scan_000/stage_positions_um"][0] == pytest.approx(-57000.0)
+
+    def test_write_point_no_stage_position_no_dataset(self, tmp_path):
+        path = tmp_path / "test.h5"
+        wavelengths = np.linspace(400.0, 800.0, 5)
+        with TADataWriter(path, wavelengths=wavelengths, sample_name="s") as writer:
+            writer.begin_scan(0)
+            writer.write_point(0, 1.0, np.ones(5))
+        with h5py.File(path, "r") as f:
+            assert "stage_positions_um" not in f["scan_000"]
+
     def test_open_close_explicit(self, tmp_path):
         path = tmp_path / "test.h5"
         wavelengths = np.linspace(400.0, 800.0, 5)
