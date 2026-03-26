@@ -25,6 +25,10 @@ DRV_ACQUIRING = 20072
 
 ATSPECTROGRAPH_SUCCESS = 0
 
+# Shared mock delay (ps) — updated by MockAxis.position_ps setter so the
+# mock camera can produce delay-dependent pump-probe spectra.
+_mock_delay_ps: float = 0.0
+
 
 @dataclass
 class MockCameraState:
@@ -124,6 +128,7 @@ class MockAtmcd:
         self._state = MockCameraState()
         self._sdk_path = sdk_path
         self._last_temp_check = time.time()
+        self._shot_counter: int = 0  # alternates pump-on / pump-off
         self._lock = threading.Lock()
 
     def Initialize(self, path: str) -> int:
@@ -366,32 +371,87 @@ class MockAtmcd:
         self, first: int, last: int, size: int
     ) -> Tuple[int, List[int], int, int]:
         """Get acquired image data as 16-bit."""
-        # Generate mock data
-        np.random.seed(42)  # Reproducible for tests
+        n_frames = last - first + 1
 
         if self._state.read_mode == 0:  # FVB
-            # FVB mode uses SetFVBHBin for horizontal binning
             eff_x = self._state.xpixels // self._state.hbin
-            data = self._generate_mock_spectrum(eff_x)
+            if n_frames > 1:
+                # Bulk read: concatenate n_frames spectra
+                spectra = [self._generate_mock_spectrum(eff_x) for _ in range(n_frames)]
+                data = np.concatenate(spectra)
+            else:
+                data = self._generate_mock_spectrum(eff_x)
         else:  # Image
             eff_x = self._state.xpixels // self._state.hbin
             eff_y = self._state.ypixels // self._state.vbin
             data = self._generate_mock_image(eff_x, eff_y).flatten()
 
-        return (DRV_SUCCESS, data.tolist(), 1, 1)
+        return (DRV_SUCCESS, data.tolist(), first, last)
+
+    def GetNumberNewImages(self) -> Tuple[int, int, int]:
+        """Return the range of new images in the circular buffer."""
+        # Mock: pretend we have some frames available
+        n = getattr(self._state, "_mock_rta_frames", 100)
+        return (DRV_SUCCESS, 1, n)
+
+    def GetOldestImage16(self, size: int) -> Tuple[int, List[int]]:
+        """Get oldest image from circular buffer as 16-bit."""
+        eff_x = self._state.xpixels // self._state.hbin
+        data = self._generate_mock_spectrum(eff_x)
+        return (DRV_SUCCESS, data.tolist())
 
     def _generate_mock_spectrum(self, xpixels: int) -> np.ndarray:
-        """Generate mock 1D spectrum with Gaussian peaks."""
+        """Generate mock pump-probe spectrum alternating pump-on / pump-off.
+
+        Odd shots are pump-on with a delay-dependent ΔI/I₀ response:
+          - GSB  (+): Gaussian bleach at centre pixel
+          - SE   (+): Gaussian stimulated emission, red-shifted
+          - ESA  (−): Gaussian excited-state absorption, blue-shifted
+          - Amplitude decays as exp(−t/τ) and carries a coherent oscillation
+            exp(−t/τ_vib) · cos(2π t / T_osc).
+        """
         x = np.arange(xpixels)
-        spectrum = np.zeros(xpixels)
+        cx = xpixels // 2  # centre pixel
 
-        # Add Gaussian peaks at fixed positions
-        for center, width, height in [(256, 30, 10000), (512, 40, 15000), (768, 25, 8000)]:
-            spectrum += height * np.exp(-0.5 * ((x - center) / width) ** 2)
+        # --- Reference (pump-off) spectrum ---
+        ref = np.zeros(xpixels)
+        for center, width, height in [
+            (cx - xpixels // 6, xpixels // 30, 8000),
+            (cx, xpixels // 20, 15000),
+            (cx + xpixels // 6, xpixels // 25, 10000),
+        ]:
+            ref += height * np.exp(-0.5 * ((x - center) / width) ** 2)
+        ref += np.random.normal(100, 15, xpixels)
 
-        # Add noise
-        spectrum += np.random.normal(100, 20, xpixels)
-        return np.maximum(spectrum, 0).astype(np.int32)
+        is_pumped = (self._shot_counter % 2 == 1)
+        self._shot_counter += 1
+
+        if not is_pumped:
+            return np.maximum(ref, 0).astype(np.int32)
+
+        # --- Delay-dependent pump-on perturbation ---
+        t = _mock_delay_ps        # current delay set by mock stage
+        t0 = 0.0                  # time zero
+        tau = 100.0               # population lifetime (ps)
+        tau_vib = 3.0             # vibrational dephasing (ps)
+        T_osc = 1.5               # oscillation period (ps)
+
+        if t <= t0:
+            amp = 0.0
+        else:
+            dt = t - t0
+            amp = np.exp(-dt / tau) * (
+                1.0 + 0.25 * np.exp(-dt / tau_vib) * np.cos(2 * np.pi * dt / T_osc)
+            )
+
+        w = xpixels // 20
+        delta = (
+            +1500 * amp * np.exp(-0.5 * ((x - cx) / w) ** 2)               # GSB
+            + 800 * amp * np.exp(-0.5 * ((x - cx - w * 2) / (w * 1.5)) ** 2)  # SE
+            - 600 * amp * np.exp(-0.5 * ((x - cx + w * 2) / (w * 1.2)) ** 2)  # ESA
+        )
+
+        return np.maximum(ref + delta, 0).astype(np.int32)
 
     def _generate_mock_image(self, xpixels: int, ypixels: int) -> np.ndarray:
         """Generate mock 2D image."""

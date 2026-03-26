@@ -299,6 +299,79 @@ class AndorCamera:
         log.debug(f"FVB acquisition complete: {len(data)} pixels (hbin={hbin})")
         return data
 
+    def arm_spectrum(self) -> None:
+        """Prepare and arm the camera for one FVB frame (does NOT wait for trigger).
+
+        Runs SetReadMode / SetAcquisitionMode / PrepareAcquisition / StartAcquisition
+        so the camera is waiting for the next external trigger.  After this returns,
+        the caller should drain the phase reader **then** call collect_spectrum().
+
+        This split lets the phase reader be flushed *after* the ~50 ms
+        PrepareAcquisition overhead so that read_tags() only sees samples
+        acquired during the actual camera exposure, not stale pre-arm samples.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        hbin = self._current_hbin
+        xpixels = self._info.xpixels
+        eff_pixels = xpixels // hbin
+        self._arm_eff_pixels = eff_pixels
+
+        with self._lock:
+            self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
+            self._sdk.SetAcquisitionMode(self._codes.Acquisition_Mode.SINGLE_SCAN)
+
+            if hbin > 1:
+                ret = self._sdk.SetFVBHBin(hbin)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    raise RuntimeError(f"SetFVBHBin failed with code {ret}")
+            else:
+                ret = self._sdk.SetFVBHBin(1)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    log.warning(f"SetFVBHBin(1) returned: {ret}")
+
+            ret = self._sdk.PrepareAcquisition()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.warning(f"PrepareAcquisition returned: {ret}")
+
+            ret = self._sdk.StartAcquisition()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                self._arm_eff_pixels = None
+                raise RuntimeError(f"StartAcquisition failed with code: {ret}")
+
+    def collect_spectrum(self) -> np.ndarray:
+        """Wait for and return the frame armed by arm_spectrum().
+
+        Returns:
+            1-D numpy array of intensities.
+
+        Raises:
+            RuntimeError: If arm_spectrum() was not called first.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+        if not getattr(self, "_arm_eff_pixels", None):
+            raise RuntimeError("arm_spectrum() must be called before collect_spectrum()")
+
+        eff_pixels = self._arm_eff_pixels
+
+        ret = self._sdk.WaitForAcquisition()
+        if ret not in self._acq_ok_codes:
+            with self._lock:
+                self._sdk.AbortAcquisition()
+            self._arm_eff_pixels = None
+            raise RuntimeError(f"WaitForAcquisition failed with code: {ret}")
+
+        with self._lock:
+            ret, arr, validfirst, validlast = self._sdk.GetImages16(1, 1, eff_pixels)
+            if ret not in self._acq_ok_codes:
+                self._arm_eff_pixels = None
+                raise RuntimeError(f"GetImages16 failed with code: {ret}")
+
+        self._arm_eff_pixels = None
+        return np.array(arr, dtype=np.float64)
+
     def get_readout_time(self) -> float:
         """Return SDK-calculated readout time in seconds.
 
@@ -384,6 +457,77 @@ class AndorCamera:
         log.debug(f"Image acquisition complete: {eff_y}x{eff_x}")
         return data
 
+    def start_run_till_abort(self) -> None:
+        """Start continuous FVB acquisition in Run Till Abort mode.
+
+        The camera arms once and continuously acquires frames on each
+        external trigger.  Call ``get_buffered_frames()`` to bulk-read
+        accumulated frames, then ``abort_acquisition()`` to stop.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        hbin = self._current_hbin
+        xpixels = self._info.xpixels
+        self._rta_eff_pixels = xpixels // hbin
+
+        with self._lock:
+            self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
+            self._sdk.SetAcquisitionMode(5)  # RUN_TILL_ABORT
+
+            # Enable overlap mode: readout of frame N overlaps with exposure of frame N+1
+            ret = self._sdk.SetOverlapMode(1)
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.warning(f"SetOverlapMode(1) returned: {ret}")
+
+            if hbin > 1:
+                ret = self._sdk.SetFVBHBin(hbin)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    raise RuntimeError(f"SetFVBHBin failed with code {ret}")
+            else:
+                self._sdk.SetFVBHBin(1)
+
+            ret = self._sdk.PrepareAcquisition()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.warning(f"PrepareAcquisition returned: {ret}")
+
+            ret = self._sdk.StartAcquisition()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                self._rta_eff_pixels = None
+                raise RuntimeError(f"StartAcquisition failed with code: {ret}")
+
+    def get_buffered_frames(self) -> tuple:
+        """Read all available frames from the circular buffer.
+
+        Must be called after ``start_run_till_abort()``.
+
+        Returns:
+            ``(frames, n_frames)`` where ``frames`` is a 2-D numpy array
+            of shape ``(n_frames, pixels)`` and ``n_frames`` is the count.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+        eff_pixels = getattr(self, "_rta_eff_pixels", None)
+        if eff_pixels is None:
+            raise RuntimeError("start_run_till_abort() must be called first")
+
+        with self._lock:
+            ret, first, last = self._sdk.GetNumberNewImages()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                return np.empty((0, eff_pixels), dtype=np.float64), 0
+
+            n_frames = last - first + 1
+            total_pixels = n_frames * eff_pixels
+            ret, arr, validfirst, validlast = self._sdk.GetImages16(
+                first, last, total_pixels
+            )
+            if ret not in self._acq_ok_codes:
+                raise RuntimeError(f"GetImages16 failed with code: {ret}")
+
+        n_valid = validlast - validfirst + 1
+        frames = np.array(arr, dtype=np.float64).reshape(n_valid, eff_pixels)
+        return frames, n_valid
+
     def abort_acquisition(self) -> None:
         """Abort any running acquisition."""
         if not self._initialized:
@@ -391,6 +535,7 @@ class AndorCamera:
 
         with self._lock:
             self._sdk.AbortAcquisition()
+            self._rta_eff_pixels = None
             log.info("Acquisition aborted")
 
     # -- Camera settings: VS/HS speed, amplifier, gain -----------------------
