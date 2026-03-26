@@ -121,6 +121,63 @@ class TestChopper2x2Mode:
         assert settings["exposure_time"] == pytest.approx(0.005)
 
 
+class TestTAScanConfigWidgetLinearTab:
+    def _select_linear_tab(self, widget):
+        from PySide6.QtWidgets import QTabWidget
+        tabs = widget.findChildren(QTabWidget)[0]
+        for i in range(tabs.count()):
+            if "linear" in tabs.tabText(i).lower():
+                tabs.setCurrentIndex(i)
+                return True
+        return False
+
+    def test_has_linear_tab(self, widget):
+        assert self._select_linear_tab(widget), "No 'Linear' tab found"
+
+    def test_linear_tab_default_start_um(self, widget):
+        self._select_linear_tab(widget)
+        assert widget.lin_start_spin.value() == pytest.approx(-57000.0)
+
+    def test_linear_tab_default_end_um(self, widget):
+        self._select_linear_tab(widget)
+        assert widget.lin_end_spin.value() == pytest.approx(-55800.0)
+
+    def test_linear_tab_default_step_um(self, widget):
+        self._select_linear_tab(widget)
+        assert widget.lin_step_spin.value() == pytest.approx(3.0)
+
+    def test_default_axis(self, widget):
+        assert widget.stage_axis_spin.value() == 2
+
+    def test_linear_scan_emits_delay_list(self, widget):
+        self._select_linear_tab(widget)
+        widget.lin_start_spin.setValue(0.0)
+        widget.lin_end_spin.setValue(30.0)
+        widget.lin_step_spin.setValue(3.0)
+        emitted = []
+        widget.scan_requested.connect(lambda cfg: emitted.append(cfg))
+        widget.scan_button.click()
+        assert len(emitted[0].delay_list) == 11  # 0, 3, 6, ..., 30
+
+    def test_linear_scan_delay_list_monotone(self, widget):
+        self._select_linear_tab(widget)
+        widget.lin_start_spin.setValue(0.0)
+        widget.lin_end_spin.setValue(15.0)
+        widget.lin_step_spin.setValue(3.0)
+        emitted = []
+        widget.scan_requested.connect(lambda cfg: emitted.append(cfg))
+        widget.scan_button.click()
+        delays = emitted[0].delay_list
+        assert all(delays[i] < delays[i + 1] for i in range(len(delays) - 1))
+
+    def test_n_averages_default(self, widget):
+        assert widget.n_averages_spin.value() == 100
+
+    def test_n_averages_range_up_to_10000(self, widget):
+        widget.n_averages_spin.setValue(10000)
+        assert widget.n_averages_spin.value() == 10000
+
+
 class TestTAScanConfigWidgetStageTab:
     def _select_stage_tab(self, widget):
         from PySide6.QtWidgets import QTabWidget
@@ -136,23 +193,19 @@ class TestTAScanConfigWidgetStageTab:
 
     def test_stage_tab_default_start_um(self, widget):
         self._select_stage_tab(widget)
-        assert widget.stage_start_spin.value() == pytest.approx(-57000.0)
+        assert widget._stg_start.value() == pytest.approx(-57000.0)
 
     def test_stage_tab_default_step_um(self, widget):
         self._select_stage_tab(widget)
-        assert widget.stage_step_spin.value() == pytest.approx(3.0)
+        assert widget._stg_step.value() == pytest.approx(3.0)
 
     def test_stage_tab_default_n_steps(self, widget):
         self._select_stage_tab(widget)
-        assert widget.stage_n_steps_spin.value() == 400
-
-    def test_stage_tab_default_axis(self, widget):
-        self._select_stage_tab(widget)
-        assert widget.stage_axis_spin.value() == 2
+        assert widget._stg_n_steps.value() == 400
 
     def test_stage_scan_emits_correct_delay_count(self, widget):
         self._select_stage_tab(widget)
-        widget.stage_n_steps_spin.setValue(10)
+        widget._stg_n_steps.setValue(10)
         emitted = []
         widget.scan_requested.connect(lambda cfg: emitted.append(cfg))
         widget.scan_button.click()
@@ -160,21 +213,30 @@ class TestTAScanConfigWidgetStageTab:
 
     def test_stage_scan_delay_list_monotone(self, widget):
         self._select_stage_tab(widget)
-        widget.stage_n_steps_spin.setValue(5)
-        widget.stage_start_spin.setValue(0.0)
-        widget.stage_step_spin.setValue(3.0)
+        widget._stg_start.setValue(0.0)
+        widget._stg_step.setValue(3.0)
+        widget._stg_n_steps.setValue(5)
         emitted = []
         widget.scan_requested.connect(lambda cfg: emitted.append(cfg))
         widget.scan_button.click()
         delays = emitted[0].delay_list
         assert all(delays[i] < delays[i + 1] for i in range(len(delays) - 1))
 
-    def test_n_averages_default_2000(self, widget):
-        assert widget.n_averages_spin.value() == 2000
+    def test_stage_info_label_shows_end_position(self, widget):
+        self._select_stage_tab(widget)
+        widget._stg_start.setValue(0.0)
+        widget._stg_step.setValue(10.0)
+        widget._stg_n_steps.setValue(11)
+        text = widget._stg_info_label.text()
+        assert "100.0" in text  # end = 0 + 10*10 = 100 µm
 
-    def test_n_averages_range_up_to_10000(self, widget):
-        widget.n_averages_spin.setValue(10000)
-        assert widget.n_averages_spin.value() == 10000
+    def test_stage_info_label_shows_ps(self, widget):
+        self._select_stage_tab(widget)
+        widget._stg_start.setValue(0.0)
+        widget._stg_step.setValue(3.0)
+        widget._stg_n_steps.setValue(2)
+        text = widget._stg_info_label.text()
+        assert "ps" in text
 
 
 class TestTAScanConfigWidgetYAML:

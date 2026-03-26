@@ -68,9 +68,9 @@ class TestTAScanConfigNIDAQFields:
 
     def test_defaults(self):
         cfg = TAScanConfig(delay_list=[0.0])
-        assert cfg.nidaq_device == "Astrella DAQ"
+        assert cfg.nidaq_device == "Astrella_DAQ"
         assert cfg.nidaq_di_channel == "port0/line0"
-        assert cfg.nidaq_clock_source == "/Astrella DAQ/PFI0"
+        assert cfg.nidaq_clock_source == "/Astrella_DAQ/PFI0"
         assert cfg.nidaq_clock_rate == 1000.0
 
     def test_yaml_roundtrip_preserves_nidaq_fields(self, tmp_path):
@@ -187,15 +187,21 @@ def make_config_2x2(n_averages=1):
 
 
 def make_hw_2x2(on_val, off_val, n_pairs):
-    """Camera alternates ON frame / OFF frame for n_pairs pairs."""
+    """Camera alternates ON frame / OFF frame for n_pairs pairs.
+
+    Mocks batch-read methods for ``_acquire_chopper_2x2``.
+    """
     hw = MagicMock()
     hw.motion.get_axis.return_value = MagicMock()
+    # Build alternating ON/OFF frames as 2-D array
     frames = []
     for _ in range(n_pairs):
         frames.append(np.array(on_val, dtype=float))
         frames.append(np.array(off_val, dtype=float))
-    it = iter(frames)
-    hw.camera.get_spectrum.side_effect = lambda: next(it)
+    frame_array = np.array(frames)
+    hw.camera.start_run_till_abort.return_value = None
+    hw.camera.get_buffered_frames.return_value = (frame_array, len(frames))
+    hw.camera.abort_acquisition.return_value = None
     return hw
 
 
@@ -225,24 +231,28 @@ class TestAcquireChopper2x2:
         cfg = make_config_2x2(n_averages=3)
         reader = MockNIDAQChopper2x2Reader()
         result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
-        assert hw.camera.get_spectrum.call_count == 6  # 3 ON + 3 OFF frames
+        # Batch read: get_buffered_frames called once
+        hw.camera.get_buffered_frames.assert_called_once()
 
     def test_mixed_tags_discarded(self):
-        """A reader that always returns mixed [1,0] should eventually exhaust limit."""
+        """A reader that always returns mixed tags should yield 0 valid pairs."""
         n = 4
+        n_frames = 10
 
         class AllMixedReader:
             def start(self): pass
             def stop(self): pass
+            def drain(self): pass
             def read_tags(self, k):
-                return np.array([1, 0], dtype=np.int8)
+                # Alternating 1,0,1,0... — neither offset gives matched pairs
+                return np.array([1, 0] * (k // 2) + [1] * (k % 2), dtype=np.int8)[:k]
 
-        # Provide enough spectra to hit the safety limit
-        frames = [np.ones(n) * 1000.0 for _ in range(200)]
+        frame_array = np.ones((n_frames, n)) * 1000.0
         hw = MagicMock()
         hw.motion.get_axis.return_value = MagicMock()
-        it = iter(frames)
-        hw.camera.get_spectrum.side_effect = lambda: next(it)
+        hw.camera.start_run_till_abort.return_value = None
+        hw.camera.get_buffered_frames.return_value = (frame_array, n_frames)
+        hw.camera.abort_acquisition.return_value = None
 
         cfg = make_config_2x2(n_averages=1)
         with pytest.raises(RuntimeError, match="chopper_2x2"):

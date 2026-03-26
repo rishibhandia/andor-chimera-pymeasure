@@ -21,13 +21,13 @@ class TestRealtimeWindowUI:
         assert window._mode_combo is not None
 
     def test_realtime_window_has_exposure_spinbox(self, qt_app, hardware_manager):
-        """RealtimeWindow has an exposure time spinbox."""
+        """RealtimeWindow has an exposure time spinbox via CameraSettingsWidget."""
         from andor_qt.windows.realtime_window import RealtimeWindow
 
         window = RealtimeWindow(hardware_manager)
 
-        assert hasattr(window, "_exposure_spin")
-        assert window._exposure_spin is not None
+        assert hasattr(window, "_camera_settings")
+        assert window._camera_settings.exposure_spin is not None
 
     def test_realtime_window_has_start_stop_buttons(self, qt_app, hardware_manager):
         """RealtimeWindow has start and stop buttons."""

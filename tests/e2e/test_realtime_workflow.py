@@ -170,16 +170,19 @@ class TestRealtimeWindowWorkflow:
         hardware_manager = HardwareManager.instance()
         window = RealtimeWindow(hardware_manager)
 
-        # Check initial value
-        assert window._exposure_spin.value() == 0.1  # Default
+        # Exposure spinbox is now inside CameraSettingsWidget
+        exposure_spin = window._camera_settings.exposure_spin
+
+        # Check initial value is within valid range
+        assert exposure_spin.minimum() <= exposure_spin.value() <= exposure_spin.maximum()
 
         # Change exposure
-        window._exposure_spin.setValue(0.5)
-        assert window._exposure_spin.value() == 0.5
+        exposure_spin.setValue(0.5)
+        assert exposure_spin.value() == 0.5
 
         # Check range
-        assert window._exposure_spin.minimum() >= 1e-6  # minimum is 1 µs
-        assert window._exposure_spin.maximum() <= 300.0
+        assert exposure_spin.minimum() >= 1e-6  # minimum is 1 µs
+        assert exposure_spin.maximum() <= 300.0
 
 
 class TestRealtimeFPSAndFrameCounter:

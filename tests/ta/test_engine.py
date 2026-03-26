@@ -30,10 +30,21 @@ def make_mock_hw(n_pixels: int = 64):
     # Camera returns a flat spectrum
     hw.camera.get_spectrum.return_value = np.ones(n_pixels) * 1000.0
     hw.camera.get_image.return_value = np.ones((10, n_pixels)) * 1000.0
+    # Batch read for chopper_2x2 mode
+    hw.camera.start_run_till_abort.return_value = None
+    hw.camera.get_buffered_frames.return_value = (
+        np.ones((200, n_pixels)) * 1000.0, 200
+    )
+    hw.camera.abort_acquisition.return_value = None
 
-    # Mock motion axis — plain MagicMock allows attribute setting
+    # Mock motion axis — set real float values so engine f-string formatting works
     mock_axis = MagicMock()
+    mock_axis.t0_offset_mm = 0.0
+    mock_axis.position = 0.0
+    mock_axis.position_ps = 0.0
+    mock_axis.position_mm = 0.0
     hw.motion.get_axis.return_value = mock_axis
+    hw.motion_manager.get_axis.return_value = mock_axis
     hw.wavelengths = np.linspace(400.0, 800.0, n_pixels)
     return hw
 
@@ -301,7 +312,10 @@ class TestEngineChopper2x2:
         config = self._make_chopper_config()
         trigger_gen = MagicMock()
         reader = MagicMock()
-        reader.read_tags.return_value = np.array([1, 1])
+        # Return matched-pair pattern for any requested length
+        reader.read_tags.side_effect = lambda n: np.array(
+            [1, 1, 0, 0] * ((n // 4) + 1), dtype=np.int8
+        )[:n]
         self._run_engine(engine=TransientAbsorptionEngine(), config=config,
                          hw=hw, trigger_gen=trigger_gen, phase_reader=reader)
         reader.start.assert_called_once()
