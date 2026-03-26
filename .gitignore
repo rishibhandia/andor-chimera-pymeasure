@@ -29,3 +29,11 @@ htmlcov/
 
 # Dependency lock files (uv)
 uv.lock
+
+# Local configuration files (may contain IP addresses, COM ports, device names)
+config.yaml
+config.local.yaml
+*.local.yaml
+
+# Stray Windows device name files
+nul

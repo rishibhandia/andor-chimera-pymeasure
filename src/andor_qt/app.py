@@ -143,7 +143,7 @@ def main() -> int:
         app.setOrganizationName("Katsumi Lab")
 
         # Create and show main window maximized (dense lab UI needs full screen)
-        window = AndorSpectrometerWindow()
+        window = AndorSpectrometerWindow(config=config)
         window.showMaximized()
 
         # Run event loop

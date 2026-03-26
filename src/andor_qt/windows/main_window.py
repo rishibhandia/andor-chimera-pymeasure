@@ -85,13 +85,16 @@ class AndorSpectrometerWindow(QMainWindow):
         └─────────────────────────────────────────────────────────────────────┘
     """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, config=None):
         super().__init__(parent)
 
         self.setWindowTitle("Andor Spectrometer Control")
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1400, 900)
+        self.resize(1600, 950)
 
         self._hw_manager = HardwareManager.instance()
+        if config is not None:
+            self._hw_manager.set_config(config)
         self._signals = get_hardware_signals()
         self._acq_signals = AcquisitionSignals()
 
@@ -303,6 +306,12 @@ class AndorSpectrometerWindow(QMainWindow):
             lambda: self._status_label.setText("Sequence complete")
         )
 
+        # TA scan → stop realtime window to prevent concurrent camera access
+        self._ta_panel._engine.scan_started.connect(self._on_ta_scan_started)
+        self._ta_panel._engine.scan_completed.connect(self._on_ta_scan_ended)
+        self._ta_panel._engine.aborted.connect(self._on_ta_scan_ended)
+        self._ta_panel._engine.error.connect(lambda _: self._on_ta_scan_ended())
+
         # Trace overlay signals
         self._spectrum_plot.trace_added.connect(self._trace_list.add_trace)
         self._trace_list.visibility_toggled.connect(self._spectrum_plot.set_trace_visible)
@@ -358,6 +367,7 @@ class AndorSpectrometerWindow(QMainWindow):
         # Populate camera-specific options (pre-amp gains, EM gain range)
         if self._hw_manager.camera:
             self._inputs_widget.populate_from_camera(self._hw_manager.camera)
+            self._ta_panel.config_widget.populate_from_camera(self._hw_manager.camera)
 
     @Slot(str)
     def _on_hardware_error(self, error_msg: str) -> None:
@@ -656,6 +666,17 @@ class AndorSpectrometerWindow(QMainWindow):
                 "Error",
                 f"Failed to create desktop shortcut:\n{e}",
             )
+
+    @Slot(int)
+    def _on_ta_scan_started(self, _scan_idx: int) -> None:
+        """Stop realtime window when TA scan begins to prevent concurrent camera access."""
+        if hasattr(self, "_realtime_window") and self._realtime_window is not None:
+            self._realtime_window.stop_acquisition()
+
+    @Slot()
+    def _on_ta_scan_ended(self) -> None:
+        """TA scan finished — realtime window must be restarted manually."""
+        pass
 
     @Slot()
     def _on_realtime_mode(self) -> None:

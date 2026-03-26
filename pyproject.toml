@@ -13,6 +13,9 @@ dependencies = [
     "pyyaml>=6.0",
     "h5py>=3.0",
     "pyserial>=3.5",
+    "nidaqmx>=0.6",
+    "pyandorsdk2 @ file:///C:/Program%20Files/Andor%20SDK/Python/pyAndorSDK2",
+    "pyandorspectrograph @ file:///C:/Program%20Files/Andor%20SDK/Python/pyAndorSpectrograph",
 ]
 
 [project.optional-dependencies]
@@ -20,9 +23,6 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.1.0",
-]
-hardware = [
-    "nidaqmx>=0.6",
 ]
 
 [project.scripts]
@@ -32,6 +32,9 @@ andor-qt = "andor_qt.app:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/andor_pymeasure", "src/andor_qt"]

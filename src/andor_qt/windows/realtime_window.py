@@ -119,22 +119,6 @@ class RealtimeWindow(QMainWindow):
         self._spec_control = SpectrographControlWidget(self._hw_manager)
         layout.addWidget(self._spec_control)
 
-        # Exposure settings
-        exposure_group = QGroupBox("Exposure")
-        exposure_layout = QVBoxLayout(exposure_group)
-
-        exposure_row = QHBoxLayout()
-        exposure_row.addWidget(QLabel("Exposure:"))
-        self._exposure_spin = QDoubleSpinBox()
-        self._exposure_spin.setRange(0.000001, 300.0)
-        self._exposure_spin.setValue(0.1)
-        self._exposure_spin.setSuffix(" s")
-        self._exposure_spin.setDecimals(6)
-        exposure_row.addWidget(self._exposure_spin)
-        exposure_layout.addLayout(exposure_row)
-
-        layout.addWidget(exposure_group)
-
         # Camera settings
         self._camera_settings = CameraSettingsWidget()
         layout.addWidget(self._camera_settings)
@@ -150,7 +134,7 @@ class RealtimeWindow(QMainWindow):
 
         self._stop_button = QPushButton("■ Stop")
         self._stop_button.setEnabled(False)
-        self._stop_button.clicked.connect(self._stop_acquisition)
+        self._stop_button.clicked.connect(self.stop_acquisition)
         button_row.addWidget(self._stop_button)
         control_layout.addLayout(button_row)
 
@@ -267,16 +251,14 @@ class RealtimeWindow(QMainWindow):
         self._signals.acquisition_started.emit()
 
         mode = self._mode_combo.currentData()
-        exposure = self._exposure_spin.value()
         camera_settings = self._camera_settings.get_settings()
+        # Apply settings once before the loop; they are frozen during acquisition
+        self._hw_manager.camera.apply_camera_settings(camera_settings)
 
         def _acquisition_loop():
             """Background acquisition loop."""
             try:
                 while self._running:
-                    self._hw_manager.camera.apply_camera_settings(camera_settings)
-                    self._hw_manager.camera.set_exposure(exposure)
-
                     if mode == "fvb":
                         data = self._hw_manager.camera.acquire_fvb()
                         calibration = self._hw_manager.get_calibration()
@@ -299,7 +281,7 @@ class RealtimeWindow(QMainWindow):
         self._acq_thread = threading.Thread(target=_acquisition_loop, daemon=True)
         self._acq_thread.start()
 
-    def _stop_acquisition(self) -> None:
+    def stop_acquisition(self) -> None:
         """Stop continuous acquisition."""
         self._running = False
         if self._hw_manager.camera:
@@ -346,7 +328,7 @@ class RealtimeWindow(QMainWindow):
     def _on_error(self, error_msg: str) -> None:
         """Handle acquisition error."""
         self._status_label.setText(f"Error: {error_msg}")
-        self._stop_acquisition()
+        self.stop_acquisition()
 
     @Slot()
     def _update_fps(self) -> None:
@@ -376,7 +358,7 @@ class RealtimeWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Handle window close - stop acquisition first."""
-        self._stop_acquisition()
+        self.stop_acquisition()
         # Wait briefly for thread to stop
         if self._acq_thread and self._acq_thread.is_alive():
             self._acq_thread.join(timeout=1.0)

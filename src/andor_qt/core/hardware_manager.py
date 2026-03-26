@@ -479,6 +479,16 @@ class HardwareManager:
         thread = threading.Thread(target=_wavelength_thread, daemon=True)
         thread.start()
 
+    def get_wavelengths(self, hbin: int = 1) -> "np.ndarray":
+        """Get wavelength array for current spectrograph/camera settings.
+
+        Returns:
+            Wavelength array in nm, or empty array if not available.
+        """
+        import numpy as np
+        cal = self.get_calibration(hbin=hbin)
+        return cal if cal is not None else np.array([])
+
     def get_calibration(self, hbin: int = 1) -> Optional["np.ndarray"]:
         """Get wavelength calibration for current settings.
 
