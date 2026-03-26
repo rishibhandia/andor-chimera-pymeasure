@@ -93,6 +93,8 @@ class _ScanWorker(QObject):
     # Data signals
     signal_updated = Signal(float, object, object)
     map_updated = Signal(object, object, object)
+    raw_pair_updated = Signal(object, object, int, int, int)  # pumped, ref, n_matched, n_discarded, n_frames
+    status_updated = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -133,6 +135,24 @@ class _ScanWorker(QObject):
         if callable(_apply) and self._camera_settings:
             _apply(self._camera_settings)
 
+        # Move stage to initial position before starting NI DAQ tasks,
+        # so the DAQ buffer doesn't fill during a long first-point move.
+        axis = getattr(getattr(hw, "motion_manager", None), "get_axis", lambda _: None)("delay")
+        if config.delay_list:
+            first_delay = config.ordered_delays(0)[0]
+            if axis is not None:
+                target_mm = getattr(axis, "t0_offset_mm", 0.0) + (first_delay * SPEED_OF_LIGHT_MM_PS) / 2
+                cur_mm = getattr(axis, "position", float("nan"))
+                log.info(f"Moving stage to initial delay {first_delay:.2f} ps ({target_mm:.3f} mm) before scan")
+                self.status_updated.emit(
+                    f"Moving to start — {first_delay:.2f} ps  "
+                    f"current: {cur_mm:.3f} mm → commanded: {target_mm:.3f} mm"
+                )
+                if hasattr(axis, "move_fast"):
+                    axis.move_fast(target_mm)
+                else:
+                    axis.position_ps = first_delay
+
         # Start NI DAQ hardware tasks
         if trigger_gen is not None:
             trigger_gen.start()
@@ -151,8 +171,10 @@ class _ScanWorker(QObject):
                     writer.begin_scan(scan_idx)
 
                 ordered = config.ordered_delays(scan_idx)
+                n_pts = len(ordered)
+                n_scans = config.n_scans
 
-                for delay_ps in ordered:
+                for pt_idx, delay_ps in enumerate(ordered):
                     # Check abort
                     if self._abort_event.is_set():
                         self.aborted.emit()
@@ -167,10 +189,33 @@ class _ScanWorker(QObject):
 
                     self.point_started.emit(scan_idx, delay_ps)
 
+                    # Emit "Moving" status with current and commanded positions
+                    target_mm = (
+                        getattr(axis, "t0_offset_mm", 0.0) + (delay_ps * SPEED_OF_LIGHT_MM_PS) / 2
+                        if axis is not None else float("nan")
+                    )
+                    cur_mm = getattr(axis, "position", float("nan")) if axis is not None else float("nan")
+                    log.info(
+                        f"Scan {scan_idx+1}/{n_scans} pt {pt_idx+1}/{n_pts}: "
+                        f"moving to {delay_ps:.2f} ps ({target_mm:.3f} mm)"
+                    )
+
+                    def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames,
+                                _si=scan_idx, _pi=pt_idx, _ns=n_scans, _np=n_pts,
+                                _d=delay_ps):
+                        self.raw_pair_updated.emit(pumped, ref, n_matched, n_discarded, n_frames)
+                        valid_pct = 100.0 * (2 * n_matched) / n_frames if n_frames > 0 else 0.0
+                        self.status_updated.emit(
+                            f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
+                            f"pairs: {n_matched}  discarded: {n_discarded}  "
+                            f"({valid_pct:.0f}% valid)"
+                        )
+
                     delta_signal = acquire_delta_signal_at_delay(
                         delay_ps, hw, config, dark=None,
                         camera_settings=self._camera_settings,
                         phase_reader=phase_reader,
+                        raw_callback=_raw_cb,
                     )
 
                     if writer is not None:
@@ -243,6 +288,8 @@ class TransientAbsorptionEngine(QObject):
     error = Signal(str)
     signal_updated = Signal(float, object, object)
     map_updated = Signal(object, object, object)
+    raw_pair_updated = Signal(object, object, int, int, int)
+    status_updated = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -259,6 +306,8 @@ class TransientAbsorptionEngine(QObject):
         self._worker.error.connect(self.error)
         self._worker.signal_updated.connect(self.signal_updated)
         self._worker.map_updated.connect(self.map_updated)
+        self._worker.raw_pair_updated.connect(self.raw_pair_updated)
+        self._worker.status_updated.connect(self.status_updated)
 
         # Stop thread when scan finishes
         self._worker.scan_completed.connect(self._thread.quit)
