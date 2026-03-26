@@ -151,6 +151,17 @@ class NewportESP302Axis(Axis):
         self._send(f"{self.index}OR{home_type}")
         self.wait_for_stop()
 
+    def move_fast(self, position_mm: float) -> None:
+        """Move to absolute position using init_velocity/init_acceleration, then restore measurement profile."""
+        n = self.index
+        self._send(f"{n}VA{self.init_velocity}")
+        self._send(f"{n}AC{self.init_acceleration}")
+        value = max(self.position_min, min(position_mm, self.position_max))
+        self._send(f"{n}PA{value}")
+        self.wait_for_stop()
+        self._send(f"{n}VA{self.velocity}")
+        self._send(f"{n}AC{self.acceleration}")
+
     def stop(self) -> None:
         """Stop axis motion (ST — uses programmed deceleration)."""
         self._send(f"{self.index}ST")
@@ -182,7 +193,7 @@ class NewportESP302(MotionController):
         transport: str = "socket",
         port: str = "COM3",
         baudrate: int = 19200,
-        host: str = "172.24.20.193",
+        host: str = "",  # Configure in %APPDATA%/AndorSpectrometer/config.yaml
         tcp_port: int = 5001,
         axis_configs: Optional[List[Dict]] = None,
         name: str = "Newport ESP302",
@@ -324,6 +335,11 @@ class MockNewportESP302Axis(MockAxis):
     @position_ps.setter
     def position_ps(self, value: float) -> None:
         self.position = self.t0_offset_mm + (value * SPEED_OF_LIGHT_MM_PS) / 2
+
+    def move_fast(self, position_mm: float) -> None:
+        """Mock fast move — same as regular position move (no velocity concept in mock)."""
+        value = max(self.position_min, min(position_mm, self.position_max))
+        self.position = value
 
 
 class MockNewportESP302(MockMotionController):

@@ -224,6 +224,13 @@ class MockAxis(Axis):
             self._position = value
             self._moving = False
 
+        # Update shared mock delay so the mock camera can produce realistic spectra
+        try:
+            from andor_pymeasure.instruments import mock as _mock_mod
+            _mock_mod._mock_delay_ps = self.position_ps
+        except Exception:
+            pass
+
         log.debug(f"MockAxis {self.name}: Move complete, position = {self._position}mm")
 
     @property
