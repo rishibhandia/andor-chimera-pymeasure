@@ -23,6 +23,7 @@ This function is used by both ``TransientAbsorptionEngine`` (scan loop) and
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import numpy as np
@@ -41,6 +42,7 @@ def acquire_delta_signal_at_delay(
     dark: Optional[np.ndarray] = None,
     camera_settings: Optional[dict] = None,
     phase_reader=None,
+    raw_callback=None,
 ) -> np.ndarray:
     """Acquire ΔI/I₀ spectrum at a specific time delay.
 
@@ -64,7 +66,7 @@ def acquire_delta_signal_at_delay(
         Averaged ΔI/I₀ spectrum (1-D numpy array).
     """
     # Move stage to target delay
-    axis = hw_manager.motion.get_axis("delay")
+    axis = hw_manager.motion_manager.get_axis("delay")
     if axis is not None:
         axis.position_ps = delay_ps
 
@@ -75,7 +77,7 @@ def acquire_delta_signal_at_delay(
             apply(camera_settings)
 
     if config.acquisition_mode == "chopper_2x2" and phase_reader is not None:
-        return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader)
+        return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
     if phase_reader is not None:
         return _acquire_hardware(hw_manager, config, dark, phase_reader)
     return _acquire_software(hw_manager, config, dark)
@@ -121,52 +123,93 @@ def _acquire_hardware(hw_manager, config, dark, phase_reader) -> np.ndarray:
     return mean
 
 
-def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader) -> np.ndarray:
-    """Acquire using chopper_2x2 mode (500 Hz camera trigger, 2 shots per frame).
+def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=None) -> np.ndarray:
+    """Acquire using chopper_2x2 mode — batch read via Run Till Abort.
 
-    Each ``get_spectrum()`` call returns one camera frame integrating 2 laser
-    shots.  ``read_tags(2)`` reads the chopper state for both shots from P0.0;
-    matched tags ([1,1] = pump-on, [0,0] = pump-off) confirm the frame type.
-    Mixed tags indicate a chopper transition and the frame is discarded.
+    The camera is started in Run Till Abort mode (continuous acquisition on
+    each external trigger).  Frames accumulate in the circular buffer while
+    the phase reader collects PFI0-clocked tags.  After enough frames have
+    arrived, all frames and tags are bulk-read and processed in numpy.
 
-    ``n_averages`` pump-on / pump-off pairs are accumulated before returning
-    the averaged ΔI/I₀.
+    Tag alignment: 0 or 1 pre-trigger PFI0 samples may arrive between
+    ``drain()`` and the first SDG trigger.  We read ``2*N + 1`` tags and
+    try both offsets (0 and 1); the offset with more matched pairs wins.
     """
-    delta_signal_list = []
-    on_buf = []
-    off_buf = []
-    max_frames = config.n_averages * 6  # safety: allow up to 6× expected frames
-    frames = 0
+    camera = hw_manager.camera
+    # Need ~2 frames per pair (1 ON + 1 OFF), plus ~10% margin for discards
+    n_target = int(config.n_averages * 2.2) + 10
 
-    while len(delta_signal_list) < config.n_averages:
-        if frames >= max_frames:
-            raise RuntimeError(
-                f"chopper_2x2: {frames} frames acquired without completing "
-                f"{config.n_averages} pairs — check chopper phase sync"
-            )
+    # Start continuous acquisition
+    camera.start_run_till_abort()
+    phase_reader.drain()
 
-        spectrum = np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
-        tags = phase_reader.read_tags(2)
-        frames += 1
+    try:
+        # Wait for frames to accumulate (2 ms per frame at 500 Hz + margin)
+        wait_s = (n_target * 2.0) / 1000.0 + 0.05
+        time.sleep(wait_s)
 
-        if tags[0] != tags[1]:
-            log.debug(f"chopper_2x2: mixed tags {tags.tolist()}, discarding transition frame")
-            continue
+        # Bulk read all available frames
+        frames, n_read = camera.get_buffered_frames()
+    finally:
+        camera.abort_acquisition()
 
-        if tags[0] == 1:
-            on_buf.append(spectrum)
-        else:
-            off_buf.append(spectrum)
+    if n_read == 0:
+        raise RuntimeError("chopper_2x2: no frames acquired — check trigger")
 
-        if on_buf and off_buf:
-            pumped = on_buf.pop(0)
-            ref = off_buf.pop(0)
-            if dark is not None:
-                pumped = background_subtract(pumped, dark)
-                ref = background_subtract(ref, dark)
-            delta_signal_list.append(compute_delta_signal(pumped, ref))
+    # Bulk read tags: 2 per frame + 1 extra for alignment detection
+    all_tags = phase_reader.read_tags(n_read * 2 + 1)
 
-    mean, _ = average_delta_signal(delta_signal_list)
+    # Auto-detect alignment offset (0 or 1 pre-trigger sample)
+    best_offset = 0
+    best_matched = -1
+    for offset in (0, 1):
+        tag_pairs = all_tags[offset:offset + n_read * 2].reshape(n_read, 2)
+        n_matched = int((tag_pairs[:, 0] == tag_pairs[:, 1]).sum())
+        if n_matched > best_matched:
+            best_matched = n_matched
+            best_offset = offset
+
+    tag_pairs = all_tags[best_offset:best_offset + n_read * 2].reshape(n_read, 2)
+
+    # Separate matched frames by pump state
+    matched_mask = tag_pairs[:, 0] == tag_pairs[:, 1]
+    n_discarded = int(n_read - matched_mask.sum())
+    matched_frames = frames[matched_mask]
+    matched_tags = tag_pairs[matched_mask, 0]
+
+    on_frames = matched_frames[matched_tags == 1]
+    off_frames = matched_frames[matched_tags == 0]
+    n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
+
+    if n_pairs == 0:
+        raise RuntimeError(
+            f"chopper_2x2: {n_read} frames, {n_discarded} discarded, "
+            f"0 valid pairs — check chopper phase sync"
+        )
+
+    # Compute ΔI/I₀ (vectorized)
+    pumped = on_frames[:n_pairs]
+    ref = off_frames[:n_pairs]
+
+    if dark is not None:
+        pumped = pumped - dark[np.newaxis, :]
+        ref = ref - dark[np.newaxis, :]
+
+    # Per-pair delta signal, then average
+    ref_safe = np.where(ref == 0, 1.0, ref)
+    delta = (pumped - ref) / ref_safe
+    mean = delta.mean(axis=0)
+
+    # Emit averaged pump-ON and pump-OFF spectra for live display
+    # Use ALL matched frames (not capped at n_averages)
+    if raw_callback is not None:
+        raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0), n_pairs, n_discarded, n_read)
+
+    log.info(
+        f"chopper_2x2: collected {n_pairs} pairs, "
+        f"{n_discarded} discarded, {n_read} total frames "
+        f"({wait_s:.2f}s accumulation, offset={best_offset})"
+    )
     return mean
 
 

@@ -54,7 +54,7 @@ class NIDAQPhaseReader:
         di_channel: str = "port0/line0",
         clock_source: str = "/Dev1/PFI0",
         clock_rate: float = 1000.0,
-        buffer_size: int = 2000,
+        buffer_size: int = 100000,
     ) -> None:
         self._device = device
         self._di_channel = di_channel
@@ -110,6 +110,19 @@ class NIDAQPhaseReader:
         tags = self.read_tags(1)
         return int(tags[0])
 
+    def drain(self) -> None:
+        """Discard all samples currently in the buffer.
+
+        Call this immediately before ``get_spectrum()`` so that the next
+        ``read_tags(n)`` call returns only the samples acquired during that
+        camera frame, not stale samples from stage moves or setup delays.
+        """
+        if self._task is None:
+            return
+        avail = self._task.in_stream.avail_samp_per_chan
+        if avail > 0:
+            self._task.read(number_of_samples_per_channel=avail)
+
     def read_tags(self, n: int) -> np.ndarray:
         """Read ``n`` phase tags.  Blocks until all samples are available.
 
@@ -158,6 +171,9 @@ class MockNIDAQPhaseReader:
         self._counter = 0
 
     def stop(self) -> None:
+        pass
+
+    def drain(self) -> None:
         pass
 
     def read_one(self) -> int:
@@ -209,6 +225,9 @@ class MockNIDAQChopper2x2Reader:
     def stop(self) -> None:
         pass
 
+    def drain(self) -> None:
+        pass
+
     def read_one(self) -> int:
         """Return the next shot tag (pattern: 1,1,0,0,1,1,0,0,…)."""
         # Each group of 2 consecutive shots has the same phase
@@ -218,7 +237,20 @@ class MockNIDAQChopper2x2Reader:
         return int(tag)
 
     def read_tags(self, n: int) -> np.ndarray:
-        """Return the next ``n`` shot tags as a numpy array."""
+        """Return the next ``n`` shot tags as a numpy array.
+
+        When ``n == 3`` (arm/drain/collect pattern), returns
+        ``[tag, tag, next_tag]`` — two exposure samples for the current camera
+        frame plus the first sample of the next frame — and advances the
+        internal counter by exactly one camera frame (2 shots).
+        """
+        if n == 3:
+            # Simulate 0 pre-exposure samples + 2 exposure + 1 next-frame sample
+            frame = self._shot_counter // 2
+            tag = (self._initial_phase + frame) % 2
+            next_tag = 1 - tag
+            self._shot_counter += 2  # advance by one full camera frame
+            return np.array([tag, tag, next_tag], dtype=np.int8)
         return np.array([self.read_one() for _ in range(n)], dtype=np.int8)
 
     def __enter__(self) -> "MockNIDAQChopper2x2Reader":
