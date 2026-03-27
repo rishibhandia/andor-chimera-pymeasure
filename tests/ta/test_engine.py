@@ -242,7 +242,10 @@ class TestEngineSaveSpectra:
         config = self._make_config(n_delays=3, save_spectra_dir=str(tmp_path))
         engine = TransientAbsorptionEngine()
         self._run_engine(engine, config, hw)
-        files = sorted(tmp_path.iterdir())
+        # Spectra are saved in a timestamped subfolder
+        subdirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+        assert len(subdirs) == 1
+        files = sorted(subdirs[0].glob("*.txt"))
         assert len(files) == 3
 
     def test_spectrum_file_is_two_column_text(self, qt_app, tmp_path):
@@ -251,7 +254,9 @@ class TestEngineSaveSpectra:
         config = self._make_config(n_delays=1, save_spectra_dir=str(tmp_path))
         engine = TransientAbsorptionEngine()
         self._run_engine(engine, config, hw)
-        files = list(tmp_path.iterdir())
+        subdirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+        assert len(subdirs) == 1
+        files = list(subdirs[0].glob("*.txt"))
         assert len(files) == 1
         lines = [ln for ln in files[0].read_text().splitlines() if not ln.startswith("#")]
         assert len(lines) == 4  # 4 pixels

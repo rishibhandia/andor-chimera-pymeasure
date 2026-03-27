@@ -255,17 +255,19 @@ class RealtimeWindow(QMainWindow):
         # Apply settings once before the loop; they are frozen during acquisition
         self._hw_manager.camera.apply_camera_settings(camera_settings)
 
+        hbin = camera_settings.get("hbin", 1)
+
         def _acquisition_loop():
             """Background acquisition loop."""
             try:
                 while self._running:
                     if mode == "fvb":
-                        data = self._hw_manager.camera.acquire_fvb()
-                        calibration = self._hw_manager.get_calibration()
+                        data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
+                        calibration = self._hw_manager.get_calibration(hbin=hbin)
                         self._signals.spectrum_ready.emit(calibration, data)
                     else:
-                        data = self._hw_manager.camera.acquire_image()
-                        calibration = self._hw_manager.get_calibration()
+                        data = self._hw_manager.camera.acquire_image(hbin=hbin)
+                        calibration = self._hw_manager.get_calibration(hbin=hbin)
                         self._signals.image_ready.emit(data, calibration)
 
                     self._frame_count += 1

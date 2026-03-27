@@ -45,8 +45,22 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
+def _make_scan_folder(base_dir: str, sample_name: str = "") -> Path:
+    """Create a timestamped subfolder for a scan run.
+
+    Returns:
+        Path to the created subfolder (e.g. ``base_dir/2026-03-26_161500_sample/``).
+    """
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    name = f"{ts}_{sample_name}" if sample_name else ts
+    folder = Path(base_dir) / name
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def _save_spectrum_file(
-    save_dir: str,
+    save_dir: Path,
     scan_idx: int,
     delay_ps: float,
     wavelengths: np.ndarray,
@@ -57,7 +71,7 @@ def _save_spectrum_file(
     Filename encodes scan index and stage position in µm.
 
     Args:
-        save_dir: Directory to write into.
+        save_dir: Directory (Path) to write into.
         scan_idx: Zero-based scan index.
         delay_ps: Delay in picoseconds (used to compute stage position).
         wavelengths: Wavelength axis (nm).  May be empty.
@@ -128,6 +142,22 @@ class _ScanWorker(QObject):
         # Accumulated data for map updates
         all_delays = []
         all_signals = []  # list of 1-D arrays
+
+        # Get current hbin for wavelength calibration
+        hbin = (self._camera_settings or {}).get("hbin", 1)
+        if isinstance(hbin, str):
+            hbin = int(hbin.replace("x", ""))
+        get_wl = getattr(hw, "get_wavelengths", None)
+        if callable(get_wl):
+            self._wavelengths = np.asarray(get_wl(hbin=hbin))
+        else:
+            self._wavelengths = np.array([])
+
+        # Create timestamped subfolder for spectra if saving is enabled
+        spectra_folder = None
+        if config.save_spectra_dir:
+            spectra_folder = _make_scan_folder(config.save_spectra_dir, config.sample_name)
+            log.info(f"Saving spectra to: {spectra_folder}")
 
         # Apply trigger mode once before the scan, restore on exit
         trigger_mode = (self._camera_settings or {}).get("trigger_mode", "internal")
@@ -223,15 +253,13 @@ class _ScanWorker(QObject):
                         writer.write_point(scan_idx, delay_ps, delta_signal,
                                            stage_position_um=stage_um)
 
-                    get_wl = getattr(hw, "get_wavelengths", None)
-                    wavelengths = np.asarray(get_wl()) if callable(get_wl) else np.array([])
-                    self.signal_updated.emit(delay_ps, wavelengths, delta_signal)
+                    self.signal_updated.emit(delay_ps, self._wavelengths, delta_signal)
 
-                    if config.save_spectra_dir:
+                    if spectra_folder is not None:
                         try:
                             _save_spectrum_file(
-                                config.save_spectra_dir, scan_idx, delay_ps,
-                                wavelengths, delta_signal,
+                                spectra_folder, scan_idx, delay_ps,
+                                self._wavelengths, delta_signal,
                             )
                         except Exception as exc:
                             log.warning(f"Failed to save spectrum file: {exc}")
@@ -242,7 +270,7 @@ class _ScanWorker(QObject):
                     if len(all_signals) > 0:
                         signal_matrix = np.array(all_signals)
                         self.map_updated.emit(
-                            np.array(all_delays), wavelengths, signal_matrix
+                            np.array(all_delays), self._wavelengths, signal_matrix
                         )
 
                     self.point_completed.emit(scan_idx, delay_ps)
