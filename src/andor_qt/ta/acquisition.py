@@ -140,38 +140,53 @@ def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=No
     camera = hw_manager.camera
     # Need ~2 frames per pair (1 ON + 1 OFF), plus ~10% margin for discards
     n_target = int(config.n_averages * 2.2) + 10
+    # Use 80% of circular buffer to avoid overflow
+    buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
+    max_chunk = max(1000, int(buf_size * 0.8))
 
-    # Start continuous acquisition
-    camera.start_run_till_abort()
-    phase_reader.drain()
+    all_frames_list = []
+    all_tags_list = []
+    remaining = n_target
 
-    try:
-        # Wait for frames to accumulate (2 ms per frame at 500 Hz + margin)
-        wait_s = (n_target * 2.0) / 1000.0 + 0.05
-        time.sleep(wait_s)
+    while remaining > 0:
+        chunk = min(remaining, max_chunk)
 
-        # Bulk read all available frames
-        frames, n_read = camera.get_buffered_frames()
-    finally:
-        camera.abort_acquisition()
+        camera.start_run_till_abort()
+        phase_reader.drain()
 
-    if n_read == 0:
+        try:
+            wait_s = (chunk * 2.0) / 1000.0 + 0.05
+            time.sleep(wait_s)
+            chunk_frames, n_chunk = camera.get_buffered_frames()
+        finally:
+            camera.abort_acquisition()
+
+        if n_chunk == 0:
+            break
+
+        chunk_tags = phase_reader.read_tags(n_chunk * 2 + 1)
+
+        # Auto-detect alignment offset for this chunk
+        best_offset = 0
+        best_matched = -1
+        for offset in (0, 1):
+            tag_pairs = chunk_tags[offset:offset + n_chunk * 2].reshape(n_chunk, 2)
+            n_matched = int((tag_pairs[:, 0] == tag_pairs[:, 1]).sum())
+            if n_matched > best_matched:
+                best_matched = n_matched
+                best_offset = offset
+
+        tag_pairs = chunk_tags[best_offset:best_offset + n_chunk * 2].reshape(n_chunk, 2)
+        all_frames_list.append(chunk_frames)
+        all_tags_list.append(tag_pairs)
+        remaining -= n_chunk
+
+    if not all_frames_list:
         raise RuntimeError("chopper_2x2: no frames acquired — check trigger")
 
-    # Bulk read tags: 2 per frame + 1 extra for alignment detection
-    all_tags = phase_reader.read_tags(n_read * 2 + 1)
-
-    # Auto-detect alignment offset (0 or 1 pre-trigger sample)
-    best_offset = 0
-    best_matched = -1
-    for offset in (0, 1):
-        tag_pairs = all_tags[offset:offset + n_read * 2].reshape(n_read, 2)
-        n_matched = int((tag_pairs[:, 0] == tag_pairs[:, 1]).sum())
-        if n_matched > best_matched:
-            best_matched = n_matched
-            best_offset = offset
-
-    tag_pairs = all_tags[best_offset:best_offset + n_read * 2].reshape(n_read, 2)
+    frames = np.concatenate(all_frames_list)
+    tag_pairs = np.concatenate(all_tags_list)
+    n_read = len(frames)
 
     # Separate matched frames by pump state
     matched_mask = tag_pairs[:, 0] == tag_pairs[:, 1]
@@ -222,31 +237,66 @@ def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=N
     with a 1 kHz external trigger (one frame per laser shot).  Each frame
     gets a single P0.0 tag: 1 = pump-ON, 0 = pump-OFF.  Frames are sorted
     by pump state and paired for ΔI/I₀ computation.
+
+    For large n_averages, acquisition is split into chunks to avoid
+    overflowing the camera circular buffer.
     """
     camera = hw_manager.camera
     n_target = int(config.n_averages * 2.2) + 10
+    # Max frames per chunk — stay well below circular buffer limit (~15000 frames)
+    buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
+    max_chunk = max(1000, int(buf_size * 0.8))
 
-    # Start crop-mode continuous acquisition
     hbin = getattr(camera, "_current_hbin", 1)
-    camera.start_run_till_abort_crop(
-        crop_height=config.crop_height,
-        hbin=hbin,
-    )
-    phase_reader.drain()
+    all_frames = []
+    all_tags = []
+    remaining = n_target
 
-    try:
-        # 1 ms per frame at 1 kHz + margin
-        wait_s = n_target / 1000.0 + 0.05
-        time.sleep(wait_s)
-        frames, n_read = camera.get_buffered_frames()
-    finally:
-        camera.abort_acquisition()
+    while remaining > 0:
+        chunk = min(remaining, max_chunk)
+
+        camera.start_run_till_abort_crop(
+            crop_height=config.crop_height,
+            hbin=hbin,
+        )
+        phase_reader.drain()
+
+        try:
+            wait_s = chunk / 1000.0 + 0.05
+            time.sleep(wait_s)
+            frames, n_read = camera.get_buffered_frames()
+        finally:
+            camera.abort_acquisition()
+
+        if n_read == 0:
+            break
+
+        # Read available tags — may be slightly more or fewer than n_read
+        read_avail = getattr(phase_reader, "read_available_tags", None)
+        if callable(read_avail):
+            tags = read_avail()
+        else:
+            tags = phase_reader.read_tags(n_read)
+
+        # Align frame and tag counts
+        n_use = min(n_read, len(tags))
+        if n_use > 0:
+            all_frames.append(frames[:n_use])
+            all_tags.append(tags[:n_use])
+        remaining -= n_use
+
+    if not all_frames:
+        raise RuntimeError("shot_to_shot: no frames acquired — check trigger")
+
+    frames = np.concatenate(all_frames)
+    tags = np.concatenate(all_tags)
+    # Align: use the shorter of frames and tags
+    n_read = min(len(frames), len(tags))
+    frames = frames[:n_read]
+    tags = tags[:n_read]
 
     if n_read == 0:
         raise RuntimeError("shot_to_shot: no frames acquired — check trigger")
-
-    # 1 tag per frame (direct 1:1 mapping, no alignment offset needed)
-    tags = phase_reader.read_tags(n_read)
 
     # Separate by pump state
     on_mask = tags == 1
@@ -275,7 +325,7 @@ def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=N
 
     if raw_callback is not None:
         raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0),
-                     n_pairs, 0, n_read)
+                     n_pairs, 0, 2 * n_pairs)
 
     log.info(
         f"shot_to_shot: {n_pairs} pairs from {n_read} frames "

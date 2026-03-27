@@ -134,7 +134,21 @@ class NIDAQPhaseReader:
         """
         if self._task is None:
             raise RuntimeError("NIDAQPhaseReader not started — call start() first")
-        raw = self._task.read(number_of_samples_per_channel=n)
+        raw = self._task.read(number_of_samples_per_channel=n, timeout=10.0)
+        return np.array(raw, dtype=np.int8)
+
+    def read_available_tags(self) -> np.ndarray:
+        """Read all currently available tags without blocking.
+
+        Returns:
+            1-D integer numpy array (may be empty).
+        """
+        if self._task is None:
+            return np.array([], dtype=np.int8)
+        avail = self._task.in_stream.avail_samp_per_chan
+        if avail == 0:
+            return np.array([], dtype=np.int8)
+        raw = self._task.read(number_of_samples_per_channel=avail)
         return np.array(raw, dtype=np.int8)
 
     # ------------------------------------------------------------------

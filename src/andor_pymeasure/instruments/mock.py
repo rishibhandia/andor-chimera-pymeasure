@@ -398,6 +398,10 @@ class MockAtmcd:
 
         return (DRV_SUCCESS, data.tolist(), first, last)
 
+    def GetSizeOfCircularBuffer(self) -> Tuple[int, int]:
+        """Return maximum circular buffer capacity."""
+        return (DRV_SUCCESS, 15000)
+
     def GetNumberNewImages(self) -> Tuple[int, int, int]:
         """Return the range of new images in the circular buffer."""
         # Mock: pretend we have some frames available

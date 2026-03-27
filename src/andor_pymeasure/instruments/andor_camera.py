@@ -541,6 +541,21 @@ class AndorCamera:
                 self._rta_eff_pixels = None
                 raise RuntimeError(f"StartAcquisition failed with code: {ret}")
 
+    def get_circular_buffer_size(self) -> int:
+        """Return the maximum number of frames the circular buffer can hold.
+
+        Must be called after acquisition settings are configured (the buffer
+        size depends on frame dimensions and binning).
+        """
+        if not self._initialized:
+            return 0
+        with self._lock:
+            ret, size = self._sdk.GetSizeOfCircularBuffer()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.warning(f"GetSizeOfCircularBuffer returned: {ret}")
+                return 12000  # conservative fallback
+        return int(size)
+
     def get_buffered_frames(self) -> tuple:
         """Read all available frames from the circular buffer.
 
