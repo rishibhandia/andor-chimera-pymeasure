@@ -51,7 +51,7 @@ class DelayStageControlWidget(QGroupBox):
         self._hw = hardware_manager
         self._signals = get_hardware_signals()
         self._is_moving = False
-        self._current_units = "ps"  # Default to picoseconds
+        self._current_units = "\u00b5m"  # Default to micrometres
 
         self._setup_ui()
         self._connect_signals()
@@ -87,8 +87,8 @@ class DelayStageControlWidget(QGroupBox):
 
         # Unit selector
         self._unit_combo = QComboBox()
-        self._unit_combo.addItems(["ps", "mm"])
-        self._unit_combo.setCurrentText("ps")
+        self._unit_combo.addItems(["\u00b5m", "mm", "ps"])
+        self._unit_combo.setCurrentText("\u00b5m")
         self._unit_combo.setToolTip("Position units")
         self._unit_combo.setFixedWidth(50)
         position_row.addWidget(self._unit_combo)
@@ -168,11 +168,13 @@ class DelayStageControlWidget(QGroupBox):
         """Update the current position display."""
         axis = self._get_current_axis()
         if axis is None:
-            self._current_pos_label.setText("-- ps")
+            self._current_pos_label.setText("--")
             return
 
         if self._current_units == "ps":
             self._current_pos_label.setText(f"{axis.position_ps:.3f} ps")
+        elif self._current_units == "\u00b5m":
+            self._current_pos_label.setText(f"{axis.position * 1000:.1f} \u00b5m")
         else:
             self._current_pos_label.setText(f"{axis.position:.3f} mm")
 
@@ -185,9 +187,15 @@ class DelayStageControlWidget(QGroupBox):
         if self._current_units == "ps":
             min_ps, max_ps = axis.delay_range_ps
             self._position_spin.setRange(min_ps, max_ps)
+            self._position_spin.setDecimals(2)
             self._position_spin.setSuffix(" ps")
+        elif self._current_units == "\u00b5m":
+            self._position_spin.setRange(axis.position_min * 1000, axis.position_max * 1000)
+            self._position_spin.setDecimals(1)
+            self._position_spin.setSuffix(" \u00b5m")
         else:
             self._position_spin.setRange(axis.position_min, axis.position_max)
+            self._position_spin.setDecimals(3)
             self._position_spin.setSuffix(" mm")
 
     @Slot(int)
@@ -212,7 +220,12 @@ class DelayStageControlWidget(QGroupBox):
 
         position = self._position_spin.value()
         log.info(f"Moving {axis_name} to {position} {self._current_units}")
-        self._hw.set_axis_position(axis_name, position, units=self._current_units)
+
+        if self._current_units == "\u00b5m":
+            # Convert µm to mm for the hardware
+            self._hw.set_axis_position(axis_name, position / 1000.0, units="mm")
+        else:
+            self._hw.set_axis_position(axis_name, position, units=self._current_units)
 
     @Slot()
     def _on_home_clicked(self) -> None:
