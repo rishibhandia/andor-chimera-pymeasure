@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import List
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -66,6 +66,7 @@ class TAScanConfigWidget(QGroupBox):
     def __init__(self, parent=None):
         super().__init__("TA Scan Configuration", parent)
         self._build_ui()
+        self._restore_settings()
         self._update_preview()
 
     def _build_ui(self) -> None:
@@ -399,8 +400,9 @@ class TAScanConfigWidget(QGroupBox):
             self._log_warn_label.hide()
 
     def _on_acq_mode_changed(self, mode: str) -> None:
-        """Auto-configure camera when chopper_2x2 mode is selected."""
+        """Auto-configure camera when chopper_2x2 or shot_to_shot is selected."""
         is_2x2 = mode == "chopper_2x2"
+        is_s2s = mode == "shot_to_shot"
         self._external_trigger_check.setVisible(is_2x2)
         if is_2x2:
             self._camera_settings.exposure_spin.setValue(0.002)
@@ -408,6 +410,16 @@ class TAScanConfigWidget(QGroupBox):
             if idx >= 0:
                 self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
             self._camera_settings.vs_speed_combo.setCurrentIndex(0)  # 4.68 µs — fastest, required for 500 Hz
+        elif is_s2s:
+            self._camera_settings.exposure_spin.setValue(0.0005)  # 500 µs
+            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
+            self._camera_settings.vs_speed_combo.setCurrentIndex(0)  # fastest VS
+            # Set crop mode with 50 rows
+            crop_idx = self._camera_settings.read_area_combo.findData("crop")
+            if crop_idx >= 0:
+                self._camera_settings.read_area_combo.setCurrentIndex(crop_idx)
 
     def _on_choose_hdf5_dir(self) -> None:
         start_dir = self._save_hdf5_dir_edit.text().strip() or ""
@@ -509,6 +521,7 @@ class TAScanConfigWidget(QGroupBox):
         )
 
     def _on_start_scan(self) -> None:
+        self._save_settings()
         config = self._build_config()
         self.scan_requested.emit(config)
 
@@ -646,3 +659,80 @@ class TAScanConfigWidget(QGroupBox):
         self._save_btn.setEnabled(not running)
         self._load_btn.setEnabled(not running)
         self._camera_settings.setEnabled(not running)
+
+    # -- Persistent settings (QSettings) -----------------------------------
+
+    _SETTINGS_KEY = "TAScanConfig"
+
+    def _save_settings(self) -> None:
+        """Persist current widget values to QSettings."""
+        s = QSettings("AndorSpectrometer", "TAScanConfig")
+        # Stage tab
+        s.setValue("stg_start", self._stg_start.value())
+        s.setValue("stg_step", self._stg_step.value())
+        s.setValue("stg_n_steps", self._stg_n_steps.value())
+        # Linear tab
+        s.setValue("lin_start", self._lin_start.value())
+        s.setValue("lin_end", self._lin_end.value())
+        s.setValue("lin_step", self._lin_step.value())
+        # Log tab
+        s.setValue("log_start", self._log_start.value())
+        s.setValue("log_end", self._log_end.value())
+        s.setValue("log_ppd", self._log_ppd.value())
+        # Manual tab
+        s.setValue("manual_text", self._manual_text.toPlainText())
+        # Active tab
+        s.setValue("active_tab", self._tabs.currentIndex())
+        # Scan params
+        s.setValue("n_averages", self._n_averages_spin.value())
+        s.setValue("n_scans", self._n_scans_spin.value())
+        s.setValue("acq_mode", self._acq_mode_combo.currentText())
+        s.setValue("external_trigger", self._external_trigger_check.isChecked())
+        s.setValue("scan_direction", self._scan_dir_combo.currentText())
+        s.setValue("sample_name", self._sample_name_edit.text())
+        s.setValue("stage_axis", self._stage_axis_spin.value())
+        # Save directories
+        s.setValue("hdf5_dir", self._save_hdf5_dir_edit.text())
+        s.setValue("hdf5_enabled", self._save_hdf5_check.isChecked())
+        s.setValue("spectra_dir", self._save_spectra_dir_edit.text())
+        s.setValue("spectra_enabled", self._save_spectra_check.isChecked())
+
+    def _restore_settings(self) -> None:
+        """Restore widget values from QSettings (if any)."""
+        s = QSettings("AndorSpectrometer", "TAScanConfig")
+        if not s.contains("n_averages"):
+            return  # no saved settings yet
+
+        # Stage tab
+        self._stg_start.setValue(float(s.value("stg_start", -57000.0)))
+        self._stg_step.setValue(float(s.value("stg_step", 3.0)))
+        self._stg_n_steps.setValue(int(s.value("stg_n_steps", 400)))
+        # Linear tab
+        self._lin_start.setValue(float(s.value("lin_start", -57000.0)))
+        self._lin_end.setValue(float(s.value("lin_end", -55800.0)))
+        self._lin_step.setValue(float(s.value("lin_step", 3.0)))
+        # Log tab
+        self._log_start.setValue(float(s.value("log_start", 15.0)))
+        self._log_end.setValue(float(s.value("log_end", 15000.0)))
+        self._log_ppd.setValue(int(s.value("log_ppd", 5)))
+        # Manual tab
+        self._manual_text.setPlainText(str(s.value("manual_text", "")))
+        # Active tab
+        self._tabs.setCurrentIndex(int(s.value("active_tab", 0)))
+        # Scan params
+        self._n_averages_spin.setValue(int(s.value("n_averages", 100)))
+        self._n_scans_spin.setValue(int(s.value("n_scans", 1)))
+        idx = self._acq_mode_combo.findText(str(s.value("acq_mode", "chopper_2x2")))
+        if idx >= 0:
+            self._acq_mode_combo.setCurrentIndex(idx)
+        self._external_trigger_check.setChecked(s.value("external_trigger", "false") == "true")
+        idx = self._scan_dir_combo.findText(str(s.value("scan_direction", "forward")))
+        if idx >= 0:
+            self._scan_dir_combo.setCurrentIndex(idx)
+        self._sample_name_edit.setText(str(s.value("sample_name", "")))
+        self._stage_axis_spin.setValue(int(s.value("stage_axis", 2)))
+        # Save directories
+        self._save_hdf5_dir_edit.setText(str(s.value("hdf5_dir", "")))
+        self._save_hdf5_check.setChecked(s.value("hdf5_enabled", "false") == "true")
+        self._save_spectra_dir_edit.setText(str(s.value("spectra_dir", "")))
+        self._save_spectra_check.setChecked(s.value("spectra_enabled", "false") == "true")

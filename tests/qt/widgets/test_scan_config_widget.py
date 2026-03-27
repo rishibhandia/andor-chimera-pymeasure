@@ -13,6 +13,8 @@ from andor_qt.ta.scan_config import TAScanConfig
 
 @pytest.fixture
 def widget(qt_app):
+    from PySide6.QtCore import QSettings
+    QSettings("AndorSpectrometer", "TAScanConfig").clear()
     w = TAScanConfigWidget()
     yield w
     w.deleteLater()
