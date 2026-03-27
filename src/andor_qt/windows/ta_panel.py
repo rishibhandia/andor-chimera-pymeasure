@@ -177,6 +177,20 @@ class TAWindowPanel(QWidget):
                 log.info("External camera trigger selected — NIDAQChopper500Hz not started")
             else:
                 trigger_gen = _tgen
+        elif config.acquisition_mode == "shot_to_shot":
+            # shot_to_shot uses PFI0 directly as 1 kHz trigger — no counter chain
+            log.info("shot_to_shot mode — camera triggered by PFI0 at 1 kHz")
+            if os.environ.get("ANDOR_MOCK"):
+                from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+                phase_reader = MockNIDAQPhaseReader()
+            else:
+                from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
+                phase_reader = NIDAQPhaseReader(
+                    device=config.nidaq_device,
+                    di_channel=config.nidaq_di_channel,
+                    clock_source=config.nidaq_clock_source,
+                    clock_rate=config.nidaq_clock_rate,
+                )
 
         self._engine.start_scan(config, self._hw_manager, writer=writer,
                                  camera_settings=camera_settings,

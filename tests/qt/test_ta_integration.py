@@ -177,6 +177,36 @@ class TestChopper2x2Panel:
         assert isinstance(captured.get("phase_reader"), MockNIDAQChopper2x2Reader)
 
 
+class TestShotToShotPanel:
+    def test_shot_to_shot_creates_phase_reader_only(self, qt_app, mock_hw_manager):
+        """shot_to_shot mode should create a phase reader but no trigger gen."""
+        from unittest.mock import patch
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(
+            delay_list=[0.0],
+            n_averages=1,
+            n_scans=1,
+            acquisition_mode="shot_to_shot",
+            scan_direction="forward",
+            sample_name="test",
+            crop_height=50,
+        )
+
+        captured = {}
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+        panel.deleteLater()
+        assert captured.get("trigger_gen") is None
+        assert captured.get("phase_reader") is not None
+
+
 class TestMainWindowTATab:
     def test_main_window_has_ta_tab(self, qt_app, mock_sdk):
         """Main window should have a TA tab."""

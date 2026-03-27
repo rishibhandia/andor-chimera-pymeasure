@@ -340,6 +340,96 @@ class TestEngineChopper2x2:
         assert done
 
 
+class TestEngineShotToShot:
+    """Integration tests for shot_to_shot mode through the full engine."""
+
+    def _run_engine(self, engine, config, hw, trigger_gen=None, phase_reader=None,
+                    timeout=15.0):
+        from PySide6.QtWidgets import QApplication
+        import time as _time
+
+        camera_settings = {"trigger_mode": "fast_external", "hbin": 1}
+        engine.start_scan(config, hw, camera_settings=camera_settings,
+                          trigger_gen=trigger_gen, phase_reader=phase_reader)
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda e: done.__setitem__(0, True))
+        start = _time.time()
+        while not done[0] and _time.time() - start < timeout:
+            QApplication.instance().processEvents()
+            _time.sleep(0.005)
+
+    def _make_s2s_config(self):
+        return TAScanConfig(
+            delay_list=[0.0, 1.0],
+            n_averages=1,
+            n_scans=1,
+            acquisition_mode="shot_to_shot",
+            scan_direction="forward",
+            sample_name="test",
+            crop_height=50,
+        )
+
+    def test_scan_completes_with_shot_to_shot(self, qt_app):
+        from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+        hw = make_mock_hw()
+        # shot_to_shot uses crop mode RTA
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        config = self._make_s2s_config()
+        reader = MockNIDAQPhaseReader()
+        done = []
+        engine = TransientAbsorptionEngine()
+        engine.scan_completed.connect(lambda: done.append(True))
+        self._run_engine(engine=engine, config=config, hw=hw,
+                         phase_reader=reader)
+        assert done
+
+    def test_phase_reader_started_and_stopped(self, qt_app):
+        from unittest.mock import MagicMock
+        hw = make_mock_hw()
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        config = self._make_s2s_config()
+        reader = MagicMock()
+        reader.read_tags.side_effect = lambda n: np.array(
+            [1, 0] * ((n // 2) + 1), dtype=np.int8
+        )[:n]
+        self._run_engine(engine=TransientAbsorptionEngine(), config=config,
+                         hw=hw, phase_reader=reader)
+        reader.start.assert_called_once()
+        reader.stop.assert_called_once()
+
+    def test_no_trigger_gen_needed(self, qt_app):
+        from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+        hw = make_mock_hw()
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        config = self._make_s2s_config()
+        reader = MockNIDAQPhaseReader()
+        done = []
+        engine = TransientAbsorptionEngine()
+        engine.scan_completed.connect(lambda: done.append(True))
+        # No trigger_gen passed — shot_to_shot doesn't need one
+        self._run_engine(engine=engine, config=config, hw=hw,
+                         phase_reader=reader)
+        assert done
+
+    def test_signal_updated_emitted(self, qt_app):
+        from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+        hw = make_mock_hw()
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        config = self._make_s2s_config()
+        reader = MockNIDAQPhaseReader()
+        updates = []
+        engine = TransientAbsorptionEngine()
+        engine.signal_updated.connect(lambda d, w, s: updates.append(d))
+        self._run_engine(engine=engine, config=config, hw=hw,
+                         phase_reader=reader)
+        assert len(updates) == 2  # 2 delay points
+
+
 class TestTransientAbsorptionEnginePauseResume:
     def test_pause_resume_completes_scan(self, qt_app):
         from PySide6.QtWidgets import QApplication

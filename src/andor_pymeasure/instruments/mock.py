@@ -346,6 +346,16 @@ class MockAtmcd:
         self._state.hbin = hbin
         return DRV_SUCCESS
 
+    def SetOverlapMode(self, mode: int) -> int:
+        """Enable or disable overlap mode."""
+        return DRV_SUCCESS
+
+    def GetStatus(self) -> Tuple[int, int]:
+        """Return camera status (DRV_IDLE=20073 or DRV_ACQUIRING=20072)."""
+        if self._state.acquiring:
+            return (DRV_SUCCESS, DRV_ACQUIRING)
+        return (DRV_SUCCESS, 20073)  # DRV_IDLE
+
     def PrepareAcquisition(self) -> int:
         """Prepare for acquisition."""
         return DRV_SUCCESS

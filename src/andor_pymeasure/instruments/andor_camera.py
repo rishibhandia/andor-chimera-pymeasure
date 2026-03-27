@@ -496,6 +496,51 @@ class AndorCamera:
                 self._rta_eff_pixels = None
                 raise RuntimeError(f"StartAcquisition failed with code: {ret}")
 
+    def start_run_till_abort_crop(
+        self, crop_height: int = 50, crop_width: int = 1600,
+        vbin: int = 1, hbin: int = 1,
+    ) -> None:
+        """Start continuous crop-mode acquisition in Run Till Abort mode.
+
+        Uses ``SetIsolatedCropMode`` to restrict the active sensor region,
+        reducing readout time to support 1 kHz single-shot triggering.
+        FVB mode bins all crop rows into a single row.
+
+        Args:
+            crop_height: Number of rows in the crop region (anchored to bottom).
+            crop_width: Number of columns (usually 1600 = full width).
+            vbin: Vertical binning within the crop region.
+            hbin: Horizontal binning factor.
+        """
+        if not self._initialized:
+            raise RuntimeError("Camera not initialized")
+
+        self._rta_eff_pixels = crop_width // hbin
+
+        with self._lock:
+            # Activate isolated crop mode (region anchored to bottom of sensor)
+            ret = self._sdk.SetIsolatedCropMode(1, crop_height, crop_width, vbin, hbin)
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                self._rta_eff_pixels = None
+                raise RuntimeError(f"SetIsolatedCropMode failed with code: {ret}")
+
+            # FVB bins all crop rows into one row → 1-D spectrum output
+            self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
+            self._sdk.SetAcquisitionMode(5)  # RUN_TILL_ABORT
+
+            ret = self._sdk.SetOverlapMode(1)
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.warning(f"SetOverlapMode(1) returned: {ret}")
+
+            ret = self._sdk.PrepareAcquisition()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.warning(f"PrepareAcquisition returned: {ret}")
+
+            ret = self._sdk.StartAcquisition()
+            if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                self._rta_eff_pixels = None
+                raise RuntimeError(f"StartAcquisition failed with code: {ret}")
+
     def get_buffered_frames(self) -> tuple:
         """Read all available frames from the circular buffer.
 

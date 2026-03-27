@@ -76,6 +76,8 @@ def acquire_delta_signal_at_delay(
         if callable(apply):
             apply(camera_settings)
 
+    if config.acquisition_mode == "shot_to_shot" and phase_reader is not None:
+        return _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
     if config.acquisition_mode == "chopper_2x2" and phase_reader is not None:
         return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
     if phase_reader is not None:
@@ -209,6 +211,76 @@ def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=No
         f"chopper_2x2: collected {n_pairs} pairs, "
         f"{n_discarded} discarded, {n_read} total frames "
         f"({wait_s:.2f}s accumulation, offset={best_offset})"
+    )
+    return mean
+
+
+def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=None) -> np.ndarray:
+    """Acquire using shot-to-shot mode — 1 kHz single-shot crop-mode acquisition.
+
+    The camera runs in isolated crop mode (reduced rows for <1 ms readout)
+    with a 1 kHz external trigger (one frame per laser shot).  Each frame
+    gets a single P0.0 tag: 1 = pump-ON, 0 = pump-OFF.  Frames are sorted
+    by pump state and paired for ΔI/I₀ computation.
+    """
+    camera = hw_manager.camera
+    n_target = int(config.n_averages * 2.2) + 10
+
+    # Start crop-mode continuous acquisition
+    hbin = getattr(camera, "_current_hbin", 1)
+    camera.start_run_till_abort_crop(
+        crop_height=config.crop_height,
+        hbin=hbin,
+    )
+    phase_reader.drain()
+
+    try:
+        # 1 ms per frame at 1 kHz + margin
+        wait_s = n_target / 1000.0 + 0.05
+        time.sleep(wait_s)
+        frames, n_read = camera.get_buffered_frames()
+    finally:
+        camera.abort_acquisition()
+
+    if n_read == 0:
+        raise RuntimeError("shot_to_shot: no frames acquired — check trigger")
+
+    # 1 tag per frame (direct 1:1 mapping, no alignment offset needed)
+    tags = phase_reader.read_tags(n_read)
+
+    # Separate by pump state
+    on_mask = tags == 1
+    off_mask = tags == 0
+    on_frames = frames[on_mask]
+    off_frames = frames[off_mask]
+    n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
+
+    if n_pairs == 0:
+        raise RuntimeError(
+            f"shot_to_shot: {n_read} frames, "
+            f"{int(on_mask.sum())} ON, {int(off_mask.sum())} OFF — "
+            f"0 valid pairs"
+        )
+
+    pumped = on_frames[:n_pairs]
+    ref = off_frames[:n_pairs]
+
+    if dark is not None:
+        pumped = pumped - dark[np.newaxis, :]
+        ref = ref - dark[np.newaxis, :]
+
+    ref_safe = np.where(ref == 0, 1.0, ref)
+    delta = (pumped - ref) / ref_safe
+    mean = delta.mean(axis=0)
+
+    if raw_callback is not None:
+        raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0),
+                     n_pairs, 0, n_read)
+
+    log.info(
+        f"shot_to_shot: {n_pairs} pairs from {n_read} frames "
+        f"({int(on_mask.sum())} ON, {int(off_mask.sum())} OFF, "
+        f"{wait_s:.2f}s accumulation)"
     )
     return mean
 

@@ -283,6 +283,100 @@ class TestAcquireChopper2x2:
 
 
 # ---------------------------------------------------------------------------
+# shot_to_shot acquisition mode
+# ---------------------------------------------------------------------------
+
+
+def make_config_s2s(n_averages=1):
+    return TAScanConfig(
+        delay_list=[0.0],
+        n_averages=n_averages,
+        acquisition_mode="shot_to_shot",
+        scan_direction="forward",
+        sample_name="test",
+        crop_height=50,
+    )
+
+
+def make_hw_s2s(on_val, off_val, n_pairs):
+    """Camera alternates ON/OFF frames for shot_to_shot (1 frame per shot)."""
+    hw = MagicMock()
+    hw.motion.get_axis.return_value = MagicMock()
+    frames = []
+    for _ in range(n_pairs):
+        frames.append(np.array(on_val, dtype=float))
+        frames.append(np.array(off_val, dtype=float))
+    frame_array = np.array(frames)
+    hw.camera.start_run_till_abort_crop.return_value = None
+    hw.camera._current_hbin = 1
+    hw.camera.get_buffered_frames.return_value = (frame_array, len(frames))
+    hw.camera.abort_acquisition.return_value = None
+    return hw
+
+
+class TestAcquireShotToShot:
+    def test_returns_ndarray(self):
+        n = 10
+        hw = make_hw_s2s([1000.0] * n, [800.0] * n, n_pairs=1)
+        cfg = make_config_s2s(n_averages=1)
+        reader = MockNIDAQPhaseReader()
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        assert isinstance(result, np.ndarray)
+        assert len(result) == n
+
+    def test_correct_delta_signal(self):
+        n = 5
+        on_val, off_val = 1200.0, 1000.0
+        hw = make_hw_s2s([on_val] * n, [off_val] * n, n_pairs=1)
+        cfg = make_config_s2s(n_averages=1)
+        reader = MockNIDAQPhaseReader()
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        expected = (on_val - off_val) / off_val
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_n_averages_pairs_collected(self):
+        n = 4
+        hw = make_hw_s2s([1200.0] * n, [1000.0] * n, n_pairs=3)
+        cfg = make_config_s2s(n_averages=3)
+        reader = MockNIDAQPhaseReader()
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        hw.camera.get_buffered_frames.assert_called_once()
+
+    def test_all_same_tag_raises(self):
+        n = 4
+
+        class AllOnReader:
+            def start(self): pass
+            def stop(self): pass
+            def drain(self): pass
+            def read_tags(self, k):
+                return np.ones(k, dtype=np.int8)
+
+        frame_array = np.ones((10, n)) * 1000.0
+        hw = MagicMock()
+        hw.motion.get_axis.return_value = MagicMock()
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        hw.camera.get_buffered_frames.return_value = (frame_array, 10)
+        hw.camera.abort_acquisition.return_value = None
+
+        cfg = make_config_s2s(n_averages=1)
+        with pytest.raises(RuntimeError, match="shot_to_shot"):
+            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=AllOnReader())
+
+    def test_dark_subtraction_applied(self):
+        n = 6
+        on_val, off_val, dark_val = 1200.0, 1000.0, 100.0
+        hw = make_hw_s2s([on_val] * n, [off_val] * n, n_pairs=1)
+        cfg = make_config_s2s(n_averages=1)
+        reader = MockNIDAQPhaseReader()
+        dark = np.ones(n) * dark_val
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, dark=dark, phase_reader=reader)
+        expected = (on_val - dark_val - (off_val - dark_val)) / (off_val - dark_val)
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # TAScanConfig — chopper_2x2 NI DAQ fields
 # ---------------------------------------------------------------------------
 
