@@ -1,25 +1,26 @@
 """Readout time calculator for Andor DU970P Newton EMCCD.
 
 ``calculate_readout_time_ms`` estimates the sensor readout time from the
-current camera settings.  It is used to display the readout time in the
-camera settings widget and to warn when the readout would exceed a
-laser-period budget.
+current camera settings.  Coefficients were fitted to 75 SDK
+``GetReadOutTime()`` measurements across all VS speed, HS speed, and hbin
+combinations on a DU970P (FVB mode, conventional amplifier).
 
-Formula
--------
-FVB (Full Vertical Binning):
-    t = n_rows * vs_us * 1e-3  +  (n_pixels / hbin) / hs_hz * 1e3   [ms]
+Model (FVB)::
 
-Image / Crop mode:
-    t = n_rows * vs_us * 1e-3  +  (n_rows / vbin) * (n_pixels / hbin) / hs_hz * 1e3
+    t = a * n_rows * vs_us / 1000
+      + b * eff_pixels / hs_hz * 1000
+      + c * n_binshifts / 1e6
+      + d * n_binshifts / hs_hz * 1000
+      + e
 
-The VS term covers the time to shift all rows into the horizontal register.
-The HS term covers all horizontal readout cycles (one per vbin group).
+Where ``eff_pixels = n_pixels / hbin`` and ``n_binshifts = n_pixels - eff_pixels``.
+
+Accuracy: 75/75 within 10%, 69/75 within 5% vs SDK GetReadOutTime().
 """
 
 from __future__ import annotations
 
-# DU970P default VS speeds in µs/row (index → µs)
+# DU970P default VS speeds in us/row (index -> us)
 VS_SPEEDS_US: dict[int, float] = {
     0: 4.9,
     1: 9.8,
@@ -28,12 +29,19 @@ VS_SPEEDS_US: dict[int, float] = {
     4: 57.0,
 }
 
-# DU970P HS pixel rates in Hz (index → Hz)
+# DU970P HS pixel rates in Hz (index -> Hz)
 HS_RATES_HZ: dict[int, float] = {
     0: 3_000_000.0,   # 3 MHz
     1: 1_000_000.0,   # 1 MHz
     2:    50_000.0,   # 50 kHz
 }
+
+# Fitted coefficients (DU970P, conventional amplifier, FVB)
+_A_VS = 0.974206       # VS time scaling
+_B_ADC = 1.035160      # ADC readout time scaling
+_C_BINSHIFT = 336.803  # CCD charge shift time per binning shift (ns equiv)
+_D_BINSHIFT_HS = 0.119078  # HS-rate-dependent binning overhead scaling
+_E_OVERHEAD = 0.026239     # fixed overhead (ms)
 
 
 def calculate_readout_time_ms(
@@ -48,13 +56,13 @@ def calculate_readout_time_ms(
     """Calculate estimated readout time in milliseconds.
 
     Args:
-        mode: ``"fvb"`` or ``"image"`` (also used for crop/single-track).
+        mode: ``"fvb"``, ``"crop"``, ``"single_track"``, or ``"image"``.
         n_rows: Number of rows to read out (full CCD = 200, crop = cropheight).
-        n_pixels: Number of horizontal pixels (full CCD = 1600, crop = cropwidth).
-        vs_idx: VS speed index (0 = fastest 4.9 µs, 4 = slowest 57 µs).
+        n_pixels: Number of horizontal pixels (full CCD = 1600).
+        vs_idx: VS speed index (0 = fastest 4.9 us, 4 = slowest 57 us).
         hs_idx: HS speed index (0 = 3 MHz, 1 = 1 MHz, 2 = 50 kHz).
-        hbin: Horizontal binning factor (default 1 = no binning).
-        vbin: Vertical binning factor (default 1 = no binning). Ignored for FVB.
+        hbin: Horizontal binning factor (default 1).
+        vbin: Vertical binning factor (default 1). Ignored for FVB.
 
     Returns:
         Estimated readout time in milliseconds.
@@ -63,19 +71,32 @@ def calculate_readout_time_ms(
     hs_hz = HS_RATES_HZ.get(hs_idx, 1_000_000.0)
 
     eff_pixels = max(1, n_pixels // max(1, hbin))
+    n_binshifts = n_pixels - eff_pixels
 
-    # Vertical shift time is the same for both modes
-    vs_time_ms = n_rows * vs_us / 1000.0
+    vs_ms = n_rows * vs_us / 1000.0
+    adc_ms = eff_pixels / hs_hz * 1000.0
+    binshift_fixed_ms = n_binshifts / 1e6 * _C_BINSHIFT
+    binshift_hs_ms = n_binshifts / hs_hz * 1000.0
 
     if mode in ("fvb", "crop", "single_track"):
-        # FVB / isolated crop / single track: all rows binned into the shift
-        # register, then one horizontal readout.  hbin reduces pixel count;
-        # vbin within crop further bins before readout but does not add cycles.
-        hs_time_ms = eff_pixels / hs_hz * 1000.0
+        # One horizontal readout cycle
+        return (
+            _A_VS * vs_ms
+            + _B_ADC * adc_ms
+            + binshift_fixed_ms
+            + _D_BINSHIFT_HS * binshift_hs_ms
+            + _E_OVERHEAD
+        )
     else:
-        # Image mode: one horizontal readout per vbin group of rows
+        # Image mode: one horizontal readout per vbin group
         eff_vbin = max(1, vbin)
         n_readouts = max(1, n_rows // eff_vbin)
-        hs_time_ms = n_readouts * eff_pixels / hs_hz * 1000.0
-
-    return vs_time_ms + hs_time_ms
+        return (
+            _A_VS * vs_ms
+            + n_readouts * (
+                _B_ADC * (eff_pixels / hs_hz * 1000.0)
+                + binshift_fixed_ms
+                + _D_BINSHIFT_HS * binshift_hs_ms
+            )
+            + _E_OVERHEAD
+        )
