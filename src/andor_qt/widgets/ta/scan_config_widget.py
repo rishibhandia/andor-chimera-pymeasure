@@ -171,11 +171,23 @@ class TAScanConfigWidget(QGroupBox):
         left_layout.addStretch()
         splitter.addWidget(left_widget)
 
-        # ---- Right column: camera settings in a scroll area ----
+        # ---- Right column: camera + spectrograph settings in a scroll area ----
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
         self._camera_settings = CameraSettingsWidget()
+        right_layout.addWidget(self._camera_settings)
+
+        # Placeholder for spectrograph control (added when hardware is ready)
+        self._spectrograph_placeholder = right_layout
+        self._spectrograph_widget = None
+
+        right_layout.addStretch()
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(self._camera_settings)
+        scroll.setWidget(right_widget)
         splitter.addWidget(scroll)
 
         splitter.setStretchFactor(0, 1)
@@ -398,12 +410,15 @@ class TAScanConfigWidget(QGroupBox):
             self._camera_settings.vs_speed_combo.setCurrentIndex(0)  # 4.68 µs — fastest, required for 500 Hz
 
     def _on_choose_hdf5_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select HDF5 output directory")
+        start_dir = self._save_hdf5_dir_edit.text().strip() or ""
+        path = QFileDialog.getExistingDirectory(self, "Select HDF5 output directory", start_dir)
         if path:
             self._save_hdf5_dir_edit.setText(path)
 
     def _on_choose_spectra_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select spectra output directory")
+        # Start from last used directory if available
+        start_dir = self._save_spectra_dir_edit.text().strip() or ""
+        path = QFileDialog.getExistingDirectory(self, "Select spectra output directory", start_dir)
         if path:
             self._save_spectra_dir_edit.setText(path)
 
@@ -587,6 +602,32 @@ class TAScanConfigWidget(QGroupBox):
     def populate_from_camera(self, camera) -> None:
         """Populate camera-specific options from a live camera instance."""
         self._camera_settings.populate_from_camera(camera)
+
+    def set_hardware_manager(self, hw_manager) -> None:
+        """Add spectrograph control widget once hardware is available.
+
+        The spectrograph widget is synced to the main tab via shared
+        hardware signals — changing grating/wavelength in either place
+        updates both.
+        """
+        if self._spectrograph_widget is not None:
+            return  # already added
+        self._hw_manager = hw_manager
+        # Defer creation until spectrograph is actually initialized
+        from andor_qt.core.signals import get_hardware_signals
+        signals = get_hardware_signals()
+        signals.spectrograph_initialized.connect(self._add_spectrograph_widget)
+
+    def _add_spectrograph_widget(self, _info) -> None:
+        """Create and insert spectrograph control widget."""
+        if self._spectrograph_widget is not None:
+            return
+        from andor_qt.widgets.hardware.spectrograph_control import SpectrographControlWidget
+        self._spectrograph_widget = SpectrographControlWidget(self._hw_manager)
+        self._spectrograph_placeholder.insertWidget(
+            self._spectrograph_placeholder.count() - 1,
+            self._spectrograph_widget,
+        )
 
     def set_scan_running(self, running: bool) -> None:
         """Freeze/unfreeze all inputs during scan."""

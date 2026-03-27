@@ -529,13 +529,22 @@ class AndorCamera:
         return frames, n_valid
 
     def abort_acquisition(self) -> None:
-        """Abort any running acquisition."""
+        """Abort any running acquisition and wait until camera is idle."""
         if not self._initialized:
             return
 
         with self._lock:
             self._sdk.AbortAcquisition()
             self._rta_eff_pixels = None
+
+            # Wait for camera to become idle (DRV_IDLE = 20073)
+            import time
+            for _ in range(100):  # up to 500 ms
+                ret, status = self._sdk.GetStatus()
+                if status == 20073:  # DRV_IDLE
+                    break
+                time.sleep(0.005)
+
             log.info("Acquisition aborted")
 
     # -- Camera settings: VS/HS speed, amplifier, gain -----------------------

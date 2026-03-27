@@ -79,6 +79,7 @@ class TAWindowPanel(QWidget):
 
         # --- Widgets ---
         self._config_widget = TAScanConfigWidget()
+        self._config_widget.set_hardware_manager(hw_manager)
         self._live_display = TALiveDisplayWidget()
 
         # --- Status / trigger-test bar ---
