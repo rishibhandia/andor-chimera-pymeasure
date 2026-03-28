@@ -350,6 +350,14 @@ class MockAtmcd:
         """Enable or disable overlap mode."""
         return DRV_SUCCESS
 
+    def SetBaselineClamp(self, state: int) -> int:
+        """Enable or disable baseline clamp."""
+        return DRV_SUCCESS
+
+    def GetBaselineClamp(self) -> Tuple[int, int]:
+        """Return baseline clamp state."""
+        return (DRV_SUCCESS, 1)
+
     def GetStatus(self) -> Tuple[int, int]:
         """Return camera status (DRV_IDLE=20073 or DRV_ACQUIRING=20072)."""
         if self._state.acquiring:

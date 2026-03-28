@@ -246,11 +246,13 @@ def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=N
     # Max frames per chunk — stay well below circular buffer limit (~15000 frames)
     buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
     max_chunk = max(1000, int(buf_size * 0.8))
+    log.info(f"shot_to_shot: n_target={n_target}, buf_size={buf_size}, max_chunk={max_chunk}")
 
     hbin = getattr(camera, "_current_hbin", 1)
     all_frames = []
     all_tags = []
     remaining = n_target
+    chunk_idx = 0
 
     while remaining > 0:
         chunk = min(remaining, max_chunk)
@@ -262,11 +264,15 @@ def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=N
         phase_reader.drain()
 
         try:
-            wait_s = chunk / 1000.0 + 0.05
+            # Wait for frames: 1 ms/frame at 1 kHz (with overlap mode) + 20% margin
+            wait_s = (chunk * 1.0) / 1000.0 * 1.2 + 0.05
             time.sleep(wait_s)
             frames, n_read = camera.get_buffered_frames()
         finally:
             camera.abort_acquisition()
+
+        log.info(f"  chunk {chunk_idx}: requested={chunk}, got={n_read}, wait={wait_s:.2f}s, remaining={remaining}")
+        chunk_idx += 1
 
         if n_read == 0:
             break

@@ -253,6 +253,9 @@ class AndorCamera:
         eff_pixels = xpixels // hbin
 
         with self._lock:
+            # Disable crop mode if it was previously active
+            self._sdk.SetIsolatedCropMode(0, 200, self._info.xpixels, 1, 1)
+
             # Set FVB mode
             self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
             self._sdk.SetAcquisitionMode(self._codes.Acquisition_Mode.SINGLE_SCAN)
@@ -472,6 +475,9 @@ class AndorCamera:
         self._rta_eff_pixels = xpixels // hbin
 
         with self._lock:
+            # Disable crop mode if it was previously active
+            self._sdk.SetIsolatedCropMode(0, 200, xpixels, 1, 1)
+
             self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
             self._sdk.SetAcquisitionMode(5)  # RUN_TILL_ABORT
 
@@ -519,8 +525,10 @@ class AndorCamera:
 
         with self._lock:
             # Activate isolated crop mode (region anchored to bottom of sensor)
+            log.info(f"Setting crop mode: {crop_height}x{crop_width} vbin={vbin} hbin={hbin}")
             ret = self._sdk.SetIsolatedCropMode(1, crop_height, crop_width, vbin, hbin)
             if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.error(f"SetIsolatedCropMode failed: {ret}")
                 self._rta_eff_pixels = None
                 raise RuntimeError(f"SetIsolatedCropMode failed with code: {ret}")
 
@@ -538,8 +546,11 @@ class AndorCamera:
 
             ret = self._sdk.StartAcquisition()
             if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                log.error(f"StartAcquisition (crop RTA) failed: {ret}")
                 self._rta_eff_pixels = None
                 raise RuntimeError(f"StartAcquisition failed with code: {ret}")
+
+            log.info(f"Crop RTA started: {crop_height}x{crop_width} eff_pixels={self._rta_eff_pixels}")
 
     def get_circular_buffer_size(self) -> int:
         """Return the maximum number of frames the circular buffer can hold.
@@ -859,6 +870,14 @@ class AndorCamera:
             if "exposure_time" in settings:
                 self._sdk.SetExposureTime(settings["exposure_time"])
                 log.debug(f"Exposure time: {settings['exposure_time']} s")
+
+            if "baseline_clamp" in settings:
+                state = 1 if settings["baseline_clamp"] else 0
+                ret = self._sdk.SetBaselineClamp(state)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    log.warning(f"SetBaselineClamp({state}) returned: {ret}")
+                else:
+                    log.debug(f"Baseline clamp: {'ON' if state else 'OFF'}")
 
         log.debug(f"Camera settings applied: {settings}")
 

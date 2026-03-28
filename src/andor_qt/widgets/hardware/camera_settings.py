@@ -19,6 +19,7 @@ from typing import Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -218,6 +219,15 @@ class CameraSettingsWidget(QGroupBox):
         trig_form.addRow(ext_note)
 
         layout.addWidget(trig_group)
+
+        # --- Baseline clamp ---
+        self.baseline_clamp_check = QCheckBox("Baseline Clamp")
+        self.baseline_clamp_check.setChecked(True)
+        self.baseline_clamp_check.setToolTip(
+            "Stabilize baseline level across frames in a series.\n"
+            "Recommended for TA batch acquisitions."
+        )
+        layout.addWidget(self.baseline_clamp_check)
 
         # --- Readout time display ---
         self._readout_label = QLabel("Readout: -- ms")
@@ -448,6 +458,7 @@ class CameraSettingsWidget(QGroupBox):
             "vbin": self.vbin_spin.value(),
             "trigger_mode": trigger_mode,
             "exposure_time": self.exposure_spin.value(),
+            "baseline_clamp": self.baseline_clamp_check.isChecked(),
         }
 
         if mode == "single_track":

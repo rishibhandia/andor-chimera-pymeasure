@@ -411,7 +411,7 @@ class TAScanConfigWidget(QGroupBox):
                 self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
             self._camera_settings.vs_speed_combo.setCurrentIndex(0)  # 4.68 µs — fastest, required for 500 Hz
         elif is_s2s:
-            self._camera_settings.exposure_spin.setValue(0.0005)  # 500 µs
+            self._camera_settings.exposure_spin.setValue(0.0003)  # 300 µs (exposure + readout < 1 ms)
             idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
             if idx >= 0:
                 self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
