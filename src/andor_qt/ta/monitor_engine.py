@@ -3,12 +3,16 @@
 Repeatedly calls ``acquire_delta_signal_at_delay`` at the current stage
 position, emitting live ΔI/I₀ spectra and a running average for signal
 optimization before a full scan.
+
+Also supports ``static_onoff`` mode: long-average pump+probe, then
+long-average probe-only, compute ΔOD.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time as _time
 from typing import Optional
 
 import numpy as np
@@ -26,12 +30,15 @@ class _MonitorWorker(QObject):
     cycle_completed = Signal(object, object, object)  # (wavelengths, delta, avg_delta)
     raw_pair_updated = Signal(object, object, int, int, int)
     status_updated = Signal(str)
+    user_prompt = Signal(str)  # ask user to do something (e.g. block pump)
+    static_completed = Signal(object, object, object, object)  # (wl, pump_avg, ref_avg, delta_od)
     stopped = Signal()
     error = Signal(str)
 
     def __init__(self):
         super().__init__()
         self._abort = threading.Event()
+        self._user_response = threading.Event()
         self._config: Optional[TAScanConfig] = None
         self._hw = None
         self._camera_settings = None
@@ -47,9 +54,15 @@ class _MonitorWorker(QObject):
         self._trigger_gen = trigger_gen
         self._phase_reader = phase_reader
         self._abort.clear()
+        self._user_response.clear()
 
     def stop(self):
         self._abort.set()
+        self._user_response.set()  # unblock if waiting for user
+
+    def user_confirmed(self):
+        """Called from UI thread when user confirms a prompt."""
+        self._user_response.set()
 
     @Slot()
     def run(self):
@@ -73,7 +86,13 @@ class _MonitorWorker(QObject):
         if callable(_apply) and self._camera_settings:
             _apply(self._camera_settings)
 
-        # Start NI DAQ
+        if config.acquisition_mode == "static_onoff":
+            self._run_static(config, hw, phase_reader, trigger_gen)
+        else:
+            self._run_continuous(config, hw, phase_reader, trigger_gen)
+
+    def _run_continuous(self, config, hw, phase_reader, trigger_gen):
+        """Standard monitor: continuous cycles at current position."""
         if trigger_gen is not None:
             trigger_gen.start()
         if phase_reader is not None:
@@ -84,7 +103,6 @@ class _MonitorWorker(QObject):
 
         try:
             while not self._abort.is_set():
-                # Get current position — don't move, just read
                 axis = getattr(
                     getattr(hw, "motion_manager", None),
                     "get_axis", lambda _: None
@@ -126,6 +144,111 @@ class _MonitorWorker(QObject):
                 phase_reader.stop()
             self.stopped.emit()
 
+    def _run_static(self, config, hw, phase_reader, trigger_gen):
+        """Static ON/OFF: two long acquisitions with user prompt between."""
+        camera = hw.camera
+
+        try:
+            # --- Phase 1: Pump ON ---
+            self.status_updated.emit("Phase 1: Acquiring pump+probe (pump ON)...")
+            log.info(f"Static ON/OFF phase 1: {config.n_averages} frames")
+
+            pump_avg = self._acquire_long_average(
+                hw, config, "Phase 1 (pump ON)"
+            )
+
+            if self._abort.is_set():
+                self.stopped.emit()
+                return
+
+            # --- Prompt user to block pump ---
+            self.status_updated.emit("Block the pump beam, then click Continue")
+            self.user_prompt.emit("Block the pump beam and click Continue")
+            self._user_response.clear()
+
+            # Wait for user to confirm (or abort)
+            while not self._user_response.is_set():
+                if self._abort.is_set():
+                    self.stopped.emit()
+                    return
+                _time.sleep(0.1)
+
+            if self._abort.is_set():
+                self.stopped.emit()
+                return
+
+            # --- Phase 2: Pump OFF ---
+            self.status_updated.emit("Phase 2: Acquiring probe only (pump OFF)...")
+            log.info(f"Static ON/OFF phase 2: {config.n_averages} frames")
+
+            ref_avg = self._acquire_long_average(
+                hw, config, "Phase 2 (pump OFF)"
+            )
+
+            if self._abort.is_set():
+                self.stopped.emit()
+                return
+
+            # --- Compute ΔOD ---
+            ref_safe = np.where(ref_avg == 0, 1.0, ref_avg)
+            delta_od = -np.log10(pump_avg / ref_safe)
+
+            log.info(f"Static ON/OFF complete: ΔOD range [{delta_od.min():.6f}, {delta_od.max():.6f}]")
+
+            self.static_completed.emit(
+                self._wavelengths, pump_avg, ref_avg, delta_od
+            )
+            self.status_updated.emit(
+                f"Static ON/OFF complete  |  "
+                f"\u0394OD range: [{delta_od.min():.4f}, {delta_od.max():.4f}]"
+            )
+
+        except Exception as exc:
+            log.exception("Static ON/OFF error")
+            self.error.emit(str(exc))
+        finally:
+            self.stopped.emit()
+
+    def _acquire_long_average(self, hw, config, phase_label: str) -> np.ndarray:
+        """Acquire many frames using Run Till Abort and return the mean spectrum."""
+        camera = hw.camera
+        n_target = config.n_averages
+        buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
+        max_chunk = max(1000, int(buf_size * 0.8))
+
+        all_spectra = []
+        collected = 0
+
+        while collected < n_target and not self._abort.is_set():
+            chunk = min(n_target - collected, max_chunk)
+
+            camera.start_run_till_abort()
+
+            try:
+                # 2 ms/frame at 500 Hz + 20% margin
+                wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
+                _time.sleep(wait_s)
+                frames, n_read = camera.get_buffered_frames()
+            finally:
+                camera.abort_acquisition()
+
+            if n_read == 0:
+                break
+
+            all_spectra.append(frames)
+            collected += n_read
+
+            pct = 100.0 * collected / n_target
+            self.status_updated.emit(
+                f"{phase_label}: {collected}/{n_target} frames ({pct:.0f}%)"
+            )
+
+        if not all_spectra:
+            raise RuntimeError(f"Static {phase_label}: no frames acquired")
+
+        all_frames = np.concatenate(all_spectra)
+        return all_frames.mean(axis=0)
+
 
 class TAMonitorEngine(QObject):
     """High-level monitor engine managing a QThread."""
@@ -133,6 +256,8 @@ class TAMonitorEngine(QObject):
     cycle_completed = Signal(object, object, object)
     raw_pair_updated = Signal(object, object, int, int, int)
     status_updated = Signal(str)
+    user_prompt = Signal(str)
+    static_completed = Signal(object, object, object, object)
     stopped = Signal()
     error = Signal(str)
 
@@ -145,6 +270,8 @@ class TAMonitorEngine(QObject):
         self._worker.cycle_completed.connect(self.cycle_completed)
         self._worker.raw_pair_updated.connect(self.raw_pair_updated)
         self._worker.status_updated.connect(self.status_updated)
+        self._worker.user_prompt.connect(self.user_prompt)
+        self._worker.static_completed.connect(self.static_completed)
         self._worker.stopped.connect(self.stopped)
         self._worker.stopped.connect(self._thread.quit)
         self._worker.error.connect(self.error)
@@ -162,6 +289,10 @@ class TAMonitorEngine(QObject):
 
     def stop(self):
         self._worker.stop()
+
+    def user_confirmed(self):
+        """Forward user confirmation to worker thread."""
+        self._worker.user_confirmed()
 
     @property
     def is_running(self) -> bool:

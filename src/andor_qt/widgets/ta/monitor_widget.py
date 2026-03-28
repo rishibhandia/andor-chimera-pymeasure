@@ -88,18 +88,41 @@ class TAMonitorWidget(QGroupBox):
         acq_group = QGroupBox("Acquisition")
         acq_form = QFormLayout(acq_group)
 
-        self._n_avg_spin = QSpinBox()
-        self._n_avg_spin.setRange(1, 100000)
-        self._n_avg_spin.setValue(100)
-        acq_form.addRow("Averages:", self._n_avg_spin)
-
         self._acq_combo = QComboBox()
-        self._acq_combo.addItems(["chopper_2x2", "shot_to_shot", "boxcar"])
+        self._acq_combo.addItems(["chopper_2x2", "shot_to_shot", "boxcar", "static_onoff"])
         self._acq_combo.currentTextChanged.connect(self._on_acq_mode_changed)
         acq_form.addRow("Mode:", self._acq_combo)
 
         self._external_trigger_check = QCheckBox("External trigger (SDG)")
         acq_form.addRow("", self._external_trigger_check)
+
+        # Averaging: by count or by time
+        self._avg_mode_combo = QComboBox()
+        self._avg_mode_combo.addItems(["By count", "By time"])
+        self._avg_mode_combo.currentIndexChanged.connect(self._on_avg_mode_changed)
+        acq_form.addRow("Averaging:", self._avg_mode_combo)
+
+        self._n_avg_spin = QSpinBox()
+        self._n_avg_spin.setRange(1, 10000000)
+        self._n_avg_spin.setValue(100)
+        self._n_avg_row_label = QLabel("Pairs:")
+        acq_form.addRow(self._n_avg_row_label, self._n_avg_spin)
+
+        self._avg_time_spin = QDoubleSpinBox()
+        self._avg_time_spin.setRange(0.1, 600.0)
+        self._avg_time_spin.setValue(10.0)
+        self._avg_time_spin.setSuffix(" s")
+        self._avg_time_spin.setDecimals(1)
+        self._avg_time_label = QLabel("Duration:")
+        acq_form.addRow(self._avg_time_label, self._avg_time_spin)
+
+        self._avg_info_label = QLabel()
+        self._avg_info_label.setStyleSheet("color: gray; font-size: 10px;")
+        acq_form.addRow("", self._avg_info_label)
+
+        self._n_avg_spin.valueChanged.connect(self._update_avg_info)
+        self._avg_time_spin.valueChanged.connect(self._update_avg_info)
+        self._on_avg_mode_changed(0)  # init visibility
 
         left_layout.addWidget(acq_group)
         left_layout.addStretch()
@@ -131,11 +154,51 @@ class TAMonitorWidget(QGroupBox):
         # Set initial mode
         self._on_acq_mode_changed(self._acq_combo.currentText())
 
+    def _on_avg_mode_changed(self, index: int) -> None:
+        """Toggle between count-based and time-based averaging."""
+        by_time = index == 1
+        self._n_avg_spin.setVisible(not by_time)
+        self._n_avg_row_label.setVisible(not by_time)
+        self._avg_time_spin.setVisible(by_time)
+        self._avg_time_label.setVisible(by_time)
+        self._update_avg_info()
+
+    def _update_avg_info(self) -> None:
+        """Show estimated time or pair count."""
+        mode = self._acq_combo.currentText()
+        fps = 500.0 if mode == "chopper_2x2" else 1000.0
+
+        if self._avg_mode_combo.currentIndex() == 0:
+            # By count → show estimated time
+            n = self._n_avg_spin.value()
+            t = n * 2 / fps  # 2 frames per pair
+            if t < 60:
+                self._avg_info_label.setText(f"\u2248 {t:.1f} s")
+            else:
+                self._avg_info_label.setText(f"\u2248 {t/60:.1f} min")
+        else:
+            # By time → show estimated pairs
+            t = self._avg_time_spin.value()
+            n = int(t * fps / 2)  # 2 frames per pair
+            self._avg_info_label.setText(f"\u2248 {n:,} pairs")
+
+    def _get_n_averages(self) -> int:
+        """Get effective n_averages from either count or time mode."""
+        if self._avg_mode_combo.currentIndex() == 0:
+            return self._n_avg_spin.value()
+        else:
+            mode = self._acq_combo.currentText()
+            fps = 500.0 if mode == "chopper_2x2" else 1000.0
+            t = self._avg_time_spin.value()
+            return max(1, int(t * fps / 2))
+
     def _on_acq_mode_changed(self, mode: str) -> None:
         """Auto-configure camera when mode changes."""
         is_2x2 = mode == "chopper_2x2"
         is_s2s = mode == "shot_to_shot"
+        is_static = mode == "static_onoff"
         self._external_trigger_check.setVisible(is_2x2)
+        self._update_avg_info()
         if is_2x2:
             self._camera_settings.exposure_spin.setValue(0.002)
             idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
@@ -151,6 +214,16 @@ class TAMonitorWidget(QGroupBox):
             crop_idx = self._camera_settings.read_area_combo.findData("crop")
             if crop_idx >= 0:
                 self._camera_settings.read_area_combo.setCurrentIndex(crop_idx)
+        elif is_static:
+            # Static ON/OFF: 500 Hz external trigger, FVB, long averaging
+            self._camera_settings.exposure_spin.setValue(0.002)
+            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
+            self._camera_settings.vs_speed_combo.setCurrentIndex(0)
+            # Default to time-based averaging at 5 min
+            self._avg_mode_combo.setCurrentIndex(1)  # By time
+            self._avg_time_spin.setValue(300.0)  # 5 min
 
     def _on_jog(self, delta_um: int) -> None:
         if self._hw is None or self._hw.motion_manager is None:
@@ -166,7 +239,7 @@ class TAMonitorWidget(QGroupBox):
 
     def _on_start(self) -> None:
         config = {
-            "n_averages": self._n_avg_spin.value(),
+            "n_averages": self._get_n_averages(),
             "acq_mode": self._acq_combo.currentText(),
             "external_trigger": self._external_trigger_check.isChecked(),
             "camera_settings": self._camera_settings.get_settings(),
@@ -196,6 +269,8 @@ class TAMonitorWidget(QGroupBox):
         self._start_btn.setEnabled(not running)
         self._stop_btn.setEnabled(running)
         self._n_avg_spin.setEnabled(not running)
+        self._avg_time_spin.setEnabled(not running)
+        self._avg_mode_combo.setEnabled(not running)
         self._acq_combo.setEnabled(not running)
         self._external_trigger_check.setEnabled(not running)
         self._camera_settings.setEnabled(not running)

@@ -145,6 +145,8 @@ class TAWindowPanel(QWidget):
         self._monitor_engine.status_updated.connect(self._status_label.setText)
         self._monitor_engine.stopped.connect(self._on_monitor_stopped)
         self._monitor_engine.error.connect(self._on_monitor_error)
+        self._monitor_engine.user_prompt.connect(self._on_user_prompt)
+        self._monitor_engine.static_completed.connect(self._on_static_completed)
 
         # Engine → status / button state
         self._engine.scan_started.connect(self._on_scan_started)
@@ -398,6 +400,27 @@ class TAWindowPanel(QWidget):
         self._config_widget.set_scan_running(False)
         self._status_label.setText(f"Monitor error: {msg}")
         log.error(f"Monitor error: {msg}")
+
+    @Slot(str)
+    def _on_user_prompt(self, msg: str) -> None:
+        """Show a dialog asking user to do something (e.g. block pump)."""
+        from PySide6.QtWidgets import QMessageBox
+        result = QMessageBox.information(
+            self, "Action Required", msg,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        )
+        if result == QMessageBox.StandardButton.Ok:
+            self._monitor_engine.user_confirmed()
+        else:
+            self._monitor_engine.stop()
+
+    @Slot(object, object, object, object)
+    def _on_static_completed(self, wavelengths, pump_avg, ref_avg, delta_od) -> None:
+        """Handle static ON/OFF completion — display ΔOD in signal plot."""
+        self._live_display.on_signal_updated(0.0, wavelengths, delta_od)
+        self._live_display.on_raw_pair_updated(
+            pump_avg, ref_avg, 1, 0, 2
+        )
 
     # -- public API --------------------------------------------------------
 
