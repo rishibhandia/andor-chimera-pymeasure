@@ -111,7 +111,7 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Number of scans:", self._n_scans_spin)
 
         self._acq_mode_combo = QComboBox()
-        self._acq_mode_combo.addItems(["boxcar", "shot_to_shot", "chopper_2x2"])
+        self._acq_mode_combo.addItems(["boxcar", "shot_to_shot", "chopper_2x2", "static_onoff"])
         self._acq_mode_combo.setCurrentIndex(2)  # default to chopper_2x2
         self._acq_mode_combo.currentTextChanged.connect(self._on_acq_mode_changed)
         form.addRow("Acquisition mode:", self._acq_mode_combo)
@@ -420,6 +420,12 @@ class TAScanConfigWidget(QGroupBox):
             crop_idx = self._camera_settings.read_area_combo.findData("crop")
             if crop_idx >= 0:
                 self._camera_settings.read_area_combo.setCurrentIndex(crop_idx)
+        elif mode == "static_onoff":
+            self._camera_settings.exposure_spin.setValue(0.002)
+            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
+            self._camera_settings.vs_speed_combo.setCurrentIndex(0)
 
     def _on_choose_hdf5_dir(self) -> None:
         start_dir = self._save_hdf5_dir_edit.text().strip() or ""

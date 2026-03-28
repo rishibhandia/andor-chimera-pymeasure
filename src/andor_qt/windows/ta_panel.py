@@ -161,6 +161,7 @@ class TAWindowPanel(QWidget):
         self._engine.scan_completed.connect(self._on_scan_completed)
         self._engine.aborted.connect(self._on_aborted)
         self._engine.error.connect(self._on_engine_error)
+        self._engine.user_prompt.connect(self._on_engine_user_prompt)
 
         self._engine.status_updated.connect(self._status_label.setText)
 
@@ -271,6 +272,19 @@ class TAWindowPanel(QWidget):
         log.error(f"TA engine error: {message}")
         self._status_label.setText(f"Error: {message}")
         self._end_scan()
+
+    @Slot(str)
+    def _on_engine_user_prompt(self, msg: str) -> None:
+        """Handle user prompt from engine (e.g. static_onoff pump block)."""
+        from PySide6.QtWidgets import QMessageBox
+        result = QMessageBox.information(
+            self, "Action Required", msg,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        )
+        if result == QMessageBox.StandardButton.Ok:
+            self._engine.user_confirmed()
+        else:
+            self._engine.abort()
 
     def _toggle_trigger_test(self) -> None:
         """Start or stop NIDAQChopper500Hz without a scan for oscilloscope testing."""

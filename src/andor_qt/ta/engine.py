@@ -108,6 +108,7 @@ class _ScanWorker(QObject):
     signal_updated = Signal(float, object, object)
     map_updated = Signal(object, object, object)
     raw_pair_updated = Signal(object, object, int, int, int)  # pumped, ref, n_matched, n_discarded, n_frames
+    user_prompt = Signal(str)  # ask user to do something (e.g. block pump)
     status_updated = Signal(str)
 
     def __init__(self):
@@ -130,6 +131,11 @@ class _ScanWorker(QObject):
         self._phase_reader = phase_reader
         self._abort_event.clear()
         self._pause_event.set()
+        self._user_response = threading.Event()
+
+    def user_confirmed(self):
+        """Called from UI thread when user confirms a prompt."""
+        self._user_response.set()
 
     def run(self) -> None:
         """Execute the scan loop. Called from QThread."""
@@ -158,6 +164,11 @@ class _ScanWorker(QObject):
         if config.save_spectra_dir:
             spectra_folder = _make_scan_folder(config.save_spectra_dir, config.sample_name)
             log.info(f"Saving spectra to: {spectra_folder}")
+
+        # Static ON/OFF: two full scans with user prompt between
+        if config.acquisition_mode == "static_onoff":
+            self._run_static_scan(config, hw, writer, spectra_folder, axis)
+            return
 
         # Apply trigger mode once before the scan, restore on exit
         trigger_mode = (self._camera_settings or {}).get("trigger_mode", "internal")
@@ -300,6 +311,169 @@ class _ScanWorker(QObject):
                 except Exception:
                     pass
 
+    def _run_static_scan(self, config, hw, writer, spectra_folder, axis):
+        """Static ON/OFF scan: two full passes through delay list.
+
+        Pass 1: Acquire at each delay with pump ON (long averaging).
+        Prompt user to block pump.
+        Pass 2: Acquire at each delay with pump OFF (same averaging).
+        Compute delta-OD = -log10(pump_spectrum / ref_spectrum) at each delay.
+        """
+        import time as _time
+
+        _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
+        if callable(_apply) and self._camera_settings:
+            _apply(self._camera_settings)
+
+        ordered = config.ordered_delays(0)
+        n_pts = len(ordered)
+        camera = hw.camera
+        buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
+        max_chunk = max(1000, int(buf_size * 0.8))
+
+        try:
+            # --- Pass 1: Pump ON ---
+            self.scan_started.emit(0)
+            self.status_updated.emit("Static Pass 1: Pump ON — scanning all delays...")
+            log.info(f"Static scan pass 1 (pump ON): {n_pts} delays, {config.n_averages} avg each")
+
+            pump_spectra = {}  # delay_ps -> averaged spectrum
+
+            for pt_idx, delay_ps in enumerate(ordered):
+                if self._abort_event.is_set():
+                    self.aborted.emit()
+                    return
+
+                self.point_started.emit(0, delay_ps)
+
+                # Move stage
+                if axis is not None:
+                    axis.position_ps = delay_ps
+
+                # Long average at this position
+                avg = self._static_average_at_position(
+                    camera, config.n_averages, max_chunk,
+                    f"Pass 1 pt {pt_idx+1}/{n_pts}"
+                )
+                pump_spectra[delay_ps] = avg
+
+                self.status_updated.emit(
+                    f"Pass 1 (pump ON): pt {pt_idx+1}/{n_pts}  {delay_ps:.2f} ps"
+                )
+                self.raw_pair_updated.emit(avg, avg, 1, 0, 2)
+                self.point_completed.emit(0, delay_ps)
+
+            if self._abort_event.is_set():
+                self.aborted.emit()
+                return
+
+            # --- Prompt user to block pump ---
+            self.status_updated.emit("Block the pump beam, then click Continue")
+            self.user_prompt.emit("Pass 1 (pump ON) complete.\n\nBlock the pump beam and click Continue.")
+            self._user_response.clear()
+
+            while not self._user_response.is_set():
+                if self._abort_event.is_set():
+                    self.aborted.emit()
+                    return
+                _time.sleep(0.1)
+
+            if self._abort_event.is_set():
+                self.aborted.emit()
+                return
+
+            # --- Pass 2: Pump OFF ---
+            self.scan_started.emit(1)
+            self.status_updated.emit("Static Pass 2: Pump OFF — scanning all delays...")
+            log.info(f"Static scan pass 2 (pump OFF): {n_pts} delays, {config.n_averages} avg each")
+
+            all_delays = []
+            all_signals = []
+
+            for pt_idx, delay_ps in enumerate(ordered):
+                if self._abort_event.is_set():
+                    self.aborted.emit()
+                    return
+
+                self.point_started.emit(1, delay_ps)
+
+                if axis is not None:
+                    axis.position_ps = delay_ps
+
+                ref_avg = self._static_average_at_position(
+                    camera, config.n_averages, max_chunk,
+                    f"Pass 2 pt {pt_idx+1}/{n_pts}"
+                )
+
+                # Compute delta-OD for this delay
+                pump_avg = pump_spectra[delay_ps]
+                ref_safe = np.where(ref_avg == 0, 1.0, ref_avg)
+                delta_od = -np.log10(pump_avg / ref_safe)
+
+                self.signal_updated.emit(delay_ps, self._wavelengths, delta_od)
+                self.raw_pair_updated.emit(pump_avg, ref_avg, 1, 0, 2)
+
+                all_delays.append(delay_ps)
+                all_signals.append(delta_od)
+                if len(all_signals) > 0:
+                    self.map_updated.emit(
+                        np.array(all_delays), self._wavelengths, np.array(all_signals)
+                    )
+
+                if spectra_folder is not None:
+                    try:
+                        _save_spectrum_file(
+                            spectra_folder, 0, delay_ps,
+                            self._wavelengths, delta_od,
+                        )
+                    except Exception as exc:
+                        log.warning(f"Failed to save spectrum: {exc}")
+
+                self.status_updated.emit(
+                    f"Pass 2 (pump OFF): pt {pt_idx+1}/{n_pts}  {delay_ps:.2f} ps"
+                )
+                self.point_completed.emit(1, delay_ps)
+
+            log.info("Static scan complete")
+            self.scan_completed.emit()
+
+        except Exception as exc:
+            log.exception("Static scan error")
+            self.error.emit(str(exc))
+
+    def _static_average_at_position(self, camera, n_target, max_chunk, label):
+        """Acquire n_target frames at current position using Run Till Abort, return mean."""
+        import time as _time
+
+        running_sum = None
+        collected = 0
+
+        while collected < n_target and not self._abort_event.is_set():
+            chunk = min(n_target - collected, max_chunk)
+
+            camera.start_run_till_abort()
+            try:
+                wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
+                _time.sleep(wait_s)
+                frames, n_read = camera.get_buffered_frames()
+            finally:
+                camera.abort_acquisition()
+
+            if n_read == 0:
+                break
+
+            chunk_sum = frames.sum(axis=0)
+            if running_sum is None:
+                running_sum = chunk_sum
+            else:
+                running_sum += chunk_sum
+            collected += n_read
+
+        if running_sum is None or collected == 0:
+            raise RuntimeError(f"Static {label}: no frames acquired")
+
+        return running_sum / collected
+
 
 class TransientAbsorptionEngine(QObject):
     """High-level engine for TA pump-probe scanning.
@@ -318,6 +492,7 @@ class TransientAbsorptionEngine(QObject):
     map_updated = Signal(object, object, object)
     raw_pair_updated = Signal(object, object, int, int, int)
     status_updated = Signal(str)
+    user_prompt = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -332,6 +507,7 @@ class TransientAbsorptionEngine(QObject):
         self._worker.scan_completed.connect(self.scan_completed)
         self._worker.aborted.connect(self.aborted)
         self._worker.error.connect(self.error)
+        self._worker.user_prompt.connect(self.user_prompt)
         self._worker.signal_updated.connect(self.signal_updated)
         self._worker.map_updated.connect(self.map_updated)
         self._worker.raw_pair_updated.connect(self.raw_pair_updated)
@@ -379,6 +555,12 @@ class TransientAbsorptionEngine(QObject):
         """Abort the scan as soon as possible."""
         self._worker._abort_event.set()
         self._worker._pause_event.set()  # Unblock if paused
+        if hasattr(self._worker, "_user_response"):
+            self._worker._user_response.set()  # Unblock if waiting for user
+
+    def user_confirmed(self) -> None:
+        """Forward user confirmation to worker (for static_onoff prompts)."""
+        self._worker.user_confirmed()
 
     def emergency_stop(self) -> None:
         """Abort scan and stop all motion."""
