@@ -32,6 +32,7 @@ class _MonitorWorker(QObject):
     status_updated = Signal(str)
     user_prompt = Signal(str)  # ask user to do something (e.g. block pump)
     static_completed = Signal(object, object, object, object)  # (wl, pump_avg, ref_avg, delta_od)
+    single_phase_completed = Signal(str, object, object)  # (phase, wavelengths, avg_spectrum)
     stopped = Signal()
     error = Signal(str)
 
@@ -47,12 +48,13 @@ class _MonitorWorker(QObject):
         self._wavelengths = np.array([])
 
     def setup(self, config, hw_manager, camera_settings=None,
-              trigger_gen=None, phase_reader=None):
+              trigger_gen=None, phase_reader=None, static_phase=None):
         self._config = config
         self._hw = hw_manager
         self._camera_settings = camera_settings
         self._trigger_gen = trigger_gen
         self._phase_reader = phase_reader
+        self._static_phase = static_phase  # "pump", "ref", or None
         self._abort.clear()
         self._user_response.clear()
 
@@ -86,7 +88,9 @@ class _MonitorWorker(QObject):
         if callable(_apply) and self._camera_settings:
             _apply(self._camera_settings)
 
-        if config.acquisition_mode == "static_onoff":
+        if config.acquisition_mode == "static_onoff" and self._static_phase:
+            self._run_single_phase(config, hw)
+        elif config.acquisition_mode == "static_onoff":
             self._run_static(config, hw, phase_reader, trigger_gen)
         else:
             self._run_continuous(config, hw, phase_reader, trigger_gen)
@@ -209,6 +213,21 @@ class _MonitorWorker(QObject):
         finally:
             self.stopped.emit()
 
+    def _run_single_phase(self, config, hw):
+        """Acquire a single phase (pump ON or pump OFF) and emit result."""
+        phase = self._static_phase
+        label = "Pump ON" if phase == "pump" else "Pump OFF"
+        try:
+            self.status_updated.emit(f"Acquiring {label}...")
+            avg = self._acquire_long_average(hw, config, label)
+            self.single_phase_completed.emit(phase, self._wavelengths, avg)
+            self.status_updated.emit(f"{label} complete — {config.n_averages} frames averaged")
+        except Exception as exc:
+            log.exception(f"Static {label} error")
+            self.error.emit(str(exc))
+        finally:
+            self.stopped.emit()
+
     def _acquire_long_average(self, hw, config, phase_label: str) -> np.ndarray:
         """Acquire many frames using Run Till Abort and return the mean spectrum."""
         camera = hw.camera
@@ -258,6 +277,7 @@ class TAMonitorEngine(QObject):
     status_updated = Signal(str)
     user_prompt = Signal(str)
     static_completed = Signal(object, object, object, object)
+    single_phase_completed = Signal(str, object, object)
     stopped = Signal()
     error = Signal(str)
 
@@ -272,6 +292,7 @@ class TAMonitorEngine(QObject):
         self._worker.status_updated.connect(self.status_updated)
         self._worker.user_prompt.connect(self.user_prompt)
         self._worker.static_completed.connect(self.static_completed)
+        self._worker.single_phase_completed.connect(self.single_phase_completed)
         self._worker.stopped.connect(self.stopped)
         self._worker.stopped.connect(self._thread.quit)
         self._worker.error.connect(self.error)
@@ -280,11 +301,11 @@ class TAMonitorEngine(QObject):
         self._thread.started.connect(self._worker.run)
 
     def start_monitor(self, config, hw_manager, camera_settings=None,
-                      trigger_gen=None, phase_reader=None):
+                      trigger_gen=None, phase_reader=None, static_phase=None):
         if self._thread.isRunning():
             return
         self._worker.setup(config, hw_manager, camera_settings,
-                           trigger_gen, phase_reader)
+                           trigger_gen, phase_reader, static_phase=static_phase)
         self._thread.start()
 
     def stop(self):

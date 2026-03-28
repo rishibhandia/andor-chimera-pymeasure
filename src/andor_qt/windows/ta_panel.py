@@ -140,6 +140,11 @@ class TAWindowPanel(QWidget):
         # --- Signal wiring: Monitor ---
         self._monitor_widget.monitor_requested.connect(self._on_monitor_requested)
         self._monitor_widget.stop_requested.connect(self._on_monitor_stop)
+        self._monitor_widget.static_acquire_requested.connect(self._on_static_acquire_requested)
+
+        # Static ON/OFF state
+        self._static_pump_avg = None
+        self._static_ref_avg = None
         self._monitor_engine.cycle_completed.connect(self._on_monitor_cycle)
         self._monitor_engine.raw_pair_updated.connect(self._live_display.on_raw_pair_updated)
         self._monitor_engine.status_updated.connect(self._status_label.setText)
@@ -147,6 +152,7 @@ class TAWindowPanel(QWidget):
         self._monitor_engine.error.connect(self._on_monitor_error)
         self._monitor_engine.user_prompt.connect(self._on_user_prompt)
         self._monitor_engine.static_completed.connect(self._on_static_completed)
+        self._monitor_engine.single_phase_completed.connect(self._on_single_phase_completed)
 
         # Engine → status / button state
         self._engine.scan_started.connect(self._on_scan_started)
@@ -421,6 +427,68 @@ class TAWindowPanel(QWidget):
         self._live_display.on_raw_pair_updated(
             pump_avg, ref_avg, 1, 0, 2
         )
+
+    @Slot(object)
+    def _on_static_acquire_requested(self, config_dict: dict) -> None:
+        """Handle static single-phase acquisition (pump ON or pump OFF)."""
+        if self._monitor_engine.is_running:
+            return
+
+        phase = config_dict.get("phase", "pump")
+        n_averages = config_dict.get("n_averages", 75000)
+        camera_settings = config_dict.get("camera_settings", self._monitor_widget.camera_settings)
+
+        config = TAScanConfig(
+            delay_list=[0.0],
+            n_averages=n_averages,
+            acquisition_mode="static_onoff",
+            scan_direction="forward",
+            sample_name=f"static_{phase}",
+            external_trigger=config_dict.get("external_trigger", False),
+        )
+
+        self._monitor_widget.set_monitor_running(True)
+        self._config_widget.set_scan_running(True)
+        self._status_label.setText(f"Static: acquiring {phase}...")
+
+        self._monitor_engine.start_monitor(
+            config, self._hw_manager,
+            camera_settings=camera_settings,
+            static_phase=phase,
+        )
+
+    @Slot(str, object, object)
+    def _on_single_phase_completed(self, phase: str, wavelengths, avg_spectrum) -> None:
+        """Store result of a static single-phase acquisition."""
+        if phase == "pump":
+            self._static_pump_avg = avg_spectrum
+            self._static_wavelengths = wavelengths
+            log.info(f"Static pump ON collected: mean={avg_spectrum.mean():.1f}")
+        else:
+            self._static_ref_avg = avg_spectrum
+            self._static_wavelengths = wavelengths
+            log.info(f"Static pump OFF collected: mean={avg_spectrum.mean():.1f}")
+
+        # Update status
+        pump_done = self._static_pump_avg is not None
+        ref_done = self._static_ref_avg is not None
+        self._monitor_widget.update_static_status(pump_done, ref_done)
+
+        # Show raw spectrum
+        self._live_display.on_raw_pair_updated(
+            avg_spectrum, avg_spectrum, 1, 0, 2
+        )
+
+        # If both phases collected, compute ΔOD
+        if pump_done and ref_done:
+            ref_safe = np.where(self._static_ref_avg == 0, 1.0, self._static_ref_avg)
+            delta_od = -np.log10(self._static_pump_avg / ref_safe)
+            self._live_display.on_signal_updated(0.0, self._static_wavelengths, delta_od)
+            self._status_label.setText(
+                f"Static ON/OFF complete  |  "
+                f"\u0394OD range: [{delta_od.min():.6f}, {delta_od.max():.6f}]"
+            )
+            log.info(f"Static ΔOD computed: [{delta_od.min():.6f}, {delta_od.max():.6f}]")
 
     # -- public API --------------------------------------------------------
 

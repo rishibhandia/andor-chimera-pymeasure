@@ -37,6 +37,7 @@ class TAMonitorWidget(QGroupBox):
     """
 
     monitor_requested = Signal(object)  # dict with settings
+    static_acquire_requested = Signal(object)  # dict with phase="pump" or "ref"
     stop_requested = Signal()
 
     def __init__(self, hw_manager=None, parent=None):
@@ -125,6 +126,27 @@ class TAMonitorWidget(QGroupBox):
         self._on_avg_mode_changed(0)  # init visibility
 
         left_layout.addWidget(acq_group)
+
+        # --- Static ON/OFF buttons ---
+        self._static_group = QGroupBox("Static ON/OFF")
+        static_layout = QVBoxLayout(self._static_group)
+
+        static_btn_row = QHBoxLayout()
+        self._acq_pump_btn = QPushButton("Acquire Pump ON")
+        self._acq_ref_btn = QPushButton("Acquire Pump OFF")
+        self._acq_pump_btn.clicked.connect(lambda: self._on_static_acquire("pump"))
+        self._acq_ref_btn.clicked.connect(lambda: self._on_static_acquire("ref"))
+        static_btn_row.addWidget(self._acq_pump_btn)
+        static_btn_row.addWidget(self._acq_ref_btn)
+        static_layout.addLayout(static_btn_row)
+
+        self._static_status = QLabel("No data collected")
+        self._static_status.setStyleSheet("color: gray; font-size: 10px;")
+        static_layout.addWidget(self._static_status)
+
+        left_layout.addWidget(self._static_group)
+        self._static_group.setVisible(False)  # shown only for static_onoff mode
+
         left_layout.addStretch()
         splitter.addWidget(left)
 
@@ -192,12 +214,38 @@ class TAMonitorWidget(QGroupBox):
             t = self._avg_time_spin.value()
             return max(1, int(t * fps / 2))
 
+    def _on_static_acquire(self, phase: str) -> None:
+        config = {
+            "n_averages": self._get_n_averages(),
+            "acq_mode": "static_onoff",
+            "phase": phase,  # "pump" or "ref"
+            "external_trigger": self._external_trigger_check.isChecked(),
+            "camera_settings": self._camera_settings.get_settings(),
+        }
+        self.static_acquire_requested.emit(config)
+
+    def update_static_status(self, pump_done: bool, ref_done: bool) -> None:
+        """Update the static ON/OFF status label."""
+        parts = []
+        if pump_done:
+            parts.append("Pump ON: collected")
+        else:
+            parts.append("Pump ON: --")
+        if ref_done:
+            parts.append("Pump OFF: collected")
+        else:
+            parts.append("Pump OFF: --")
+        self._static_status.setText("  |  ".join(parts))
+
     def _on_acq_mode_changed(self, mode: str) -> None:
         """Auto-configure camera when mode changes."""
         is_2x2 = mode == "chopper_2x2"
         is_s2s = mode == "shot_to_shot"
         is_static = mode == "static_onoff"
         self._external_trigger_check.setVisible(is_2x2)
+        self._static_group.setVisible(is_static)
+        self._start_btn.setVisible(not is_static)
+        self._stop_btn.setVisible(not is_static)
         self._update_avg_info()
         if is_2x2:
             self._camera_settings.exposure_spin.setValue(0.002)
