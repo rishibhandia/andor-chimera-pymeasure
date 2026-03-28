@@ -168,55 +168,6 @@ def log_delays(start: float, end: float, points_per_decade: int) -> List[float]:
     return list(np.geomspace(start, end, num=n_points).tolist())
 
 
-def custom_delays(segments: List[dict]) -> List[float]:
-    """Generate a delay list from multiple segments.
-
-    Each segment dict has:
-    - ``"type"``: ``"linear"`` or ``"log"``
-    - ``"start"``: segment start in ps
-    - ``"end"``: segment end in ps
-    - ``"step"``: step size (linear) or points per decade (log)
-
-    Duplicate boundary points between adjacent segments are removed.
-
-    Args:
-        segments: List of segment specification dicts.
-
-    Returns:
-        Concatenated, deduplicated delay list.
-    """
-    result: List[float] = []
-    for seg in segments:
-        seg_type = seg.get("type", "linear")
-        start = float(seg["start"])
-        end = float(seg["end"])
-        step = seg["step"]
-
-        if seg_type == "linear":
-            pts = linear_delays(start, end, float(step))
-        elif seg_type == "log":
-            pts = log_delays(start, end, int(step))
-        else:
-            raise ValueError(f"Unknown segment type: {seg_type!r}")
-
-        if result and abs(result[-1] - pts[0]) < 1e-12:
-            pts = pts[1:]  # remove duplicate boundary
-        result.extend(pts)
-
-    return result
-
-
-def manual_delays(values: List[float]) -> List[float]:
-    """Return a copy of the provided delay list.
-
-    Args:
-        values: Arbitrary delay values in ps.
-
-    Returns:
-        List of delay values (copy).
-    """
-    return list(values)
-
 
 def linear_delays_um(start_um: float, end_um: float, step_um: float) -> List[float]:
     """Generate a linearly spaced delay list from stage positions in µm.

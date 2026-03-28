@@ -384,24 +384,3 @@ class TransientAbsorptionEngine(QObject):
         """Abort scan and stop all motion."""
         self.abort()
 
-    def acquire_dark(self, hw_manager) -> np.ndarray:
-        """Acquire a dark spectrum (blocking, called from main thread).
-
-        Args:
-            hw_manager: Hardware manager.
-
-        Returns:
-            Dark spectrum as numpy array.
-        """
-        return np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
-
-    def acquire_reference(self, hw_manager) -> np.ndarray:
-        """Acquire a reference spectrum (blocking, called from main thread).
-
-        Args:
-            hw_manager: Hardware manager.
-
-        Returns:
-            Reference spectrum as numpy array.
-        """
-        return np.asarray(hw_manager.camera.get_spectrum(), dtype=float)

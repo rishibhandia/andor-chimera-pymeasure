@@ -4,7 +4,7 @@ Tests cover:
 - TAScanConfig dataclass fields and defaults
 - ordered_delays() forward/alternating scan direction
 - to_yaml() / from_yaml() round-trip
-- linear_delays(), log_delays(), custom_delays(), manual_delays()
+- linear_delays(), log_delays(), stage_delays_ps()
 """
 
 from __future__ import annotations
@@ -17,10 +17,8 @@ import pytest
 
 from andor_qt.ta.scan_config import (
     TAScanConfig,
-    custom_delays,
     linear_delays,
     log_delays,
-    manual_delays,
     stage_delays_ps,
 )
 
@@ -204,61 +202,6 @@ class TestLogDelays:
         assert len(result) == 11  # 10 points per decade + endpoint
         assert result[0] == pytest.approx(1.0, rel=1e-5)
         assert result[-1] == pytest.approx(10.0, rel=1e-5)
-
-
-# ---------------------------------------------------------------------------
-# custom_delays
-# ---------------------------------------------------------------------------
-
-
-class TestCustomDelays:
-    def test_single_linear_segment(self):
-        segments = [{"type": "linear", "start": 0.0, "end": 5.0, "step": 1.0}]
-        result = custom_delays(segments)
-        assert result == pytest.approx([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
-
-    def test_two_linear_segments_no_duplicates(self):
-        segments = [
-            {"type": "linear", "start": 0.0, "end": 2.0, "step": 1.0},
-            {"type": "linear", "start": 2.0, "end": 4.0, "step": 1.0},
-        ]
-        result = custom_delays(segments)
-        # Boundary point should not be duplicated
-        assert result.count(2.0) == 1
-
-    def test_log_segment(self):
-        segments = [{"type": "log", "start": 1.0, "end": 10.0, "step": 5}]
-        result = custom_delays(segments)
-        assert result[0] == pytest.approx(1.0, rel=1e-5)
-        assert result[-1] == pytest.approx(10.0, rel=1e-5)
-
-    def test_returns_list(self):
-        segments = [{"type": "linear", "start": 0.0, "end": 1.0, "step": 0.5}]
-        assert isinstance(custom_delays(segments), list)
-
-
-# ---------------------------------------------------------------------------
-# manual_delays
-# ---------------------------------------------------------------------------
-
-
-class TestManualDelays:
-    def test_returns_same_values(self):
-        values = [0.0, 0.5, 1.0, 2.5, 5.0, 10.0]
-        result = manual_delays(values)
-        assert result == values
-
-    def test_returns_list(self):
-        result = manual_delays([1.0, 2.0])
-        assert isinstance(result, list)
-
-    def test_empty_list(self):
-        result = manual_delays([])
-        assert result == []
-
-    def test_single_value(self):
-        result = manual_delays([42.0])
-        assert result == [42.0]
 
 
 # ---------------------------------------------------------------------------

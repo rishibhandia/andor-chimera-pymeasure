@@ -123,34 +123,3 @@ class TestNIDAQPhaseReaderInterface:
 # ---------------------------------------------------------------------------
 
 
-class TestPhaseReaderWithChopperSync:
-    def test_tags_split_correctly(self):
-        from andor_qt.ta.chopper import ChopperSync
-
-        reader = MockNIDAQPhaseReader()
-        reader.start()
-        tags = reader.read_tags(6)  # [1,0,1,0,1,0]
-
-        spectra = np.arange(6 * 10).reshape(6, 10).astype(float)
-        chopper = ChopperSync(mode="hardware")
-        on_list, off_list = chopper.tag_shots(spectra, tags)
-
-        assert len(on_list) == 3
-        assert len(off_list) == 3
-        # on_list rows should match even indices (tags==1)
-        np.testing.assert_array_equal(on_list[0], spectra[0])
-        np.testing.assert_array_equal(off_list[0], spectra[1])
-
-    def test_phase_inverted_splits_correctly(self):
-        from andor_qt.ta.chopper import ChopperSync
-
-        reader = MockNIDAQPhaseReader(initial_phase=0)  # starts pump-off
-        reader.start()
-        tags = reader.read_tags(4)  # [0,1,0,1]
-
-        spectra = np.ones((4, 10))
-        chopper = ChopperSync(mode="hardware")
-        on_list, off_list = chopper.tag_shots(spectra, tags)
-
-        assert len(on_list) == 2
-        assert len(off_list) == 2

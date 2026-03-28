@@ -28,7 +28,6 @@ from typing import Optional
 
 import numpy as np
 
-from andor_qt.ta.chopper import ChopperSync
 from andor_qt.ta.delta_signal import average_delta_signal, background_subtract, compute_delta_signal
 from andor_qt.ta.scan_config import TAScanConfig
 
@@ -80,49 +79,12 @@ def acquire_delta_signal_at_delay(
         return _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
     if config.acquisition_mode == "chopper_2x2" and phase_reader is not None:
         return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
-    if phase_reader is not None:
-        return _acquire_hardware(hw_manager, config, dark, phase_reader)
     return _acquire_software(hw_manager, config, dark)
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _acquire_hardware(hw_manager, config, dark, phase_reader) -> np.ndarray:
-    """Acquire using NI DAQ hardware phase tags."""
-    chopper = ChopperSync(mode="hardware")
-    delta_signal_list = []
-
-    for _ in range(config.n_averages):
-        s1 = np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
-        t1 = phase_reader.read_one()
-        s2 = np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
-        t2 = phase_reader.read_one()
-
-        spectra = np.array([s1, s2])
-        tags = np.array([t1, t2])
-        on_list, off_list = chopper.tag_shots(spectra, tags)
-
-        if not on_list or not off_list:
-            log.warning("Phase mismatch: both shots have the same tag, skipping pair")
-            continue
-
-        pumped = on_list[0]
-        ref = off_list[0]
-
-        if dark is not None:
-            pumped = background_subtract(pumped, dark)
-            ref = background_subtract(ref, dark)
-
-        delta_signal_list.append(compute_delta_signal(pumped, ref))
-
-    if not delta_signal_list:
-        raise RuntimeError("No valid pump-on/pump-off pairs acquired — check chopper sync")
-
-    mean, _ = average_delta_signal(delta_signal_list)
-    return mean
 
 
 def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=None) -> np.ndarray:

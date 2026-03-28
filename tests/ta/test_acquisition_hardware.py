@@ -95,74 +95,9 @@ class TestTAScanConfigNIDAQFields:
 # ---------------------------------------------------------------------------
 
 
-class TestAcquireHardwarePhase:
-    def test_returns_ndarray(self):
-        n = 10
-        hw = make_hw([[1000.0] * n, [800.0] * n])
-        cfg = make_config(n_averages=1)
-        reader = MockNIDAQPhaseReader(initial_phase=1)
-        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
-        assert isinstance(result, np.ndarray)
-        assert len(result) == n
-
-    def test_pump_on_first_positive_delta(self):
-        """Tag=1 → pump-on first → higher signal → positive ΔI/I₀."""
-        n = 5
-        on_val = 1200.0
-        off_val = 1000.0
-        hw = make_hw([[on_val] * n, [off_val] * n])
-        cfg = make_config(n_averages=1)
-        reader = MockNIDAQPhaseReader(initial_phase=1)  # starts with tag=1 (on)
-        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
-        expected = (on_val - off_val) / off_val  # = 0.2
-        np.testing.assert_allclose(result, expected, rtol=1e-6)
-
-    def test_pump_off_first_still_correct(self):
-        """initial_phase=0 → tag=0 first (off), tag=1 second (on) — result same."""
-        n = 5
-        on_val = 1200.0
-        off_val = 1000.0
-        # Camera returns off first, then on (phase reader tags them correctly)
-        hw = make_hw([[off_val] * n, [on_val] * n])
-        cfg = make_config(n_averages=1)
-        reader = MockNIDAQPhaseReader(initial_phase=0)  # starts with tag=0 (off)
-        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
-        expected = (on_val - off_val) / off_val  # = 0.2
-        np.testing.assert_allclose(result, expected, rtol=1e-6)
-
-    def test_identical_shots_gives_zero_delta(self):
-        n = 8
-        hw = make_hw([[1000.0] * n, [1000.0] * n])
-        cfg = make_config(n_averages=1)
-        reader = MockNIDAQPhaseReader(initial_phase=1)
-        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
-        np.testing.assert_allclose(result, 0.0, atol=1e-10)
-
-    def test_n_averages_uses_multiple_pairs(self):
-        """With n_averages=3, camera.get_spectrum should be called 6 times."""
-        n = 4
-        # Provide 6 shots: alternating on/off
-        shots = [[1200.0] * n if i % 2 == 0 else [1000.0] * n for i in range(6)]
-        hw = make_hw(shots)
-        cfg = make_config(n_averages=3)
-        reader = MockNIDAQPhaseReader(initial_phase=1)
-        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
-        assert hw.camera.get_spectrum.call_count == 6
-        assert isinstance(result, np.ndarray)
-
-    def test_dark_subtraction_with_hardware_reader(self):
-        n = 6
-        on_val, off_val, dark_val = 1200.0, 1000.0, 100.0
-        hw = make_hw([[on_val] * n, [off_val] * n])
-        cfg = make_config(n_averages=1)
-        reader = MockNIDAQPhaseReader(initial_phase=1)
-        dark = np.ones(n) * dark_val
-        result = acquire_delta_signal_at_delay(0.0, hw, cfg, dark=dark, phase_reader=reader)
-        expected = (on_val - dark_val - (off_val - dark_val)) / (off_val - dark_val)
-        np.testing.assert_allclose(result, expected, rtol=1e-6)
-
-    def test_no_phase_reader_still_works(self):
-        """Passing phase_reader=None keeps old software-alternation behaviour."""
+class TestAcquireSoftwareFallback:
+    def test_no_phase_reader_uses_software_mode(self):
+        """Passing phase_reader=None uses software alternation (boxcar)."""
         n = 8
         hw = make_hw([[1000.0] * n, [1000.0] * n])
         cfg = make_config(n_averages=1)
