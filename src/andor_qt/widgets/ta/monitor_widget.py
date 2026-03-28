@@ -56,12 +56,24 @@ class TAMonitorWidget(QGroupBox):
         pos_layout = QVBoxLayout(pos_group)
         pos_layout.setSpacing(4)
 
-        pos_row = QHBoxLayout()
+        axis_row = QHBoxLayout()
+        axis_row.addWidget(QLabel("Axis:"))
+        self._axis_combo = QComboBox()
+        self._axis_combo.setMinimumWidth(100)
+        self._axis_combo.currentIndexChanged.connect(lambda: self._update_position())
+        axis_row.addWidget(self._axis_combo)
+        axis_row.addStretch()
         self._pos_label = QLabel("-- \u00b5m  (-- ps)")
         self._pos_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        pos_row.addWidget(self._pos_label)
-        pos_row.addStretch()
-        pos_layout.addLayout(pos_row)
+        axis_row.addWidget(self._pos_label)
+
+        self._refresh_btn = QPushButton("\u21bb")  # ↻ refresh symbol
+        self._refresh_btn.setFixedWidth(28)
+        self._refresh_btn.setToolTip("Refresh position from hardware")
+        self._refresh_btn.clicked.connect(self._update_position)
+        axis_row.addWidget(self._refresh_btn)
+
+        pos_layout.addLayout(axis_row)
 
         jog_row = QHBoxLayout()
         jog_row.addWidget(QLabel("Jog:"))
@@ -77,6 +89,15 @@ class TAMonitorWidget(QGroupBox):
         pos_layout.addLayout(jog_row)
 
         root.addWidget(pos_group)
+
+        # Populate axes if hardware is available
+        self._populate_axes()
+        # Connect to hardware signals for live position updates
+        if self._hw:
+            from andor_qt.core.signals import get_hardware_signals
+            signals = get_hardware_signals()
+            signals.motion_initialized.connect(lambda _: self._populate_axes())
+            signals.axis_position_changed.connect(self._on_axis_position_changed)
 
         # --- Two-column splitter: left = acq params, right = camera settings ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -245,7 +266,8 @@ class TAMonitorWidget(QGroupBox):
         self._external_trigger_check.setVisible(is_2x2)
         self._static_group.setVisible(is_static)
         self._start_btn.setVisible(not is_static)
-        self._stop_btn.setVisible(not is_static)
+        # Stop always visible — can cancel static acquisition too
+        self._stop_btn.setVisible(True)
         self._update_avg_info()
         if is_2x2:
             self._camera_settings.exposure_spin.setValue(0.002)
@@ -273,16 +295,37 @@ class TAMonitorWidget(QGroupBox):
             self._avg_mode_combo.setCurrentIndex(1)  # By time
             self._avg_time_spin.setValue(300.0)  # 5 min
 
-    def _on_jog(self, delta_um: int) -> None:
+    def _populate_axes(self) -> None:
+        """Populate axis selector from motion manager."""
+        self._axis_combo.blockSignals(True)
+        self._axis_combo.clear()
+        if self._hw and self._hw.motion_manager:
+            for name in self._hw.motion_manager.all_axes:
+                self._axis_combo.addItem(name, name)
+        self._axis_combo.blockSignals(False)
+        self._update_position()
+
+    def _get_selected_axis_name(self) -> str:
+        return self._axis_combo.currentData() or "delay"
+
+    def _get_selected_axis(self):
         if self._hw is None or self._hw.motion_manager is None:
-            return
-        axis = self._hw.motion_manager.get_axis("delay")
+            return None
+        return self._hw.motion_manager.get_axis(self._get_selected_axis_name())
+
+    def _on_axis_position_changed(self, axis_name: str, position: float) -> None:
+        if axis_name == self._get_selected_axis_name():
+            self._update_position()
+
+    def _on_jog(self, delta_um: int) -> None:
+        axis = self._get_selected_axis()
         if axis is None:
             return
+        axis_name = self._get_selected_axis_name()
         new_mm = axis.position + delta_um / 1000.0
         new_mm = max(axis.position_min, min(new_mm, axis.position_max))
-        log.info(f"Jog {delta_um:+d} \u00b5m \u2192 {new_mm:.3f} mm")
-        self._hw.set_axis_position("delay", new_mm, units="mm")
+        log.info(f"Jog {axis_name} {delta_um:+d} \u00b5m \u2192 {new_mm:.3f} mm")
+        self._hw.set_axis_position(axis_name, new_mm, units="mm")
         self._update_position()
 
     def _on_start(self) -> None:
@@ -299,10 +342,9 @@ class TAMonitorWidget(QGroupBox):
         self._update_position()
 
     def _update_position(self) -> None:
-        if self._hw is None or self._hw.motion_manager is None:
-            return
-        axis = self._hw.motion_manager.get_axis("delay")
+        axis = self._get_selected_axis()
         if axis is None:
+            self._pos_label.setText("-- \u00b5m  (-- ps)")
             return
         pos_um = axis.position * 1000
         pos_ps = getattr(axis, "position_ps", 0.0)

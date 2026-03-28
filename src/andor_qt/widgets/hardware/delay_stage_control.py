@@ -111,6 +111,12 @@ class DelayStageControlWidget(QGroupBox):
 
         current_row.addStretch()
 
+        self._refresh_button = QPushButton("\u21bb")
+        self._refresh_button.setFixedWidth(28)
+        self._refresh_button.setToolTip("Refresh position from hardware")
+        self._refresh_button.clicked.connect(self._update_position_display)
+        current_row.addWidget(self._refresh_button)
+
         self._home_button = QPushButton("Home")
         self._home_button.setToolTip("Home the selected axis")
         self._home_button.setFixedWidth(60)

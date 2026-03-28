@@ -229,13 +229,16 @@ class _MonitorWorker(QObject):
             self.stopped.emit()
 
     def _acquire_long_average(self, hw, config, phase_label: str) -> np.ndarray:
-        """Acquire many frames using Run Till Abort and return the mean spectrum."""
+        """Acquire many frames using Run Till Abort and return the mean spectrum.
+
+        Uses a running mean to avoid storing all frames in memory.
+        """
         camera = hw.camera
         n_target = config.n_averages
         buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
         max_chunk = max(1000, int(buf_size * 0.8))
 
-        all_spectra = []
+        running_sum = None
         collected = 0
 
         while collected < n_target and not self._abort.is_set():
@@ -244,7 +247,6 @@ class _MonitorWorker(QObject):
             camera.start_run_till_abort()
 
             try:
-                # 2 ms/frame at 500 Hz + 20% margin
                 wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
                 _time.sleep(wait_s)
                 frames, n_read = camera.get_buffered_frames()
@@ -254,7 +256,12 @@ class _MonitorWorker(QObject):
             if n_read == 0:
                 break
 
-            all_spectra.append(frames)
+            # Accumulate running sum (memory-efficient)
+            chunk_sum = frames.sum(axis=0)
+            if running_sum is None:
+                running_sum = chunk_sum
+            else:
+                running_sum += chunk_sum
             collected += n_read
 
             pct = 100.0 * collected / n_target
@@ -262,11 +269,10 @@ class _MonitorWorker(QObject):
                 f"{phase_label}: {collected}/{n_target} frames ({pct:.0f}%)"
             )
 
-        if not all_spectra:
+        if running_sum is None or collected == 0:
             raise RuntimeError(f"Static {phase_label}: no frames acquired")
 
-        all_frames = np.concatenate(all_spectra)
-        return all_frames.mean(axis=0)
+        return running_sum / collected
 
 
 class TAMonitorEngine(QObject):
