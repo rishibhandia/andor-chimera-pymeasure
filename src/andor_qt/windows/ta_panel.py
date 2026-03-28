@@ -21,8 +21,10 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QSp
 
 from andor_qt.ta.engine import TransientAbsorptionEngine
 from andor_qt.ta.hdf5_writer import TADataWriter, auto_filename
+from andor_qt.ta.monitor_engine import TAMonitorEngine
 from andor_qt.ta.scan_config import TAScanConfig
 from andor_qt.widgets.ta.live_display import TALiveDisplayWidget
+from andor_qt.widgets.ta.monitor_widget import TAMonitorWidget
 from andor_qt.widgets.ta.scan_config_widget import TAScanConfigWidget
 
 log = logging.getLogger(__name__)
@@ -77,10 +79,20 @@ class TAWindowPanel(QWidget):
         self._trigger_test_running = False
         self._trigger_test_gen = None
 
+        # --- Monitor engine ---
+        self._monitor_engine = TAMonitorEngine(self)
+
         # --- Widgets ---
         self._config_widget = TAScanConfigWidget()
         self._config_widget.set_hardware_manager(hw_manager)
+        self._monitor_widget = TAMonitorWidget(hw_manager)
         self._live_display = TALiveDisplayWidget()
+
+        # --- Left pane: tabs for Scan / Monitor ---
+        from PySide6.QtWidgets import QTabWidget
+        self._left_tabs = QTabWidget()
+        self._left_tabs.addTab(self._config_widget, "Scan")
+        self._left_tabs.addTab(self._monitor_widget, "Monitor")
 
         # --- Status / trigger-test bar ---
         self._status_label = QLabel("Ready")
@@ -103,7 +115,7 @@ class TAWindowPanel(QWidget):
         live_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         splitter = QSplitter()
-        splitter.addWidget(self._config_widget)
+        splitter.addWidget(self._left_tabs)
         splitter.addWidget(live_scroll)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
@@ -113,7 +125,7 @@ class TAWindowPanel(QWidget):
         layout.addWidget(splitter, stretch=1)
         layout.addLayout(status_row, stretch=0)
 
-        # --- Signal wiring ---
+        # --- Signal wiring: Scan ---
         self._config_widget.scan_requested.connect(self._on_scan_requested)
         self._config_widget.abort_requested.connect(self._engine.abort)
         self._config_widget._external_trigger_check.toggled.connect(
@@ -124,6 +136,15 @@ class TAWindowPanel(QWidget):
         self._engine.signal_updated.connect(self._live_display.on_signal_updated)
         self._engine.map_updated.connect(self._live_display.on_map_updated)
         self._engine.raw_pair_updated.connect(self._live_display.on_raw_pair_updated)
+
+        # --- Signal wiring: Monitor ---
+        self._monitor_widget.monitor_requested.connect(self._on_monitor_requested)
+        self._monitor_widget.stop_requested.connect(self._on_monitor_stop)
+        self._monitor_engine.cycle_completed.connect(self._on_monitor_cycle)
+        self._monitor_engine.raw_pair_updated.connect(self._live_display.on_raw_pair_updated)
+        self._monitor_engine.status_updated.connect(self._status_label.setText)
+        self._monitor_engine.stopped.connect(self._on_monitor_stopped)
+        self._monitor_engine.error.connect(self._on_monitor_error)
 
         # Engine → status / button state
         self._engine.scan_started.connect(self._on_scan_started)
@@ -284,6 +305,100 @@ class TAWindowPanel(QWidget):
                 log.error(f"Trigger test start failed: {exc}")
                 self._status_label.setText(f"Trigger test failed: {exc}")
 
+    # -- Monitor mode ------------------------------------------------------
+
+    @Slot(object)
+    def _on_monitor_requested(self, config_dict: dict) -> None:
+        """Start monitor mode."""
+        if self._monitor_engine.is_running:
+            return
+
+        # Stop trigger test if running
+        if self._trigger_test_running:
+            self._toggle_trigger_test()
+
+        acq_mode = config_dict.get("acq_mode", "chopper_2x2")
+        n_averages = config_dict.get("n_averages", 100)
+        external_trigger = config_dict.get("external_trigger", False)
+        camera_settings = config_dict.get("camera_settings", self._monitor_widget.camera_settings)
+
+        # Get crop height from camera settings if in crop mode
+        crop_height = camera_settings.get("crop_height", 50) if camera_settings.get("read_area_mode") == "crop" else 50
+
+        config = TAScanConfig(
+            delay_list=[0.0],
+            n_averages=n_averages,
+            acquisition_mode=acq_mode,
+            scan_direction="forward",
+            sample_name="monitor",
+            external_trigger=external_trigger,
+            crop_height=crop_height,
+        )
+
+        trigger_gen = None
+        phase_reader = None
+        if acq_mode == "chopper_2x2":
+            _tgen, phase_reader = _make_chopper_2x2_hardware(config)
+            if config.external_trigger:
+                log.info("Monitor: external trigger — NIDAQChopper500Hz not started")
+            else:
+                trigger_gen = _tgen
+        elif acq_mode == "shot_to_shot":
+            log.info("Monitor: shot_to_shot — PFI0 at 1 kHz")
+            if os.environ.get("ANDOR_MOCK"):
+                from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+                phase_reader = MockNIDAQPhaseReader()
+            else:
+                from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
+                phase_reader = NIDAQPhaseReader(
+                    device=config.nidaq_device,
+                    di_channel=config.nidaq_di_channel,
+                    clock_source=config.nidaq_clock_source,
+                    clock_rate=config.nidaq_clock_rate,
+                )
+
+        self._live_display.clear()
+        self._monitor_widget.set_monitor_running(True)
+        self._config_widget.set_scan_running(True)  # lock out scan
+        self._status_label.setText("Monitor starting...")
+
+        self._monitor_engine.start_monitor(
+            config, self._hw_manager,
+            camera_settings=camera_settings,
+            trigger_gen=trigger_gen,
+            phase_reader=phase_reader,
+        )
+
+    def _on_monitor_cycle(self, wavelengths, delta, avg_delta) -> None:
+        """Handle monitor cycle completion — update live display."""
+        # Use delay_ps=0 placeholder for the signal plot
+        axis = None
+        if self._hw_manager.motion_manager:
+            axis = self._hw_manager.motion_manager.get_axis("delay")
+        delay_ps = getattr(axis, "position_ps", 0.0) if axis else 0.0
+        self._live_display.on_signal_updated(delay_ps, wavelengths, delta)
+        self._monitor_widget.update_position()
+
+    @Slot()
+    def _on_monitor_stop(self) -> None:
+        """Stop monitor mode."""
+        self._monitor_engine.stop()
+
+    @Slot()
+    def _on_monitor_stopped(self) -> None:
+        """Handle monitor engine stopped."""
+        self._monitor_widget.set_monitor_running(False)
+        self._config_widget.set_scan_running(False)
+        self._status_label.setText("Monitor stopped")
+
+    @Slot(str)
+    def _on_monitor_error(self, msg: str) -> None:
+        """Handle monitor engine error."""
+        self._monitor_widget.set_monitor_running(False)
+        self._config_widget.set_scan_running(False)
+        self._status_label.setText(f"Monitor error: {msg}")
+        log.error(f"Monitor error: {msg}")
+
     # -- public API --------------------------------------------------------
 
     @property
@@ -293,6 +408,10 @@ class TAWindowPanel(QWidget):
     @property
     def config_widget(self) -> TAScanConfigWidget:
         return self._config_widget
+
+    @property
+    def monitor_widget(self) -> TAMonitorWidget:
+        return self._monitor_widget
 
     @property
     def live_display(self) -> TALiveDisplayWidget:

@@ -368,6 +368,7 @@ class AndorSpectrometerWindow(QMainWindow):
         if self._hw_manager.camera:
             self._inputs_widget.populate_from_camera(self._hw_manager.camera)
             self._ta_panel.config_widget.populate_from_camera(self._hw_manager.camera)
+            self._ta_panel.monitor_widget.populate_from_camera(self._hw_manager.camera)
 
     @Slot(str)
     def _on_hardware_error(self, error_msg: str) -> None:
