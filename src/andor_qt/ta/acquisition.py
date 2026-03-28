@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -33,15 +33,19 @@ from andor_qt.ta.scan_config import TAScanConfig
 
 log = logging.getLogger(__name__)
 
+# Last acquisition statistics — populated after each acquisition call.
+# Keys: pump_mean, pump_std, ref_mean, ref_std, delta_std, n_on, n_off
+last_acquisition_stats: dict = {}
+
 
 def acquire_delta_signal_at_delay(
     delay_ps: float,
-    hw_manager,
+    hw_manager: Any,
     config: TAScanConfig,
     dark: Optional[np.ndarray] = None,
-    camera_settings: Optional[dict] = None,
-    phase_reader=None,
-    raw_callback=None,
+    camera_settings: Optional[dict[str, Any]] = None,
+    phase_reader: Any = None,
+    raw_callback: Optional[Callable[[np.ndarray, np.ndarray, int, int, int], None]] = None,
 ) -> np.ndarray:
     """Acquire ΔI/I₀ spectrum at a specific time delay.
 
@@ -87,7 +91,13 @@ def acquire_delta_signal_at_delay(
 # ---------------------------------------------------------------------------
 
 
-def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=None) -> np.ndarray:
+def _acquire_chopper_2x2(
+    hw_manager: Any,
+    config: TAScanConfig,
+    dark: Optional[np.ndarray],
+    phase_reader: Any,
+    raw_callback: Optional[Callable[[np.ndarray, np.ndarray, int, int, int], None]] = None,
+) -> np.ndarray:
     """Acquire using chopper_2x2 mode — batch read via Run Till Abort.
 
     The camera is started in Run Till Abort mode (continuous acquisition on
@@ -179,8 +189,17 @@ def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=No
     delta = (pumped - ref) / ref_safe
     mean = delta.mean(axis=0)
 
-    # Emit averaged pump-ON and pump-OFF spectra for live display
-    # Use ALL matched frames (not capped at n_averages)
+    # Store statistics for external access
+    last_acquisition_stats.update({
+        "pump_mean": on_frames.mean(axis=0),
+        "pump_std": on_frames.std(axis=0),
+        "ref_mean": off_frames.mean(axis=0),
+        "ref_std": off_frames.std(axis=0),
+        "delta_std": delta.std(axis=0),
+        "n_on": len(on_frames),
+        "n_off": len(off_frames),
+    })
+
     if raw_callback is not None:
         raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0), n_pairs, n_discarded, n_read)
 
@@ -192,7 +211,13 @@ def _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=No
     return mean
 
 
-def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=None) -> np.ndarray:
+def _acquire_shot_to_shot(
+    hw_manager: Any,
+    config: TAScanConfig,
+    dark: Optional[np.ndarray],
+    phase_reader: Any,
+    raw_callback: Optional[Callable[[np.ndarray, np.ndarray, int, int, int], None]] = None,
+) -> np.ndarray:
     """Acquire using shot-to-shot mode — 1 kHz single-shot crop-mode acquisition.
 
     The camera runs in isolated crop mode (reduced rows for <1 ms readout)
@@ -291,6 +316,16 @@ def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=N
     delta = (pumped - ref) / ref_safe
     mean = delta.mean(axis=0)
 
+    last_acquisition_stats.update({
+        "pump_mean": on_frames.mean(axis=0),
+        "pump_std": on_frames.std(axis=0),
+        "ref_mean": off_frames.mean(axis=0),
+        "ref_std": off_frames.std(axis=0),
+        "delta_std": delta.std(axis=0),
+        "n_on": len(on_frames),
+        "n_off": len(off_frames),
+    })
+
     if raw_callback is not None:
         raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0),
                      n_pairs, 0, 2 * n_pairs)
@@ -303,7 +338,11 @@ def _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=N
     return mean
 
 
-def _acquire_software(hw_manager, config, dark) -> np.ndarray:
+def _acquire_software(
+    hw_manager: Any,
+    config: TAScanConfig,
+    dark: Optional[np.ndarray],
+) -> np.ndarray:
     """Acquire using software alternation (first shot = pump-on)."""
     delta_signal_list = []
 

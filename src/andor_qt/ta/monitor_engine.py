@@ -47,22 +47,29 @@ class _MonitorWorker(QObject):
         self._phase_reader = None
         self._wavelengths = np.array([])
 
-    def setup(self, config, hw_manager, camera_settings=None,
-              trigger_gen=None, phase_reader=None, static_phase=None):
+    def setup(
+        self,
+        config: TAScanConfig,
+        hw_manager: object,
+        camera_settings: Optional[dict] = None,
+        trigger_gen: object = None,
+        phase_reader: object = None,
+        static_phase: Optional[str] = None,
+    ) -> None:
         self._config = config
         self._hw = hw_manager
         self._camera_settings = camera_settings
         self._trigger_gen = trigger_gen
         self._phase_reader = phase_reader
-        self._static_phase = static_phase  # "pump", "ref", or None
+        self._static_phase = static_phase
         self._abort.clear()
         self._user_response.clear()
 
-    def stop(self):
+    def stop(self) -> None:
         self._abort.set()
-        self._user_response.set()  # unblock if waiting for user
+        self._user_response.set()
 
-    def user_confirmed(self):
+    def user_confirmed(self) -> None:
         """Called from UI thread when user confirms a prompt."""
         self._user_response.set()
 
@@ -95,7 +102,7 @@ class _MonitorWorker(QObject):
         else:
             self._run_continuous(config, hw, phase_reader, trigger_gen)
 
-    def _run_continuous(self, config, hw, phase_reader, trigger_gen):
+    def _run_continuous(self, config: TAScanConfig, hw: object, phase_reader: object, trigger_gen: object) -> None:
         """Standard monitor: continuous cycles at current position."""
         if trigger_gen is not None:
             trigger_gen.start()
@@ -148,7 +155,7 @@ class _MonitorWorker(QObject):
                 phase_reader.stop()
             self.stopped.emit()
 
-    def _run_static(self, config, hw, phase_reader, trigger_gen):
+    def _run_static(self, config: TAScanConfig, hw: object, phase_reader: object, trigger_gen: object) -> None:
         """Static ON/OFF: two long acquisitions with user prompt between."""
         camera = hw.camera
 
@@ -213,25 +220,33 @@ class _MonitorWorker(QObject):
         finally:
             self.stopped.emit()
 
-    def _run_single_phase(self, config, hw):
+    def _run_single_phase(self, config: TAScanConfig, hw: object) -> None:
         """Acquire a single phase (pump ON or pump OFF) and emit result."""
         phase = self._static_phase
         label = "Pump ON" if phase == "pump" else "Pump OFF"
         try:
             self.status_updated.emit(f"Acquiring {label}...")
-            avg = self._acquire_long_average(hw, config, label)
+            avg, std, n = self._acquire_long_average(hw, config, label)
             self.single_phase_completed.emit(phase, self._wavelengths, avg)
-            self.status_updated.emit(f"{label} complete — {config.n_averages} frames averaged")
+            self.status_updated.emit(
+                f"{label} complete — {n} frames, "
+                f"mean={avg.mean():.1f}, std={std.mean():.2f}"
+            )
         except Exception as exc:
             log.exception(f"Static {label} error")
             self.error.emit(str(exc))
         finally:
             self.stopped.emit()
 
-    def _acquire_long_average(self, hw, config, phase_label: str) -> np.ndarray:
-        """Acquire many frames using Run Till Abort and return the mean spectrum.
+    def _acquire_long_average(
+        self, hw: object, config: TAScanConfig, phase_label: str,
+    ) -> tuple[np.ndarray, np.ndarray, int]:
+        """Acquire many frames and return mean, std, and count.
 
-        Uses a running mean to avoid storing all frames in memory.
+        Uses running sum and sum-of-squares for memory-efficient statistics.
+
+        Returns:
+            ``(mean, std, n_frames)`` where ``mean`` and ``std`` are 1-D arrays.
         """
         camera = hw.camera
         n_target = config.n_averages
@@ -239,6 +254,7 @@ class _MonitorWorker(QObject):
         max_chunk = max(1000, int(buf_size * 0.8))
 
         running_sum = None
+        running_sum_sq = None
         collected = 0
 
         while collected < n_target and not self._abort.is_set():
@@ -256,12 +272,14 @@ class _MonitorWorker(QObject):
             if n_read == 0:
                 break
 
-            # Accumulate running sum (memory-efficient)
             chunk_sum = frames.sum(axis=0)
+            chunk_sum_sq = (frames.astype(np.float64) ** 2).sum(axis=0)
             if running_sum is None:
                 running_sum = chunk_sum
+                running_sum_sq = chunk_sum_sq
             else:
                 running_sum += chunk_sum
+                running_sum_sq += chunk_sum_sq
             collected += n_read
 
             pct = 100.0 * collected / n_target
@@ -272,7 +290,10 @@ class _MonitorWorker(QObject):
         if running_sum is None or collected == 0:
             raise RuntimeError(f"Static {phase_label}: no frames acquired")
 
-        return running_sum / collected
+        mean = running_sum / collected
+        variance = running_sum_sq / collected - mean ** 2
+        std = np.sqrt(np.maximum(variance, 0.0))
+        return mean, std, collected
 
 
 class TAMonitorEngine(QObject):
@@ -306,18 +327,25 @@ class TAMonitorEngine(QObject):
 
         self._thread.started.connect(self._worker.run)
 
-    def start_monitor(self, config, hw_manager, camera_settings=None,
-                      trigger_gen=None, phase_reader=None, static_phase=None):
+    def start_monitor(
+        self,
+        config: TAScanConfig,
+        hw_manager: object,
+        camera_settings: Optional[dict] = None,
+        trigger_gen: object = None,
+        phase_reader: object = None,
+        static_phase: Optional[str] = None,
+    ) -> None:
         if self._thread.isRunning():
             return
         self._worker.setup(config, hw_manager, camera_settings,
                            trigger_gen, phase_reader, static_phase=static_phase)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._worker.stop()
 
-    def user_confirmed(self):
+    def user_confirmed(self) -> None:
         """Forward user confirmation to worker thread."""
         self._worker.user_confirmed()
 

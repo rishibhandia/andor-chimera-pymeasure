@@ -98,11 +98,18 @@ Qt/PySide6 GUI and PyMeasure integration for Andor CCD spectrometer control. Two
 
 ## Code Style Guidelines
 
-- **Line length**: 100 characters
-- **Naming**: lowercase_with_underscores for functions/variables, CamelCase for classes
-- **Imports**: Use absolute imports, sorted by ruff
-- **Type hints**: Encouraged, use `from __future__ import annotations`
-- **Docstrings**: Google style, start with imperative verb
+Follow the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html) with these project-specific overrides:
+
+- **Line length**: 100 characters (not 80 — Qt code is verbose)
+- **Naming**: `lower_with_under` for functions/variables, `CamelCase` for classes, `CAPS_WITH_UNDER` for constants
+- **Imports**: Absolute imports only, sorted by ruff, one per line (except `typing`)
+- **Type hints**: Required on all public API functions. Use `from __future__ import annotations`
+- **Docstrings**: Google style with `Args:`, `Returns:`, `Raises:` sections. Start with imperative verb
+- **Mutable defaults**: Never use mutable objects (`[]`, `{}`) as default arguments
+- **None checks**: Always `is None` / `is not None`, never `== None`
+- **Boolean eval**: Use implicit false for sequences (`if not items:`)
+- **Exceptions**: Never bare `except:`; minimize code inside `try` blocks
+- **Properties**: Use for controlled access; no surprising side effects
 
 ### Property Docstrings (PyMeasure style)
 

@@ -101,7 +101,7 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("ESP302 axis:", self._stage_axis_spin)
 
         self._n_averages_spin = QSpinBox()
-        self._n_averages_spin.setRange(1, 10000)
+        self._n_averages_spin.setRange(1, 10000000)
         self._n_averages_spin.setValue(100)
         form.addRow("Averages per point:", self._n_averages_spin)
 
@@ -400,32 +400,10 @@ class TAScanConfigWidget(QGroupBox):
             self._log_warn_label.hide()
 
     def _on_acq_mode_changed(self, mode: str) -> None:
-        """Auto-configure camera when chopper_2x2 or shot_to_shot is selected."""
-        is_2x2 = mode == "chopper_2x2"
-        is_s2s = mode == "shot_to_shot"
-        self._external_trigger_check.setVisible(is_2x2)
-        if is_2x2:
-            self._camera_settings.exposure_spin.setValue(0.002)
-            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
-            if idx >= 0:
-                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
-            self._camera_settings.vs_speed_combo.setCurrentIndex(0)  # 4.68 µs — fastest, required for 500 Hz
-        elif is_s2s:
-            self._camera_settings.exposure_spin.setValue(0.0003)  # 300 µs (exposure + readout < 1 ms)
-            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
-            if idx >= 0:
-                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
-            self._camera_settings.vs_speed_combo.setCurrentIndex(0)  # fastest VS
-            # Set crop mode with 50 rows
-            crop_idx = self._camera_settings.read_area_combo.findData("crop")
-            if crop_idx >= 0:
-                self._camera_settings.read_area_combo.setCurrentIndex(crop_idx)
-        elif mode == "static_onoff":
-            self._camera_settings.exposure_spin.setValue(0.002)
-            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
-            if idx >= 0:
-                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
-            self._camera_settings.vs_speed_combo.setCurrentIndex(0)
+        """Auto-configure camera when acquisition mode changes."""
+        self._external_trigger_check.setVisible(mode == "chopper_2x2")
+        if mode in ("chopper_2x2", "shot_to_shot", "static_onoff"):
+            self._camera_settings.apply_mode_preset(mode)
 
     def _on_choose_hdf5_dir(self) -> None:
         start_dir = self._save_hdf5_dir_edit.text().strip() or ""

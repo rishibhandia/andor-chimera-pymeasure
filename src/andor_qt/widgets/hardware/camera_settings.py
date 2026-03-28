@@ -352,6 +352,33 @@ class CameraSettingsWidget(QGroupBox):
     # Public API
     # ------------------------------------------------------------------
 
+    def apply_mode_preset(self, mode: str) -> None:
+        """Apply a camera preset for the given acquisition mode.
+
+        Supported modes: chopper_2x2, shot_to_shot, static_onoff.
+        """
+        if mode == "chopper_2x2":
+            self.exposure_spin.setValue(0.002)
+            idx = self.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self.trigger_mode_combo.setCurrentIndex(idx)
+            self.vs_speed_combo.setCurrentIndex(0)
+        elif mode == "shot_to_shot":
+            self.exposure_spin.setValue(0.0003)
+            idx = self.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self.trigger_mode_combo.setCurrentIndex(idx)
+            self.vs_speed_combo.setCurrentIndex(0)
+            crop_idx = self.read_area_combo.findData("crop")
+            if crop_idx >= 0:
+                self.read_area_combo.setCurrentIndex(crop_idx)
+        elif mode == "static_onoff":
+            self.exposure_spin.setValue(0.002)
+            idx = self.trigger_mode_combo.findData("fast_external")
+            if idx >= 0:
+                self.trigger_mode_combo.setCurrentIndex(idx)
+            self.vs_speed_combo.setCurrentIndex(0)
+
     def populate_from_camera(self, camera) -> None:
         """Populate speed, gain, and EM range options from live camera.
 

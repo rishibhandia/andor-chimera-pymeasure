@@ -260,38 +260,15 @@ class TAMonitorWidget(QGroupBox):
 
     def _on_acq_mode_changed(self, mode: str) -> None:
         """Auto-configure camera when mode changes."""
-        is_2x2 = mode == "chopper_2x2"
-        is_s2s = mode == "shot_to_shot"
         is_static = mode == "static_onoff"
-        self._external_trigger_check.setVisible(is_2x2)
+        self._external_trigger_check.setVisible(mode == "chopper_2x2")
         self._static_group.setVisible(is_static)
         self._start_btn.setVisible(not is_static)
-        # Stop always visible — can cancel static acquisition too
         self._stop_btn.setVisible(True)
         self._update_avg_info()
-        if is_2x2:
-            self._camera_settings.exposure_spin.setValue(0.002)
-            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
-            if idx >= 0:
-                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
-            self._camera_settings.vs_speed_combo.setCurrentIndex(0)
-        elif is_s2s:
-            self._camera_settings.exposure_spin.setValue(0.0003)
-            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
-            if idx >= 0:
-                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
-            self._camera_settings.vs_speed_combo.setCurrentIndex(0)
-            crop_idx = self._camera_settings.read_area_combo.findData("crop")
-            if crop_idx >= 0:
-                self._camera_settings.read_area_combo.setCurrentIndex(crop_idx)
-        elif is_static:
-            # Static ON/OFF: 500 Hz external trigger, FVB, long averaging
-            self._camera_settings.exposure_spin.setValue(0.002)
-            idx = self._camera_settings.trigger_mode_combo.findData("fast_external")
-            if idx >= 0:
-                self._camera_settings.trigger_mode_combo.setCurrentIndex(idx)
-            self._camera_settings.vs_speed_combo.setCurrentIndex(0)
-            # Default to time-based averaging at 5 min
+        if mode in ("chopper_2x2", "shot_to_shot", "static_onoff"):
+            self._camera_settings.apply_mode_preset(mode)
+        if is_static:
             self._avg_mode_combo.setCurrentIndex(1)  # By time
             self._avg_time_spin.setValue(300.0)  # 5 min
 

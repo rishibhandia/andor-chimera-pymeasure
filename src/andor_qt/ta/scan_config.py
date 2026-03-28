@@ -79,7 +79,7 @@ class TAScanConfig:
     # Optional directory to save individual spectrum files per delay point
     save_spectra_dir: Optional[str] = None
 
-    def ordered_delays(self, scan_index: int) -> List[float]:
+    def ordered_delays(self, scan_index: int) -> list[float]:
         """Return delay list in scan order for the given scan index.
 
         Args:
@@ -93,7 +93,7 @@ class TAScanConfig:
             return list(reversed(self.delay_list))
         return list(self.delay_list)
 
-    def to_yaml(self, path) -> None:
+    def to_yaml(self, path: str | Path) -> None:
         """Serialize config to a YAML file.
 
         Args:
@@ -104,7 +104,7 @@ class TAScanConfig:
             yaml.dump(data, fh, default_flow_style=False)
 
     @classmethod
-    def from_yaml(cls, path) -> "TAScanConfig":
+    def from_yaml(cls, path: str | Path) -> TAScanConfig:
         """Load config from a YAML file.
 
         Args:
@@ -125,7 +125,7 @@ class TAScanConfig:
 # ---------------------------------------------------------------------------
 
 
-def linear_delays(start: float, end: float, step: float) -> List[float]:
+def linear_delays(start: float, end: float, step: float) -> list[float]:
     """Generate a linearly spaced delay list.
 
     Args:
@@ -150,7 +150,7 @@ def linear_delays(start: float, end: float, step: float) -> List[float]:
     return [float(x) for x in result]
 
 
-def log_delays(start: float, end: float, points_per_decade: int) -> List[float]:
+def log_delays(start: float, end: float, points_per_decade: int) -> list[float]:
     """Generate a logarithmically spaced delay list.
 
     Args:
@@ -169,7 +169,7 @@ def log_delays(start: float, end: float, points_per_decade: int) -> List[float]:
 
 
 
-def linear_delays_um(start_um: float, end_um: float, step_um: float) -> List[float]:
+def linear_delays_um(start_um: float, end_um: float, step_um: float) -> list[float]:
     """Generate a linearly spaced delay list from stage positions in µm.
 
     Args:
@@ -196,7 +196,7 @@ def linear_delays_um(start_um: float, end_um: float, step_um: float) -> List[flo
     return [um_to_ps(p) for p in positions]
 
 
-def log_delays_um(start_um: float, end_um: float, points_per_decade: int) -> List[float]:
+def log_delays_um(start_um: float, end_um: float, points_per_decade: int) -> list[float]:
     """Generate a log-spaced delay list from stage positions in µm.
 
     Converts start/end to ps, then applies log spacing in the time domain.
@@ -214,7 +214,7 @@ def log_delays_um(start_um: float, end_um: float, points_per_decade: int) -> Lis
     return log_delays(start_ps, end_ps, points_per_decade)
 
 
-def parse_manual_um(text: str) -> List[float]:
+def parse_manual_um(text: str) -> list[float]:
     """Parse manual delay specification text in µm.
 
     Accepts:
@@ -269,12 +269,11 @@ def parse_manual_um(text: str) -> List[float]:
     return values
 
 
-def stage_delays_ps(start_um: float, step_um: float, n_steps: int) -> List[float]:
+def stage_delays_ps(start_um: float, step_um: float, n_steps: int) -> list[float]:
     """Convert delay stage positions to optical delays in picoseconds.
 
-    Positions are given in micrometres; the round-trip conversion is::
-
-        delay_ps = (2 * position_mm) / c_mm_ps
+    Convenience wrapper around ``linear_delays_um`` using start/step/count
+    parameterization instead of start/end/step.
 
     Args:
         start_um: Starting stage position in µm.
@@ -284,8 +283,5 @@ def stage_delays_ps(start_um: float, step_um: float, n_steps: int) -> List[float
     Returns:
         List of delay values in picoseconds.
     """
-    delays = []
-    for i in range(n_steps):
-        position_mm = (start_um + i * step_um) / 1000.0
-        delays.append((2.0 * position_mm) / SPEED_OF_LIGHT_MM_PS)
-    return delays
+    end_um = start_um + (n_steps - 1) * step_um
+    return linear_delays_um(start_um, end_um, step_um)

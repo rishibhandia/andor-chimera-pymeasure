@@ -165,6 +165,9 @@ class _ScanWorker(QObject):
             spectra_folder = _make_scan_folder(config.save_spectra_dir, config.sample_name)
             log.info(f"Saving spectra to: {spectra_folder}")
 
+        # Get motion axis (used by both regular and static scans)
+        axis = getattr(getattr(hw, "motion_manager", None), "get_axis", lambda _: None)("delay")
+
         # Static ON/OFF: two full scans with user prompt between
         if config.acquisition_mode == "static_onoff":
             self._run_static_scan(config, hw, writer, spectra_folder, axis)
@@ -175,10 +178,6 @@ class _ScanWorker(QObject):
         _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
         if callable(_apply) and self._camera_settings:
             _apply(self._camera_settings)
-
-        # Move stage to initial position before starting NI DAQ tasks,
-        # so the DAQ buffer doesn't fill during a long first-point move.
-        axis = getattr(getattr(hw, "motion_manager", None), "get_axis", lambda _: None)("delay")
         if config.delay_list:
             first_delay = config.ordered_delays(0)[0]
             if axis is not None:
@@ -215,6 +214,10 @@ class _ScanWorker(QObject):
                 n_pts = len(ordered)
                 n_scans = config.n_scans
 
+                import time as _time
+                _scan_t0 = _time.perf_counter()
+                _pts_completed = 0
+
                 for pt_idx, delay_ps in enumerate(ordered):
                     # Check abort
                     if self._abort_event.is_set():
@@ -230,35 +233,59 @@ class _ScanWorker(QObject):
 
                     self.point_started.emit(scan_idx, delay_ps)
 
-                    # Emit "Moving" status with current and commanded positions
+                    # ETA calculation
+                    if _pts_completed > 0:
+                        elapsed = _time.perf_counter() - _scan_t0
+                        per_pt = elapsed / _pts_completed
+                        remaining_pts = n_pts - pt_idx
+                        eta_s = per_pt * remaining_pts
+                        if eta_s < 60:
+                            eta_str = f"{eta_s:.0f}s"
+                        elif eta_s < 3600:
+                            eta_str = f"{eta_s/60:.1f}m"
+                        else:
+                            eta_str = f"{eta_s/3600:.1f}h"
+                    else:
+                        eta_str = "..."
+
                     target_mm = (
                         getattr(axis, "t0_offset_mm", 0.0) + (delay_ps * SPEED_OF_LIGHT_MM_PS) / 2
                         if axis is not None else float("nan")
                     )
-                    cur_mm = getattr(axis, "position", float("nan")) if axis is not None else float("nan")
                     log.info(
                         f"Scan {scan_idx+1}/{n_scans} pt {pt_idx+1}/{n_pts}: "
-                        f"moving to {delay_ps:.2f} ps ({target_mm:.3f} mm)"
+                        f"moving to {delay_ps:.2f} ps ({target_mm:.3f} mm)  ETA: {eta_str}"
                     )
 
                     def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames,
                                 _si=scan_idx, _pi=pt_idx, _ns=n_scans, _np=n_pts,
-                                _d=delay_ps):
+                                _d=delay_ps, _eta=eta_str):
                         self.raw_pair_updated.emit(pumped, ref, n_matched, n_discarded, n_frames)
                         valid_pct = 100.0 * (2 * n_matched) / n_frames if n_frames > 0 else 0.0
                         self.status_updated.emit(
                             f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
                             f"pairs: {n_matched}  discarded: {n_discarded}  "
-                            f"({valid_pct:.0f}% valid)"
+                            f"({valid_pct:.0f}% valid)  ETA: {_eta}"
                         )
 
-                    delta_signal = acquire_delta_signal_at_delay(
-                        delay_ps, hw, config, dark=None,
-                        camera_settings=self._camera_settings,
-                        phase_reader=phase_reader,
-                        raw_callback=_raw_cb,
-                    )
+                    # Skip-on-error: if one point fails, log and continue
+                    try:
+                        delta_signal = acquire_delta_signal_at_delay(
+                            delay_ps, hw, config, dark=None,
+                            camera_settings=self._camera_settings,
+                            phase_reader=phase_reader,
+                            raw_callback=_raw_cb,
+                        )
+                    except Exception as exc:
+                        log.warning(f"Point {pt_idx+1}/{n_pts} failed: {exc} — skipping")
+                        self.status_updated.emit(
+                            f"pt {pt_idx+1}/{n_pts} SKIPPED: {exc}"
+                        )
+                        _pts_completed += 1
+                        self.point_completed.emit(scan_idx, delay_ps)
+                        continue
 
+                    # Auto-save: write to HDF5 after each point
                     if writer is not None:
                         stage_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
                         writer.write_point(scan_idx, delay_ps, delta_signal,
@@ -272,6 +299,26 @@ class _ScanWorker(QObject):
                                 spectra_folder, scan_idx, delay_ps,
                                 self._wavelengths, delta_signal,
                             )
+                            # Save pump/ref/std separately
+                            from andor_qt.ta.acquisition import last_acquisition_stats
+                            stats = last_acquisition_stats
+                            if stats:
+                                position_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                                from pathlib import Path as _P
+                                for suffix, data in [
+                                    ("pump", stats.get("pump_mean")),
+                                    ("ref", stats.get("ref_mean")),
+                                    ("pump_std", stats.get("pump_std")),
+                                    ("ref_std", stats.get("ref_std")),
+                                ]:
+                                    if data is not None and len(self._wavelengths) == len(data):
+                                        fn = f"scan{scan_idx:03d}_pos{position_um:+.1f}um_{suffix}.txt"
+                                        lines = [f"# scan={scan_idx}", f"# delay_ps={delay_ps:.6f}",
+                                                 f"# type={suffix}", f"# n_on={stats.get('n_on', 0)}",
+                                                 f"# n_off={stats.get('n_off', 0)}"]
+                                        for wl, d in zip(self._wavelengths, data):
+                                            lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
+                                        _P(spectra_folder / fn).write_text("\n".join(lines), encoding="utf-8")
                         except Exception as exc:
                             log.warning(f"Failed to save spectrum file: {exc}")
 
@@ -284,6 +331,7 @@ class _ScanWorker(QObject):
                             np.array(all_delays), self._wavelengths, signal_matrix
                         )
 
+                    _pts_completed += 1
                     self.point_completed.emit(scan_idx, delay_ps)
 
             self.scan_completed.emit()
@@ -338,6 +386,7 @@ class _ScanWorker(QObject):
             log.info(f"Static scan pass 1 (pump ON): {n_pts} delays, {config.n_averages} avg each")
 
             pump_spectra = {}  # delay_ps -> averaged spectrum
+            _pass1_t0 = _time.perf_counter()
 
             for pt_idx, delay_ps in enumerate(ordered):
                 if self._abort_event.is_set():
@@ -346,21 +395,45 @@ class _ScanWorker(QObject):
 
                 self.point_started.emit(0, delay_ps)
 
-                # Move stage
+                # ETA
+                if pt_idx > 0:
+                    per_pt = (_time.perf_counter() - _pass1_t0) / pt_idx
+                    eta_s = per_pt * (n_pts - pt_idx)
+                    eta_str = f"{eta_s/60:.1f}m" if eta_s >= 60 else f"{eta_s:.0f}s"
+                else:
+                    eta_str = "..."
+
                 if axis is not None:
                     axis.position_ps = delay_ps
 
-                # Long average at this position
-                avg = self._static_average_at_position(
-                    camera, config.n_averages, max_chunk,
-                    f"Pass 1 pt {pt_idx+1}/{n_pts}"
-                )
-                pump_spectra[delay_ps] = avg
+                try:
+                    avg, std, n = self._static_average_at_position(
+                        camera, config.n_averages, max_chunk,
+                        f"Pass 1 pt {pt_idx+1}/{n_pts}"
+                    )
+                except Exception as exc:
+                    log.warning(f"Pass 1 pt {pt_idx+1} failed: {exc} — skipping")
+                    self.point_completed.emit(0, delay_ps)
+                    continue
+
+                pump_spectra[delay_ps] = (avg, std, n)
 
                 self.status_updated.emit(
-                    f"Pass 1 (pump ON): pt {pt_idx+1}/{n_pts}  {delay_ps:.2f} ps"
+                    f"Pass 1 (pump ON): pt {pt_idx+1}/{n_pts}  "
+                    f"{delay_ps:.2f} ps  ETA: {eta_str}"
                 )
                 self.raw_pair_updated.emit(avg, avg, 1, 0, 2)
+
+                # Save pump spectrum
+                if spectra_folder is not None:
+                    try:
+                        _save_spectrum_file(
+                            spectra_folder, 0, delay_ps,
+                            self._wavelengths, avg,
+                        )
+                    except Exception as exc:
+                        log.warning(f"Failed to save pump spectrum: {exc}")
+
                 self.point_completed.emit(0, delay_ps)
 
             if self._abort_event.is_set():
@@ -389,6 +462,7 @@ class _ScanWorker(QObject):
 
             all_delays = []
             all_signals = []
+            _pass2_t0 = _time.perf_counter()
 
             for pt_idx, delay_ps in enumerate(ordered):
                 if self._abort_event.is_set():
@@ -397,21 +471,55 @@ class _ScanWorker(QObject):
 
                 self.point_started.emit(1, delay_ps)
 
+                # ETA
+                if pt_idx > 0:
+                    per_pt = (_time.perf_counter() - _pass2_t0) / pt_idx
+                    eta_s = per_pt * (n_pts - pt_idx)
+                    eta_str = f"{eta_s/60:.1f}m" if eta_s >= 60 else f"{eta_s:.0f}s"
+                else:
+                    eta_str = "..."
+
                 if axis is not None:
                     axis.position_ps = delay_ps
 
-                ref_avg = self._static_average_at_position(
-                    camera, config.n_averages, max_chunk,
-                    f"Pass 2 pt {pt_idx+1}/{n_pts}"
-                )
+                if delay_ps not in pump_spectra:
+                    log.warning(f"Pass 2: no pump data for {delay_ps:.2f} ps — skipping")
+                    self.point_completed.emit(1, delay_ps)
+                    continue
 
-                # Compute delta-OD for this delay
-                pump_avg = pump_spectra[delay_ps]
+                try:
+                    ref_avg, ref_std, ref_n = self._static_average_at_position(
+                        camera, config.n_averages, max_chunk,
+                        f"Pass 2 pt {pt_idx+1}/{n_pts}"
+                    )
+                except Exception as exc:
+                    log.warning(f"Pass 2 pt {pt_idx+1} failed: {exc} — skipping")
+                    self.point_completed.emit(1, delay_ps)
+                    continue
+
+                pump_avg, pump_std, pump_n = pump_spectra[delay_ps]
                 ref_safe = np.where(ref_avg == 0, 1.0, ref_avg)
                 delta_od = -np.log10(pump_avg / ref_safe)
 
                 self.signal_updated.emit(delay_ps, self._wavelengths, delta_od)
                 self.raw_pair_updated.emit(pump_avg, ref_avg, 1, 0, 2)
+
+                # Save ref spectrum
+                if spectra_folder is not None:
+                    try:
+                        position_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                        # Save pump, ref, and delta_od as separate files
+                        from pathlib import Path as _P
+                        for suffix, data in [("pump", pump_avg), ("ref", ref_avg), ("deltaOD", delta_od)]:
+                            fn = f"pos{position_um:+.1f}um_{suffix}.txt"
+                            lines = [f"# delay_ps={delay_ps:.6f}", f"# position_um={position_um:.1f}",
+                                     f"# type={suffix}", f"# n_frames={pump_n if suffix=='pump' else ref_n}"]
+                            if len(self._wavelengths) == len(data):
+                                for wl, d in zip(self._wavelengths, data):
+                                    lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
+                            _P(spectra_folder / fn).write_text("\n".join(lines), encoding="utf-8")
+                    except Exception as exc:
+                        log.warning(f"Failed to save spectra: {exc}")
 
                 all_delays.append(delay_ps)
                 all_signals.append(delta_od)
@@ -442,10 +550,11 @@ class _ScanWorker(QObject):
             self.error.emit(str(exc))
 
     def _static_average_at_position(self, camera, n_target, max_chunk, label):
-        """Acquire n_target frames at current position using Run Till Abort, return mean."""
+        """Acquire n_target frames at current position, return (mean, std, count)."""
         import time as _time
 
         running_sum = None
+        running_sum_sq = None
         collected = 0
 
         while collected < n_target and not self._abort_event.is_set():
@@ -463,16 +572,22 @@ class _ScanWorker(QObject):
                 break
 
             chunk_sum = frames.sum(axis=0)
+            chunk_sum_sq = (frames.astype(np.float64) ** 2).sum(axis=0)
             if running_sum is None:
                 running_sum = chunk_sum
+                running_sum_sq = chunk_sum_sq
             else:
                 running_sum += chunk_sum
+                running_sum_sq += chunk_sum_sq
             collected += n_read
 
         if running_sum is None or collected == 0:
             raise RuntimeError(f"Static {label}: no frames acquired")
 
-        return running_sum / collected
+        mean = running_sum / collected
+        variance = running_sum_sq / collected - mean ** 2
+        std = np.sqrt(np.maximum(variance, 0.0))
+        return mean, std, collected
 
 
 class TransientAbsorptionEngine(QObject):

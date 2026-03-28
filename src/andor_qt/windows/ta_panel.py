@@ -31,30 +31,54 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
-def _make_chopper_2x2_hardware(config: TAScanConfig) -> Tuple:
-    """Create trigger generator and phase reader for chopper_2x2 mode.
+def _make_daq_hardware(config: TAScanConfig) -> Tuple:
+    """Create trigger generator and phase reader for the configured acquisition mode.
 
-    Returns mock objects when ``ANDOR_MOCK=1``, real NI DAQ objects otherwise.
+    Returns ``(trigger_gen, phase_reader)`` — either or both may be ``None``
+    depending on the mode. Uses mock objects when ``ANDOR_MOCK=1``.
     """
-    if os.environ.get("ANDOR_MOCK"):
-        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
-        from andor_qt.ta.nidaq_trigger import MockNIDAQChopper500Hz
-        return MockNIDAQChopper500Hz(), MockNIDAQChopper2x2Reader()
+    trigger_gen = None
+    phase_reader = None
 
-    from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
-    from andor_qt.ta.nidaq_trigger import NIDAQChopper500Hz
-    trigger_gen = NIDAQChopper500Hz(
-        device=config.nidaq_device,
-        clock_source=config.nidaq_clock_source,
-        sync_source=config.nidaq_chopper_sync_source,
-        counter=config.nidaq_chopper_counter,
-    )
-    phase_reader = NIDAQPhaseReader(
-        device=config.nidaq_device,
-        di_channel=config.nidaq_di_channel,
-        clock_source=config.nidaq_clock_source,
-        clock_rate=config.nidaq_clock_rate,
-    )
+    if config.acquisition_mode == "chopper_2x2":
+        if os.environ.get("ANDOR_MOCK"):
+            from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+            from andor_qt.ta.nidaq_trigger import MockNIDAQChopper500Hz
+            trigger_gen = MockNIDAQChopper500Hz()
+            phase_reader = MockNIDAQChopper2x2Reader()
+        else:
+            from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
+            from andor_qt.ta.nidaq_trigger import NIDAQChopper500Hz
+            trigger_gen = NIDAQChopper500Hz(
+                device=config.nidaq_device,
+                clock_source=config.nidaq_clock_source,
+                sync_source=config.nidaq_chopper_sync_source,
+                counter=config.nidaq_chopper_counter,
+            )
+            phase_reader = NIDAQPhaseReader(
+                device=config.nidaq_device,
+                di_channel=config.nidaq_di_channel,
+                clock_source=config.nidaq_clock_source,
+                clock_rate=config.nidaq_clock_rate,
+            )
+        if config.external_trigger:
+            log.info("External camera trigger — NIDAQChopper500Hz not started")
+            trigger_gen = None
+
+    elif config.acquisition_mode == "shot_to_shot":
+        log.info("shot_to_shot mode — camera triggered by PFI0 at 1 kHz")
+        if os.environ.get("ANDOR_MOCK"):
+            from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+            phase_reader = MockNIDAQPhaseReader()
+        else:
+            from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
+            phase_reader = NIDAQPhaseReader(
+                device=config.nidaq_device,
+                di_channel=config.nidaq_di_channel,
+                clock_source=config.nidaq_clock_source,
+                clock_rate=config.nidaq_clock_rate,
+            )
+
     return trigger_gen, phase_reader
 
 
@@ -199,28 +223,7 @@ class TAWindowPanel(QWidget):
                 writer = None
                 self._writer = None
 
-        trigger_gen = None
-        phase_reader = None
-        if config.acquisition_mode == "chopper_2x2":
-            _tgen, phase_reader = _make_chopper_2x2_hardware(config)
-            if config.external_trigger:
-                log.info("External camera trigger selected — NIDAQChopper500Hz not started")
-            else:
-                trigger_gen = _tgen
-        elif config.acquisition_mode == "shot_to_shot":
-            # shot_to_shot uses PFI0 directly as 1 kHz trigger — no counter chain
-            log.info("shot_to_shot mode — camera triggered by PFI0 at 1 kHz")
-            if os.environ.get("ANDOR_MOCK"):
-                from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
-                phase_reader = MockNIDAQPhaseReader()
-            else:
-                from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
-                phase_reader = NIDAQPhaseReader(
-                    device=config.nidaq_device,
-                    di_channel=config.nidaq_di_channel,
-                    clock_source=config.nidaq_clock_source,
-                    clock_rate=config.nidaq_clock_rate,
-                )
+        trigger_gen, phase_reader = _make_daq_hardware(config)
 
         self._engine.start_scan(config, self._hw_manager, writer=writer,
                                  camera_settings=camera_settings,
@@ -357,27 +360,7 @@ class TAWindowPanel(QWidget):
             crop_height=crop_height,
         )
 
-        trigger_gen = None
-        phase_reader = None
-        if acq_mode == "chopper_2x2":
-            _tgen, phase_reader = _make_chopper_2x2_hardware(config)
-            if config.external_trigger:
-                log.info("Monitor: external trigger — NIDAQChopper500Hz not started")
-            else:
-                trigger_gen = _tgen
-        elif acq_mode == "shot_to_shot":
-            log.info("Monitor: shot_to_shot — PFI0 at 1 kHz")
-            if os.environ.get("ANDOR_MOCK"):
-                from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
-                phase_reader = MockNIDAQPhaseReader()
-            else:
-                from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
-                phase_reader = NIDAQPhaseReader(
-                    device=config.nidaq_device,
-                    di_channel=config.nidaq_di_channel,
-                    clock_source=config.nidaq_clock_source,
-                    clock_rate=config.nidaq_clock_rate,
-                )
+        trigger_gen, phase_reader = _make_daq_hardware(config)
 
         self._live_display.clear()
         self._monitor_widget.set_monitor_running(True)
