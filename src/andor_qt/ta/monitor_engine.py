@@ -282,6 +282,10 @@ class _MonitorWorker(QObject):
                 running_sum_sq += chunk_sum_sq
             collected += n_read
 
+            # Emit running average so the live display updates during acquisition
+            current_mean = running_sum / collected
+            self.raw_pair_updated.emit(current_mean, current_mean, collected, 0, collected)
+
             pct = 100.0 * collected / n_target
             self.status_updated.emit(
                 f"{phase_label}: {collected}/{n_target} frames ({pct:.0f}%)"

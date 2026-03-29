@@ -12,10 +12,12 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -182,6 +184,49 @@ class TAMonitorWidget(QGroupBox):
         splitter.setStretchFactor(1, 1)
         root.addWidget(splitter, stretch=1)
 
+        # --- Save directory + spectrum buttons ---
+        save_group = QGroupBox("Save Spectra")
+        save_layout = QVBoxLayout(save_group)
+        save_layout.setSpacing(4)
+
+        dir_row = QHBoxLayout()
+        self._save_dir_edit = QLineEdit()
+        self._save_dir_edit.setPlaceholderText("Output directory...")
+        self._save_dir_btn = QPushButton("\u2026")
+        self._save_dir_btn.setFixedWidth(28)
+        self._save_dir_btn.clicked.connect(self._on_choose_save_dir)
+        dir_row.addWidget(self._save_dir_edit)
+        dir_row.addWidget(self._save_dir_btn)
+        save_layout.addLayout(dir_row)
+
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Prefix:"))
+        self._save_prefix_edit = QLineEdit()
+        self._save_prefix_edit.setPlaceholderText("sample_name")
+        self._save_prefix_edit.setText("monitor")
+        name_row.addWidget(self._save_prefix_edit)
+        save_layout.addLayout(name_row)
+
+        btn_row2 = QHBoxLayout()
+        self._save_pump_btn = QPushButton("Pump ON")
+        self._save_ref_btn = QPushButton("Pump OFF")
+        self._save_diff_btn = QPushButton("Diff (ON\u2212OFF)")
+        self._save_delta_btn = QPushButton("\u0394I/I\u2080")
+        for btn in (self._save_pump_btn, self._save_ref_btn, self._save_diff_btn, self._save_delta_btn):
+            btn.setFixedWidth(90)
+        self._save_pump_btn.clicked.connect(lambda: self._on_save_spectrum("pump"))
+        self._save_ref_btn.clicked.connect(lambda: self._on_save_spectrum("ref"))
+        self._save_diff_btn.clicked.connect(lambda: self._on_save_spectrum("diff"))
+        self._save_delta_btn.clicked.connect(lambda: self._on_save_spectrum("delta"))
+        btn_row2.addWidget(self._save_pump_btn)
+        btn_row2.addWidget(self._save_ref_btn)
+        btn_row2.addWidget(self._save_diff_btn)
+        btn_row2.addWidget(self._save_delta_btn)
+        btn_row2.addStretch()
+        save_layout.addLayout(btn_row2)
+
+        root.addWidget(save_group)
+
         # --- Start/Stop ---
         btn_row = QHBoxLayout()
         self._start_btn = QPushButton("Start Monitor")
@@ -343,6 +388,89 @@ class TAMonitorWidget(QGroupBox):
         self._camera_settings.setEnabled(not running)
         for btn in self._jog_buttons:
             btn.setEnabled(True)  # jog always enabled for optimization
+
+    def _on_choose_save_dir(self) -> None:
+        start_dir = self._save_dir_edit.text().strip() or ""
+        path = QFileDialog.getExistingDirectory(self, "Select output directory", start_dir)
+        if path:
+            self._save_dir_edit.setText(path)
+
+    def _on_save_spectrum(self, spec_type: str) -> None:
+        """Save the last acquired spectrum to a text file in the output directory."""
+        from pathlib import Path
+        from datetime import datetime
+        import numpy as _np
+
+        pump = getattr(self, "_last_pump", None)
+        ref = getattr(self, "_last_ref", None)
+        n_on = getattr(self, "_last_n_on", 0)
+        n_off = getattr(self, "_last_n_off", 0)
+
+        if pump is None or ref is None:
+            log.warning("No acquisition data to save — run monitor first")
+            return
+
+        if spec_type == "pump":
+            data = pump
+            label = "pump_ON"
+        elif spec_type == "ref":
+            data = ref
+            label = "pump_OFF"
+        elif spec_type == "diff":
+            data = pump - ref
+            label = "diff_ON-OFF"
+        elif spec_type == "delta":
+            ref_safe = _np.where(ref == 0, 1.0, ref)
+            data = (pump - ref) / ref_safe
+            label = "deltaI_I0"
+        else:
+            data = None
+            label = spec_type
+
+        if data is None:
+            log.warning(f"No {spec_type} data available")
+            return
+
+        # Get wavelengths
+        wavelengths = None
+        if self._hw:
+            get_wl = getattr(self._hw, "get_wavelengths", None)
+            hbin = self._camera_settings.get_settings().get("hbin", 1)
+            if callable(get_wl):
+                wavelengths = _np.asarray(get_wl(hbin=hbin))
+
+        # Determine save path with auto-increment
+        save_dir = self._save_dir_edit.text().strip()
+        prefix = self._save_prefix_edit.text().strip() or "monitor"
+        if save_dir:
+            save_path = Path(save_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
+            # Auto-increment: find next available number
+            idx = 1
+            while True:
+                filepath = save_path / f"{prefix}_{idx:04d}_{label}.txt"
+                if not filepath.exists():
+                    break
+                idx += 1
+        else:
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, f"Save {label} spectrum", f"{prefix}_{label}.txt",
+                "Text files (*.txt);;All files (*)"
+            )
+            if not filepath:
+                return
+            filepath = Path(filepath)
+
+        lines = [f"# type={label}", f"# n_on={n_on}", f"# n_off={n_off}"]
+        if wavelengths is not None and len(wavelengths) == len(data):
+            for wl, d in zip(wavelengths, data):
+                lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
+        else:
+            for i, d in enumerate(data):
+                lines.append(f"{i}\t{float(d):.8e}")
+
+        filepath.write_text("\n".join(lines), encoding="utf-8")
+        log.info(f"Saved {label} spectrum to {filepath}")
 
     @property
     def camera_settings(self) -> dict:

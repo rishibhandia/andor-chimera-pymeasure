@@ -171,6 +171,8 @@ class TAWindowPanel(QWidget):
         self._static_ref_avg = None
         self._monitor_engine.cycle_completed.connect(self._on_monitor_cycle)
         self._monitor_engine.raw_pair_updated.connect(self._live_display.on_raw_pair_updated)
+        self._monitor_engine.raw_pair_updated.connect(self._cache_monitor_raw)
+        self._engine.raw_pair_updated.connect(self._cache_monitor_raw)
         self._monitor_engine.status_updated.connect(self._status_label.setText)
         self._monitor_engine.stopped.connect(self._on_monitor_stopped)
         self._monitor_engine.error.connect(self._on_monitor_error)
@@ -367,6 +369,12 @@ class TAWindowPanel(QWidget):
         self._config_widget.set_scan_running(True)  # lock out scan
         self._status_label.setText("Monitor starting...")
 
+        # Pre-set wavelengths on live display so raw spectra use wavelength axis
+        hbin = camera_settings.get("hbin", 1)
+        get_wl = getattr(self._hw_manager, "get_wavelengths", None)
+        if callable(get_wl):
+            self._live_display._wavelengths = np.asarray(get_wl(hbin=hbin))
+
         self._monitor_engine.start_monitor(
             config, self._hw_manager,
             camera_settings=camera_settings,
@@ -383,6 +391,13 @@ class TAWindowPanel(QWidget):
         delay_ps = getattr(axis, "position_ps", 0.0) if axis else 0.0
         self._live_display.on_signal_updated(delay_ps, wavelengths, delta)
         self._monitor_widget.update_position()
+
+    def _cache_monitor_raw(self, pumped, ref, n_matched, n_discarded, n_frames):
+        """Cache the last raw pair for the monitor save buttons."""
+        self._monitor_widget._last_pump = np.asarray(pumped)
+        self._monitor_widget._last_ref = np.asarray(ref)
+        self._monitor_widget._last_n_on = n_matched
+        self._monitor_widget._last_n_off = n_matched
 
     @Slot()
     def _on_monitor_stop(self) -> None:
