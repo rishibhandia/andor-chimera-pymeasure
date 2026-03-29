@@ -407,6 +407,92 @@ class TestAcquireShotToShot:
 # ---------------------------------------------------------------------------
 
 
+class TestAcquireStaticAtDelay:
+    """Tests for acquire_static_at_delay (bulk frame averaging for static mode)."""
+
+    def _make_hw(self, frame_shape=(100,), n_return=50):
+        hw = MagicMock()
+        hw.motion_manager = MagicMock()
+        hw.motion_manager.get_axis.return_value = MagicMock()
+        hw.camera.get_circular_buffer_size.return_value = 12000
+        frames = np.random.rand(n_return, *frame_shape).astype(np.float32) * 1000
+        hw.camera.get_buffered_frames.return_value = (frames, n_return)
+        hw.camera.start_run_till_abort.return_value = None
+        hw.camera.abort_acquisition.return_value = None
+        return hw, frames
+
+    def test_returns_mean_std_count(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay
+        hw, _ = self._make_hw(n_return=50)
+        mean, std, count = acquire_static_at_delay(
+            0.0, hw, 50, threading.Event(),
+        )
+        assert isinstance(mean, np.ndarray)
+        assert isinstance(std, np.ndarray)
+        assert count == 50
+
+    def test_moves_stage(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay
+        hw, _ = self._make_hw()
+        acquire_static_at_delay(5.0, hw, 50, threading.Event())
+        axis = hw.motion_manager.get_axis.return_value
+        assert axis.position_ps == 5.0
+
+    def test_applies_camera_settings(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay
+        hw, _ = self._make_hw()
+        settings = {"trigger_mode": "internal", "exposure_time": 0.002}
+        acquire_static_at_delay(0.0, hw, 50, threading.Event(), camera_settings=settings)
+        hw.camera.apply_camera_settings.assert_called_once_with(settings)
+
+    def test_dark_subtraction_applied(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay
+        n = 100
+        hw = MagicMock()
+        hw.motion_manager = None
+        # Constant frames so mean is predictable
+        frames = np.ones((50, n)) * 1000.0
+        hw.camera.get_circular_buffer_size.return_value = 12000
+        hw.camera.get_buffered_frames.return_value = (frames, 50)
+        hw.camera.start_run_till_abort.return_value = None
+        hw.camera.abort_acquisition.return_value = None
+        dark = np.ones(n) * 200.0
+        mean, _, _ = acquire_static_at_delay(
+            0.0, hw, 50, threading.Event(), dark=dark,
+        )
+        np.testing.assert_allclose(mean, 800.0, rtol=1e-6)
+
+    def test_stats_populated(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay, last_acquisition_stats
+        hw, _ = self._make_hw()
+        acquire_static_at_delay(0.0, hw, 50, threading.Event())
+        assert "pump_mean" in last_acquisition_stats
+        assert last_acquisition_stats["n_on"] == 50
+
+    def test_no_motion_manager_ok(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay
+        hw, _ = self._make_hw()
+        hw.motion_manager = None
+        mean, _, count = acquire_static_at_delay(0.0, hw, 50, threading.Event())
+        assert count == 50
+
+    def test_progress_callback_called(self):
+        import threading
+        from andor_qt.ta.acquisition import acquire_static_at_delay
+        hw, _ = self._make_hw()
+        calls = []
+        def _cb(running_mean, collected, n_target):
+            calls.append(collected)
+        acquire_static_at_delay(0.0, hw, 50, threading.Event(), progress_cb=_cb)
+        assert len(calls) >= 1
+
+
 class TestTAScanConfigChopper2x2Fields:
     def test_has_nidaq_chopper_sync_source(self):
         cfg = TAScanConfig(delay_list=[0.0])

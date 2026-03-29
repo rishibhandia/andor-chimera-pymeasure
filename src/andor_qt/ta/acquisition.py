@@ -464,3 +464,69 @@ def acquire_long_average(
     variance = running_sum_sq / collected - mean ** 2
     std = np.sqrt(np.maximum(variance, 0.0))
     return mean, std, collected
+
+
+# ---------------------------------------------------------------------------
+# Static (bulk) acquisition — shared by scan and monitor static paths
+# ---------------------------------------------------------------------------
+
+def acquire_static_at_delay(
+    delay_ps: float,
+    hw_manager: Any,
+    n_frames: int,
+    abort_event: "threading.Event",
+    dark: Optional[np.ndarray] = None,
+    camera_settings: Optional[dict[str, Any]] = None,
+    progress_cb: Optional[Callable[[np.ndarray, int, int], None]] = None,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Acquire bulk frames at a delay position for static ON/OFF mode.
+
+    Handles stage movement, camera settings, dark subtraction, and stats
+    population — the same pre/post steps as ``acquire_delta_signal_at_delay``
+    but using ``acquire_long_average`` (batch read) instead of per-pair
+    alternation.
+
+    Args:
+        delay_ps: Target delay in picoseconds.
+        hw_manager: Hardware manager with ``.camera``, ``.motion_manager``.
+        n_frames: Number of frames to average.
+        abort_event: Set to abort early.
+        dark: Optional dark spectrum to subtract from the mean.
+        camera_settings: Optional dict passed to ``apply_camera_settings()``.
+        progress_cb: Optional ``(running_mean, collected, n_target)`` callback.
+
+    Returns:
+        ``(mean, std, count)`` — dark-subtracted mean, std, and frame count.
+    """
+    # Move stage
+    mm = getattr(hw_manager, "motion_manager", None)
+    axis = mm.get_axis("delay") if mm is not None else None
+    if axis is not None:
+        axis.position_ps = delay_ps
+
+    # Apply camera settings
+    if camera_settings is not None:
+        apply = getattr(hw_manager.camera, "apply_camera_settings", None)
+        if callable(apply):
+            apply(camera_settings)
+
+    # Acquire
+    mean, std, count = acquire_long_average(
+        hw_manager.camera, n_frames, abort_event, progress_cb=progress_cb,
+    )
+
+    # Dark subtraction
+    if dark is not None:
+        mean = background_subtract(mean, dark)
+
+    # Populate stats
+    last_acquisition_stats.update({
+        "pump_mean": float(mean.mean()) if len(mean) > 0 else 0.0,
+        "pump_std": float(std.mean()) if len(std) > 0 else 0.0,
+        "ref_mean": 0.0,
+        "ref_std": 0.0,
+        "n_on": count,
+        "n_off": 0,
+    })
+
+    return mean, std, count
