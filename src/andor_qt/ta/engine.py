@@ -551,43 +551,8 @@ class _ScanWorker(QObject):
 
     def _static_average_at_position(self, camera, n_target, max_chunk, label):
         """Acquire n_target frames at current position, return (mean, std, count)."""
-        import time as _time
-
-        running_sum = None
-        running_sum_sq = None
-        collected = 0
-
-        while collected < n_target and not self._abort_event.is_set():
-            chunk = min(n_target - collected, max_chunk)
-
-            camera.start_run_till_abort()
-            try:
-                wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
-                _time.sleep(wait_s)
-                frames, n_read = camera.get_buffered_frames()
-            finally:
-                camera.abort_acquisition()
-
-            if n_read == 0:
-                break
-
-            chunk_sum = frames.sum(axis=0)
-            chunk_sum_sq = (frames.astype(np.float64) ** 2).sum(axis=0)
-            if running_sum is None:
-                running_sum = chunk_sum
-                running_sum_sq = chunk_sum_sq
-            else:
-                running_sum += chunk_sum
-                running_sum_sq += chunk_sum_sq
-            collected += n_read
-
-        if running_sum is None or collected == 0:
-            raise RuntimeError(f"Static {label}: no frames acquired")
-
-        mean = running_sum / collected
-        variance = running_sum_sq / collected - mean ** 2
-        std = np.sqrt(np.maximum(variance, 0.0))
-        return mean, std, collected
+        from andor_qt.ta.acquisition import acquire_long_average
+        return acquire_long_average(camera, n_target, self._abort_event)
 
 
 class TransientAbsorptionEngine(QObject):

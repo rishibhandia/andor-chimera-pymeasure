@@ -23,6 +23,7 @@ This function is used by both ``TransientAbsorptionEngine`` (scan loop) and
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Callable, Optional
 
@@ -358,3 +359,76 @@ def _acquire_software(
 
     mean, _ = average_delta_signal(delta_signal_list)
     return mean
+
+
+# ---------------------------------------------------------------------------
+# Long-average utility (shared by scan and monitor engines)
+# ---------------------------------------------------------------------------
+
+def acquire_long_average(
+    camera: Any,
+    n_target: int,
+    abort_event: threading.Event,
+    progress_cb: Optional[Callable[[np.ndarray, int, int], None]] = None,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Acquire many frames and return running-mean statistics.
+
+    Uses chunked ``start_run_till_abort`` + ``get_buffered_frames`` with
+    incremental sum / sum-of-squares for memory-efficient statistics.
+
+    Args:
+        camera: Camera object with ``start_run_till_abort()``,
+            ``get_buffered_frames()``, ``abort_acquisition()``, and
+            ``get_circular_buffer_size()`` methods.
+        n_target: Number of frames to accumulate.
+        abort_event: Set this event to abort early.
+        progress_cb: Optional ``(running_mean, collected, n_target)`` callback
+            invoked after each chunk for live progress updates.
+
+    Returns:
+        ``(mean, std, count)`` where ``mean`` and ``std`` are 1-D arrays.
+
+    Raises:
+        RuntimeError: If no frames were acquired.
+    """
+    buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
+    max_chunk = max(1000, int(buf_size * 0.8))
+
+    running_sum = None
+    running_sum_sq = None
+    collected = 0
+
+    while collected < n_target and not abort_event.is_set():
+        chunk = min(n_target - collected, max_chunk)
+
+        camera.start_run_till_abort()
+        try:
+            wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
+            time.sleep(wait_s)
+            frames, n_read = camera.get_buffered_frames()
+        finally:
+            camera.abort_acquisition()
+
+        if n_read == 0:
+            break
+
+        chunk_sum = frames.sum(axis=0)
+        chunk_sum_sq = (frames.astype(np.float64) ** 2).sum(axis=0)
+        if running_sum is None:
+            running_sum = chunk_sum
+            running_sum_sq = chunk_sum_sq
+        else:
+            running_sum += chunk_sum
+            running_sum_sq += chunk_sum_sq
+        collected += n_read
+
+        if progress_cb is not None and collected > 0:
+            progress_cb(running_sum / collected, collected, n_target)
+
+    if running_sum is None or collected == 0:
+        raise RuntimeError("Long average: no frames acquired")
+
+    mean = running_sum / collected
+    variance = running_sum_sq / collected - mean ** 2
+    std = np.sqrt(np.maximum(variance, 0.0))
+    return mean, std, collected

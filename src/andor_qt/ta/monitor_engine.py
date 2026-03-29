@@ -241,63 +241,19 @@ class _MonitorWorker(QObject):
     def _acquire_long_average(
         self, hw: object, config: TAScanConfig, phase_label: str,
     ) -> tuple[np.ndarray, np.ndarray, int]:
-        """Acquire many frames and return mean, std, and count.
+        """Acquire many frames and return mean, std, and count."""
+        from andor_qt.ta.acquisition import acquire_long_average
 
-        Uses running sum and sum-of-squares for memory-efficient statistics.
-
-        Returns:
-            ``(mean, std, n_frames)`` where ``mean`` and ``std`` are 1-D arrays.
-        """
-        camera = hw.camera
-        n_target = config.n_averages
-        buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
-        max_chunk = max(1000, int(buf_size * 0.8))
-
-        running_sum = None
-        running_sum_sq = None
-        collected = 0
-
-        while collected < n_target and not self._abort.is_set():
-            chunk = min(n_target - collected, max_chunk)
-
-            camera.start_run_till_abort()
-
-            try:
-                wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
-                _time.sleep(wait_s)
-                frames, n_read = camera.get_buffered_frames()
-            finally:
-                camera.abort_acquisition()
-
-            if n_read == 0:
-                break
-
-            chunk_sum = frames.sum(axis=0)
-            chunk_sum_sq = (frames.astype(np.float64) ** 2).sum(axis=0)
-            if running_sum is None:
-                running_sum = chunk_sum
-                running_sum_sq = chunk_sum_sq
-            else:
-                running_sum += chunk_sum
-                running_sum_sq += chunk_sum_sq
-            collected += n_read
-
-            # Emit running average so the live display updates during acquisition
-            current_mean = running_sum / collected
-            self.raw_pair_updated.emit(current_mean, current_mean, collected, 0, collected)
-
+        def _progress(running_mean, collected, n_target):
+            self.raw_pair_updated.emit(running_mean, running_mean, collected, 0, collected)
             pct = 100.0 * collected / n_target
             self.status_updated.emit(
                 f"{phase_label}: {collected}/{n_target} frames ({pct:.0f}%)"
             )
 
-        if running_sum is None or collected == 0:
-            raise RuntimeError(f"Static {phase_label}: no frames acquired")
-
-        mean = running_sum / collected
-        variance = running_sum_sq / collected - mean ** 2
-        std = np.sqrt(np.maximum(variance, 0.0))
-        return mean, std, collected
+        return acquire_long_average(
+            hw.camera, config.n_averages, self._abort, progress_cb=_progress,
+        )
 
 
 class TAMonitorEngine(QObject):
