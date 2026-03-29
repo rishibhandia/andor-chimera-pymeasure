@@ -394,10 +394,12 @@ class TAWindowPanel(QWidget):
 
     def _cache_monitor_raw(self, pumped, ref, n_matched, n_discarded, n_frames):
         """Cache the last raw pair for the monitor save buttons."""
+        from datetime import datetime
         self._monitor_widget._last_pump = np.asarray(pumped)
         self._monitor_widget._last_ref = np.asarray(ref)
         self._monitor_widget._last_n_on = n_matched
         self._monitor_widget._last_n_off = n_matched
+        self._monitor_widget._last_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # Cache wavelengths that match the data length
         self._monitor_widget._last_wavelengths = (
             self._live_display._wavelengths
@@ -478,19 +480,28 @@ class TAWindowPanel(QWidget):
     @Slot(str, object, object)
     def _on_single_phase_completed(self, phase: str, wavelengths, avg_spectrum) -> None:
         """Store result of a static single-phase acquisition."""
+        from datetime import datetime
+        ts = datetime.now().strftime("%H:%M:%S")
+
         if phase == "pump":
             self._static_pump_avg = avg_spectrum
+            self._static_pump_time = ts
             self._static_wavelengths = wavelengths
-            log.info(f"Static pump ON collected: mean={avg_spectrum.mean():.1f}")
+            log.info(f"Static pump ON collected at {ts}: mean={avg_spectrum.mean():.1f}")
         else:
             self._static_ref_avg = avg_spectrum
+            self._static_ref_time = ts
             self._static_wavelengths = wavelengths
-            log.info(f"Static pump OFF collected: mean={avg_spectrum.mean():.1f}")
+            log.info(f"Static pump OFF collected at {ts}: mean={avg_spectrum.mean():.1f}")
 
-        # Update status
+        # Update status with timestamps
         pump_done = self._static_pump_avg is not None
         ref_done = self._static_ref_avg is not None
-        self._monitor_widget.update_static_status(pump_done, ref_done)
+        self._monitor_widget.update_static_status(
+            pump_done, ref_done,
+            pump_time=getattr(self, "_static_pump_time", ""),
+            ref_time=getattr(self, "_static_ref_time", ""),
+        )
 
         # Show raw spectrum
         self._live_display.on_raw_pair_updated(

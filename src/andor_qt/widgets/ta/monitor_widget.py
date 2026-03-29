@@ -290,15 +290,16 @@ class TAMonitorWidget(QGroupBox):
         }
         self.static_acquire_requested.emit(config)
 
-    def update_static_status(self, pump_done: bool, ref_done: bool) -> None:
-        """Update the static ON/OFF status label."""
+    def update_static_status(self, pump_done: bool, ref_done: bool,
+                             pump_time: str = "", ref_time: str = "") -> None:
+        """Update the static ON/OFF status label with collection timestamps."""
         parts = []
         if pump_done:
-            parts.append("Pump ON: collected")
+            parts.append(f"Pump ON: collected {pump_time}")
         else:
             parts.append("Pump ON: --")
         if ref_done:
-            parts.append("Pump OFF: collected")
+            parts.append(f"Pump OFF: collected {ref_time}")
         else:
             parts.append("Pump OFF: --")
         self._static_status.setText("  |  ".join(parts))
@@ -456,16 +457,34 @@ class TAMonitorWidget(QGroupBox):
                 return
             filepath = Path(filepath)
 
-        lines = [f"# type={label}", f"# n_on={n_on}", f"# n_off={n_off}"]
+        collected_at = getattr(self, "_last_timestamp", "unknown")
+        lines = [
+            f"# type={label}",
+            f"# collected_at={collected_at}",
+            f"# n_on={n_on}",
+            f"# n_off={n_off}",
+        ]
         if wavelengths is not None and len(wavelengths) == len(data):
+            lines.append("# columns: wavelength_nm\tvalue")
             for wl, d in zip(wavelengths, data):
                 lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
         else:
+            lines.append("# columns: pixel\tvalue")
             for i, d in enumerate(data):
                 lines.append(f"{i}\t{float(d):.8e}")
 
         filepath.write_text("\n".join(lines), encoding="utf-8")
         log.info(f"Saved {label} spectrum to {filepath}")
+
+        # Show confirmation to user
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self, "Spectrum Saved",
+            f"Saved: {filepath.name}\n"
+            f"Directory: {filepath.parent}\n"
+            f"Data collected at: {collected_at}\n"
+            f"Type: {label}  ({len(data)} points)"
+        )
 
     @property
     def camera_settings(self) -> dict:
