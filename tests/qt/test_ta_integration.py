@@ -269,14 +269,18 @@ class TestCameraBusySignal:
     def test_camera_busy_true_on_monitor_start(self, qt_app, mock_hw_manager):
         """camera_busy(True) should be emitted when monitor starts."""
         from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
 
         panel = TAWindowPanel(hw_manager=mock_hw_manager)
         received = []
         panel.camera_busy.connect(lambda v: received.append(v))
 
-        # Simulate monitor request
-        config_dict = {"acq_mode": "boxcar", "n_averages": 1}
-        panel._on_monitor_requested(config_dict)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="monitor",
+        )
+        panel._on_monitor_requested(config)
         panel._monitor_engine.stop()
 
         panel.deleteLater()
@@ -285,6 +289,7 @@ class TestCameraBusySignal:
     def test_camera_busy_false_on_monitor_stop(self, qt_app, mock_hw_manager):
         """camera_busy(False) should be emitted when monitor stops."""
         from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
         from PySide6.QtWidgets import QApplication
         import time
 
@@ -292,8 +297,12 @@ class TestCameraBusySignal:
         received = []
         panel.camera_busy.connect(lambda v: received.append(v))
 
-        config_dict = {"acq_mode": "boxcar", "n_averages": 1}
-        panel._on_monitor_requested(config_dict)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="monitor",
+        )
+        panel._on_monitor_requested(config)
         panel._monitor_engine.stop()
 
         app = QApplication.instance()

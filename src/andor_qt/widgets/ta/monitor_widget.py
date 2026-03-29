@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from andor_qt.ta.scan_config import um_to_ps, ps_to_um
+from andor_qt.ta.scan_config import TAScanConfig, um_to_ps, ps_to_um
 from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
 
 log = logging.getLogger(__name__)
@@ -35,11 +35,12 @@ log = logging.getLogger(__name__)
 class TAMonitorWidget(QGroupBox):
     """Monitor mode widget for optimizing TA signal at a fixed delay.
 
-    Emits ``monitor_requested(dict)`` with config when Start is clicked.
+    Emits ``monitor_requested(TAScanConfig)`` when Start is clicked.
+    Emits ``static_acquire_requested(str, TAScanConfig)`` for static ON/OFF.
     """
 
-    monitor_requested = Signal(object)  # dict with settings
-    static_acquire_requested = Signal(object)  # dict with phase="pump" or "ref"
+    monitor_requested = Signal(object)  # TAScanConfig
+    static_acquire_requested = Signal(str, object)  # (phase, TAScanConfig)
     stop_requested = Signal()
 
     def __init__(self, hw_manager=None, parent=None):
@@ -281,14 +282,15 @@ class TAMonitorWidget(QGroupBox):
             return max(1, int(t * fps / 2))
 
     def _on_static_acquire(self, phase: str) -> None:
-        config = {
-            "n_averages": self._get_n_averages(),
-            "acq_mode": "static_onoff",
-            "phase": phase,  # "pump" or "ref"
-            "external_trigger": self._external_trigger_check.isChecked(),
-            "camera_settings": self._camera_settings.get_settings(),
-        }
-        self.static_acquire_requested.emit(config)
+        config = TAScanConfig(
+            delay_list=[0.0],
+            n_averages=self._get_n_averages(),
+            acquisition_mode="static_onoff",
+            scan_direction="forward",
+            sample_name=f"static_{phase}",
+            external_trigger=self._external_trigger_check.isChecked(),
+        )
+        self.static_acquire_requested.emit(phase, config)
 
     def update_static_status(self, pump_done: bool, ref_done: bool,
                              pump_time: str = "", ref_time: str = "") -> None:
@@ -352,12 +354,21 @@ class TAMonitorWidget(QGroupBox):
         self._update_position()
 
     def _on_start(self) -> None:
-        config = {
-            "n_averages": self._get_n_averages(),
-            "acq_mode": self._acq_combo.currentText(),
-            "external_trigger": self._external_trigger_check.isChecked(),
-            "camera_settings": self._camera_settings.get_settings(),
-        }
+        camera_settings = self._camera_settings.get_settings()
+        crop_height = (
+            camera_settings.get("crop_height", 50)
+            if camera_settings.get("read_area_mode") == "crop"
+            else 50
+        )
+        config = TAScanConfig(
+            delay_list=[0.0],
+            n_averages=self._get_n_averages(),
+            acquisition_mode=self._acq_combo.currentText(),
+            scan_direction="forward",
+            sample_name="monitor",
+            external_trigger=self._external_trigger_check.isChecked(),
+            crop_height=crop_height,
+        )
         self.monitor_requested.emit(config)
 
     def update_position(self) -> None:

@@ -345,7 +345,7 @@ class TAWindowPanel(QWidget):
     # -- Monitor mode ------------------------------------------------------
 
     @Slot(object)
-    def _on_monitor_requested(self, config_dict: dict) -> None:
+    def _on_monitor_requested(self, config: TAScanConfig) -> None:
         """Start monitor mode."""
         if self._monitor_engine.is_running:
             return
@@ -354,24 +354,7 @@ class TAWindowPanel(QWidget):
         if self._trigger_test_running:
             self._toggle_trigger_test()
 
-        acq_mode = config_dict.get("acq_mode", "chopper_2x2")
-        n_averages = config_dict.get("n_averages", 100)
-        external_trigger = config_dict.get("external_trigger", False)
-        camera_settings = config_dict.get("camera_settings", self._monitor_widget.camera_settings)
-
-        # Get crop height from camera settings if in crop mode
-        crop_height = camera_settings.get("crop_height", 50) if camera_settings.get("read_area_mode") == "crop" else 50
-
-        config = TAScanConfig(
-            delay_list=[0.0],
-            n_averages=n_averages,
-            acquisition_mode=acq_mode,
-            scan_direction="forward",
-            sample_name="monitor",
-            external_trigger=external_trigger,
-            crop_height=crop_height,
-        )
-
+        camera_settings = self._monitor_widget.camera_settings
         trigger_gen, phase_reader = _make_daq_hardware(config)
 
         self._live_display.set_monitor_mode(True)
@@ -465,23 +448,12 @@ class TAWindowPanel(QWidget):
         )
 
     @Slot(object)
-    def _on_static_acquire_requested(self, config_dict: dict) -> None:
+    def _on_static_acquire_requested(self, phase: str, config: TAScanConfig) -> None:
         """Handle static single-phase acquisition (pump ON or pump OFF)."""
         if self._monitor_engine.is_running:
             return
 
-        phase = config_dict.get("phase", "pump")
-        n_averages = config_dict.get("n_averages", 75000)
-        camera_settings = config_dict.get("camera_settings", self._monitor_widget.camera_settings)
-
-        config = TAScanConfig(
-            delay_list=[0.0],
-            n_averages=n_averages,
-            acquisition_mode="static_onoff",
-            scan_direction="forward",
-            sample_name=f"static_{phase}",
-            external_trigger=config_dict.get("external_trigger", False),
-        )
+        camera_settings = self._monitor_widget.camera_settings
 
         self._monitor_widget.set_monitor_running(True)
         self._config_widget.set_scan_running(True)
