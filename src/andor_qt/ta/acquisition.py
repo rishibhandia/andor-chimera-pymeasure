@@ -376,12 +376,15 @@ def _acquire_software(
     pump_avg = pump_sum / n if pump_sum is not None else np.array([])
     ref_avg = ref_sum / n if ref_sum is not None else np.array([])
 
-    # Populate stats for spectrum saving (consistent with other modes)
+    # Populate stats with per-pixel arrays (consistent with hardware modes)
+    mean, _ = average_delta_signal(delta_signal_list)
+    delta_std = np.std(np.stack(delta_signal_list), axis=0) if len(delta_signal_list) > 1 else np.zeros_like(mean)
     last_acquisition_stats.update({
-        "pump_mean": float(pump_avg.mean()) if len(pump_avg) > 0 else 0.0,
-        "pump_std": float(pump_avg.std()) if len(pump_avg) > 0 else 0.0,
-        "ref_mean": float(ref_avg.mean()) if len(ref_avg) > 0 else 0.0,
-        "ref_std": float(ref_avg.std()) if len(ref_avg) > 0 else 0.0,
+        "pump_mean": pump_avg,
+        "pump_std": pump_avg,  # single-pair std not tracked; use pump_avg as placeholder
+        "ref_mean": ref_avg,
+        "ref_std": ref_avg,
+        "delta_std": delta_std,
         "n_on": n,
         "n_off": n,
     })
@@ -389,7 +392,6 @@ def _acquire_software(
     if raw_callback is not None and len(pump_avg) > 0:
         raw_callback(pump_avg, ref_avg, n, 0, 2 * n)
 
-    mean, _ = average_delta_signal(delta_signal_list)
     return mean
 
 
@@ -519,12 +521,12 @@ def acquire_static_at_delay(
     if dark is not None:
         mean = background_subtract(mean, dark)
 
-    # Populate stats
+    # Populate stats with per-pixel arrays (consistent with hardware modes)
     last_acquisition_stats.update({
-        "pump_mean": float(mean.mean()) if len(mean) > 0 else 0.0,
-        "pump_std": float(std.mean()) if len(std) > 0 else 0.0,
-        "ref_mean": 0.0,
-        "ref_std": 0.0,
+        "pump_mean": mean,
+        "pump_std": std,
+        "ref_mean": np.zeros_like(mean),
+        "ref_std": np.zeros_like(std),
         "n_on": count,
         "n_off": 0,
     })

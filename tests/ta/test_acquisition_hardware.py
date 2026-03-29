@@ -160,8 +160,8 @@ class TestAcquireSoftwareFallback:
         assert not np.array_equal(captured["pump"], captured["ref"]), \
             "Pump and ref must be different arrays"
 
-    def test_stats_populated(self):
-        """last_acquisition_stats should be filled after boxcar acquisition."""
+    def test_stats_populated_as_arrays(self):
+        """last_acquisition_stats should contain per-pixel arrays."""
         from andor_qt.ta.acquisition import last_acquisition_stats
         n = 5
         hw = make_hw([[1200.0] * n, [1000.0] * n])
@@ -169,8 +169,12 @@ class TestAcquireSoftwareFallback:
         acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
         assert "pump_mean" in last_acquisition_stats
         assert "ref_mean" in last_acquisition_stats
-        assert last_acquisition_stats["pump_mean"] == pytest.approx(1200.0, rel=1e-4)
-        assert last_acquisition_stats["ref_mean"] == pytest.approx(1000.0, rel=1e-4)
+        pump = last_acquisition_stats["pump_mean"]
+        ref = last_acquisition_stats["ref_mean"]
+        assert isinstance(pump, np.ndarray), "pump_mean should be an array"
+        assert len(pump) == n
+        np.testing.assert_allclose(pump, 1200.0, rtol=1e-4)
+        np.testing.assert_allclose(ref, 1000.0, rtol=1e-4)
 
     def test_stats_cleared_before_acquisition(self):
         """Stats from a previous call should not leak into the next."""
@@ -466,12 +470,13 @@ class TestAcquireStaticAtDelay:
         )
         np.testing.assert_allclose(mean, 800.0, rtol=1e-6)
 
-    def test_stats_populated(self):
+    def test_stats_populated_as_arrays(self):
         import threading
         from andor_qt.ta.acquisition import acquire_static_at_delay, last_acquisition_stats
         hw, _ = self._make_hw()
         acquire_static_at_delay(0.0, hw, 50, threading.Event())
         assert "pump_mean" in last_acquisition_stats
+        assert isinstance(last_acquisition_stats["pump_mean"], np.ndarray)
         assert last_acquisition_stats["n_on"] == 50
 
     def test_no_motion_manager_ok(self):
