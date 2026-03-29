@@ -66,6 +66,42 @@ class TestTALiveDisplaySlots:
         QApplication.instance().processEvents()
 
 
+class TestDualAxisRawSpectra:
+    """Raw spectra plot should have a secondary top axis showing pixel indices."""
+
+    def test_raw_plot_has_top_axis(self, widget):
+        """The raw spectra plot should have a visible top axis."""
+        top_axis = widget._raw_plot.getPlotItem().getAxis("top")
+        assert top_axis is not None
+        assert top_axis.isVisible()
+
+    def test_top_axis_label_is_pixel(self, widget):
+        """Top axis should be labelled 'Pixel'."""
+        top_axis = widget._raw_plot.getPlotItem().getAxis("top")
+        assert "Pixel" in top_axis.labelText or "pixel" in top_axis.labelText.lower()
+
+    def test_tick_strings_convert_wavelength_to_pixel(self, widget):
+        """Given wavelengths, tick values should map back to pixel indices."""
+        wavelengths = np.linspace(500.0, 700.0, 100)
+        widget._wavelengths = wavelengths
+
+        top_axis = widget._raw_plot.getPlotItem().getAxis("top")
+        # Ask for tick labels at specific wavelength values
+        test_values = [500.0, 600.0, 700.0]
+        labels = top_axis.tickStrings(test_values, scale=1, spacing=1)
+        # pixel 0 ↔ 500 nm, pixel 50 ↔ 600 nm, pixel 99 ↔ 700 nm
+        assert len(labels) == 3
+        assert "0" in labels[0]
+        assert "50" in labels[1] or "49" in labels[1]
+        assert "99" in labels[2]
+
+    def test_tick_strings_passthrough_without_wavelengths(self, widget):
+        """Without wavelengths set, tick strings should pass values through."""
+        top_axis = widget._raw_plot.getPlotItem().getAxis("top")
+        labels = top_axis.tickStrings([10.0, 20.0], scale=1, spacing=1)
+        assert len(labels) == 2
+
+
 class TestWavelengthSelector:
     def test_selector_range_set_from_first_signal(self, widget):
         wavelengths = np.linspace(500.0, 750.0, 64)

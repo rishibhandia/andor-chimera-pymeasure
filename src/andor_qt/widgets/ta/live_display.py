@@ -43,6 +43,27 @@ class _PsToUmAxis(pg.AxisItem):
         return [f"{um_to_ps(v):.2f}" for v in values]
 
 
+class _WavelengthToPixelAxis(pg.AxisItem):
+    """Top axis that shows pixel indices when the bottom axis is in nm.
+
+    Args:
+        parent_display: The TALiveDisplayWidget whose ``_wavelengths``
+            array provides the nm→pixel mapping.
+        orientation: Axis orientation (always "top" for this use).
+    """
+
+    def __init__(self, parent_display: "TALiveDisplayWidget", orientation: str = "top"):
+        super().__init__(orientation)
+        self._display = parent_display
+
+    def tickStrings(self, values, scale, spacing):
+        wl = self._display._wavelengths
+        if len(wl) < 2:
+            return [f"{v:.0f}" for v in values]
+        pixels = np.arange(len(wl))
+        return [f"{np.interp(v, wl, pixels):.0f}" for v in values]
+
+
 class TALiveDisplayWidget(QGroupBox):
     """Real-time ΔI/I₀ display with spectrum, kinetic, FFT, and heatmap panes."""
 
@@ -67,7 +88,10 @@ class TALiveDisplayWidget(QGroupBox):
         raw_layout.setContentsMargins(0, 0, 0, 0)
         raw_layout.setSpacing(0)
 
-        self._raw_plot = pg.PlotWidget()
+        pixel_top_axis = _WavelengthToPixelAxis(parent_display=self, orientation="top")
+        pixel_top_axis.setLabel("Pixel")
+        self._raw_plot = pg.PlotWidget(axisItems={"top": pixel_top_axis})
+        self._raw_plot.showAxis("top")
         self._raw_plot.setLabel("left", "Counts")
         self._raw_plot.setLabel("bottom", "Wavelength (nm)")
         self._raw_plot.setMinimumHeight(120)
