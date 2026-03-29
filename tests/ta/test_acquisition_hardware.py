@@ -480,6 +480,27 @@ class TestAcquireShotToShot:
         with pytest.raises(RuntimeError, match="shot_to_shot"):
             acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
 
+    def test_frames_with_empty_tags_raises(self):
+        """shot_to_shot: frames exist but 0 aligned tags should raise."""
+        n = 5
+
+        class EmptyTagReader:
+            def start(self): pass
+            def stop(self): pass
+            def drain(self): pass
+            def read_tags(self, k):
+                return np.array([], dtype=np.int8)
+
+        hw = MagicMock()
+        hw.motion_manager = None
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        hw.camera.get_buffered_frames.return_value = (np.ones((10, n)), 10)
+        hw.camera.abort_acquisition.return_value = None
+        cfg = make_config_s2s(n_averages=1)
+        with pytest.raises(RuntimeError, match="shot_to_shot"):
+            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=EmptyTagReader())
+
 
 # ---------------------------------------------------------------------------
 # TAScanConfig — chopper_2x2 NI DAQ fields

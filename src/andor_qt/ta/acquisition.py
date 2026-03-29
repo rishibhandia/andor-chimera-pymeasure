@@ -275,6 +275,9 @@ def _acquire_shot_to_shot(
         if len(tags) == 0:
             # Fallback: blocking read for exactly n_read tags
             tags = phase_reader.read_tags(n_read)
+        if len(tags) == 0:
+            # No tags available from any source — abort to prevent infinite loop
+            break
 
         # Align frame and tag counts
         n_use = min(n_read, len(tags))
