@@ -551,6 +551,14 @@ class _ScanWorker(QObject):
         except Exception as exc:
             log.exception("Static scan error")
             self.error.emit(str(exc))
+        finally:
+            # Restore internal trigger so the camera is usable after scan
+            _set_trigger = getattr(camera, "set_trigger_mode", None)
+            if callable(_set_trigger):
+                try:
+                    _set_trigger("internal")
+                except Exception:
+                    pass
 
     def _static_average_at_position(self, camera, n_target, max_chunk, label):
         """Acquire n_target frames at current position, return (mean, std, count)."""

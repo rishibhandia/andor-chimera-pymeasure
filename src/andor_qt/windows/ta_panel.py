@@ -498,7 +498,7 @@ class TAWindowPanel(QWidget):
             pump_avg, ref_avg, 1, 0, 2
         )
 
-    @Slot(object)
+    @Slot(str, object)
     def _on_static_acquire_requested(self, phase: str, config: TAScanConfig) -> None:
         """Handle static single-phase acquisition (pump ON or pump OFF)."""
         if self._monitor_engine.is_running:
@@ -508,6 +508,7 @@ class TAWindowPanel(QWidget):
 
         self._monitor_widget.set_monitor_running(True)
         self._config_widget.set_scan_running(True)
+        self.camera_busy.emit(True)
         self._status_label.setText(f"Static: acquiring {phase}...")
 
         self._monitor_engine.start_monitor(
