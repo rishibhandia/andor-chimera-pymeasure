@@ -72,3 +72,25 @@ class TestAcquireLongAverage:
         abort = threading.Event()
         _, std, _ = acquire_long_average(camera, 100, abort)
         assert np.all(std >= 0)
+
+    def test_multi_chunk_accumulation(self):
+        """When n_target > buffer, multiple chunks should accumulate correctly."""
+        camera = MagicMock()
+        # Small buffer forces multiple chunks
+        camera.get_circular_buffer_size.return_value = 100
+        call_count = [0]
+
+        def _get_frames():
+            call_count[0] += 1
+            frames = np.ones((50, 10)) * 1000.0  # 50 frames of 10 pixels
+            return frames, 50
+
+        camera.get_buffered_frames.side_effect = _get_frames
+        camera.start_run_till_abort.return_value = None
+        camera.abort_acquisition.return_value = None
+
+        abort = threading.Event()
+        mean, std, count = acquire_long_average(camera, 150, abort)
+        assert count == 150
+        assert call_count[0] >= 2  # must have done at least 2 chunks
+        np.testing.assert_allclose(mean, 1000.0, rtol=1e-6)

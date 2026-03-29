@@ -192,3 +192,44 @@ class TestExportCSV:
             header = next(reader)
         # delay_ps + n_wavelengths columns
         assert len(header) == 1 + n_wl
+
+    def test_csv_empty_scans(self, tmp_path):
+        """HDF5 with wavelengths but no scans should produce header-only CSV."""
+        import h5py
+        h5_path = tmp_path / "empty.h5"
+        with h5py.File(h5_path, "w") as f:
+            f.create_dataset("wavelengths", data=np.linspace(400, 800, 5))
+        csv_path = tmp_path / "out.csv"
+        export_csv(h5_path, csv_path)
+        with open(csv_path) as f:
+            lines = f.readlines()
+        assert len(lines) == 1  # header only
+
+
+class TestHDF5WriterEdgeCases:
+    def test_begin_scan_auto_opens(self, tmp_path):
+        """begin_scan should auto-open the file if not already opened."""
+        path = tmp_path / "auto_open.h5"
+        wavelengths = np.linspace(400, 800, 5)
+        writer = TADataWriter(path, wavelengths=wavelengths, sample_name="test")
+        # Do NOT call writer.open() — begin_scan should handle it
+        writer.begin_scan(0)
+        writer.write_point(0, 1.0, np.ones(5))
+        writer.finalize()
+        import h5py
+        with h5py.File(path, "r") as f:
+            assert "scan_000" in f
+
+    def test_write_point_overwrites_stage_positions(self, tmp_path):
+        """Multiple write_point calls should overwrite stage_positions_um."""
+        path = tmp_path / "overwrite.h5"
+        wavelengths = np.linspace(400, 800, 5)
+        with TADataWriter(path, wavelengths=wavelengths, sample_name="test") as writer:
+            writer.begin_scan(0)
+            writer.write_point(0, 1.0, np.ones(5), stage_position_um=100.0)
+            writer.write_point(0, 2.0, np.ones(5), stage_position_um=200.0)
+        import h5py
+        with h5py.File(path, "r") as f:
+            positions = f["scan_000/stage_positions_um"][:]
+            assert len(positions) == 2
+            np.testing.assert_allclose(positions, [100.0, 200.0])

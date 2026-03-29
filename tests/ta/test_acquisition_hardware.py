@@ -200,6 +200,22 @@ class TestAcquireSoftwareFallback:
         assert isinstance(result, np.ndarray)
         assert len(result) == n
 
+    def test_camera_settings_applied(self):
+        """camera_settings dict should be passed to apply_camera_settings."""
+        n = 5
+        hw = MagicMock()
+        hw.motion_manager = None
+        hw.camera.get_spectrum.side_effect = [
+            np.ones(n) * 1200.0,
+            np.ones(n) * 1000.0,
+        ]
+        settings = {"trigger_mode": "internal", "exposure_time": 0.01}
+        cfg = make_config(n_averages=1)
+        acquire_delta_signal_at_delay(
+            0.0, hw, cfg, phase_reader=None, camera_settings=settings,
+        )
+        hw.camera.apply_camera_settings.assert_called_once_with(settings)
+
 
 # ---------------------------------------------------------------------------
 # chopper_2x2 acquisition
@@ -327,6 +343,19 @@ class TestAcquireChopper2x2:
         assert captured.get("called"), "raw_callback was not invoked"
         assert captured["n_matched"] >= 1
 
+    def test_zero_frames_raises(self):
+        """chopper_2x2: camera returning 0 frames should raise RuntimeError."""
+        n = 5
+        hw = MagicMock()
+        hw.motion_manager = None
+        hw.camera.start_run_till_abort.return_value = None
+        hw.camera.get_buffered_frames.return_value = (np.array([]), 0)
+        hw.camera.abort_acquisition.return_value = None
+        cfg = make_config_2x2(n_averages=1)
+        reader = MockNIDAQChopper2x2Reader()
+        with pytest.raises(RuntimeError, match="chopper_2x2"):
+            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+
     def test_shot_to_shot_raw_callback_called(self):
         """shot_to_shot should also call raw_callback."""
         n = 5
@@ -436,6 +465,20 @@ class TestAcquireShotToShot:
         result = acquire_delta_signal_at_delay(0.0, hw, cfg, dark=dark, phase_reader=reader)
         expected = (on_val - dark_val - (off_val - dark_val)) / (off_val - dark_val)
         np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_zero_frames_raises(self):
+        """shot_to_shot: camera returning 0 frames should raise RuntimeError."""
+        n = 5
+        hw = MagicMock()
+        hw.motion_manager = None
+        hw.camera.start_run_till_abort_crop.return_value = None
+        hw.camera._current_hbin = 1
+        hw.camera.get_buffered_frames.return_value = (np.array([]), 0)
+        hw.camera.abort_acquisition.return_value = None
+        cfg = make_config_s2s(n_averages=1)
+        reader = MockNIDAQPhaseReader()
+        with pytest.raises(RuntimeError, match="shot_to_shot"):
+            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
 
 
 # ---------------------------------------------------------------------------

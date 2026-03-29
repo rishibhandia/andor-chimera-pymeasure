@@ -336,6 +336,21 @@ class TestLinearDelaysUm:
         assert len(result) == 1
         assert result[0] == pytest.approx(um_to_ps(5.0))
 
+    def test_overshoot_trimmed_forward(self):
+        """Forward scan where last computed position exceeds end_um."""
+        from andor_qt.ta.scan_config import linear_delays_um
+        # 0, 3, 6, 9 — 12 would overshoot 10, so should be trimmed and 10 appended
+        result = linear_delays_um(0.0, 10.0, 3.0)
+        from andor_qt.ta.scan_config import um_to_ps
+        assert result[-1] == pytest.approx(um_to_ps(10.0), rel=1e-6)
+
+    def test_overshoot_trimmed_reverse(self):
+        """Reverse scan where last computed position undershoots end_um."""
+        from andor_qt.ta.scan_config import linear_delays_um
+        result = linear_delays_um(10.0, 0.0, 3.0)
+        from andor_qt.ta.scan_config import um_to_ps
+        assert result[-1] == pytest.approx(um_to_ps(0.0), rel=1e-6)
+
     def test_step_must_be_positive(self):
         from andor_qt.ta.scan_config import linear_delays_um
         with pytest.raises(ValueError, match="positive"):
@@ -392,6 +407,16 @@ class TestParseManualUm:
         text = "-57000\n-56000\n-55000"
         result = parse_manual_um(text)
         assert len(result) == 3
+
+    def test_invalid_range_args_raises(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        with pytest.raises(ValueError, match="Invalid range"):
+            parse_manual_um("range(1)")
+
+    def test_invalid_range_four_args_raises(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        with pytest.raises(ValueError, match="Invalid range"):
+            parse_manual_um("range(1, 2, 3, 4)")
 
 
 # ---------------------------------------------------------------------------
