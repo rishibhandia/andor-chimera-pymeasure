@@ -168,13 +168,16 @@ class _MonitorWorker(QObject):
             self.status_updated.emit("Phase 1: Acquiring pump+probe (pump ON)...")
             log.info(f"Static ON/OFF phase 1: {config.n_averages} frames")
 
-            pump_avg = self._acquire_long_average(
-                hw, config, "Phase 1 (pump ON)"
+            pump_avg, _pump_std, _pump_n = self._acquire_long_average(
+                hw, config, "Phase 1 (pump ON)", slot="pump",
             )
 
             if self._abort.is_set():
                 self.stopped.emit()
                 return
+
+            # Emit pump result so raw display shows it on the ON curve
+            self.raw_pair_updated.emit(pump_avg, pump_avg, _pump_n, 0, _pump_n)
 
             # --- Prompt user to block pump ---
             self.status_updated.emit("Block the pump beam, then click Continue")
@@ -196,8 +199,9 @@ class _MonitorWorker(QObject):
             self.status_updated.emit("Phase 2: Acquiring probe only (pump OFF)...")
             log.info(f"Static ON/OFF phase 2: {config.n_averages} frames")
 
-            ref_avg = self._acquire_long_average(
-                hw, config, "Phase 2 (pump OFF)"
+            ref_avg, _ref_std, _ref_n = self._acquire_long_average(
+                hw, config, "Phase 2 (pump OFF)",
+                other_slot=pump_avg, slot="ref",
             )
 
             if self._abort.is_set():
@@ -230,7 +234,9 @@ class _MonitorWorker(QObject):
         label = "Pump ON" if phase == "pump" else "Pump OFF"
         try:
             self.status_updated.emit(f"Acquiring {label}...")
-            avg, std, n = self._acquire_long_average(hw, config, label)
+            avg, std, n = self._acquire_long_average(
+                hw, config, label, slot="pump" if phase == "pump" else "ref",
+            )
             self.single_phase_completed.emit(phase, self._wavelengths, avg)
             self.status_updated.emit(
                 f"{label} complete — {n} frames, "
@@ -244,12 +250,31 @@ class _MonitorWorker(QObject):
 
     def _acquire_long_average(
         self, hw: object, config: TAScanConfig, phase_label: str,
+        other_slot: Optional[np.ndarray] = None,
+        slot: str = "pump",
     ) -> tuple[np.ndarray, np.ndarray, int]:
-        """Acquire many frames and return mean, std, and count."""
+        """Acquire many frames and return mean, std, and count.
+
+        Args:
+            hw: Hardware manager.
+            config: Scan config (uses n_averages).
+            phase_label: Human-readable label for status updates.
+            other_slot: Cached spectrum for the other raw display curve.
+                When acquiring pump, pass the previously cached ref (or None).
+            slot: ``"pump"`` or ``"ref"`` — which raw curve to update live.
+        """
         from andor_qt.ta.acquisition import acquire_long_average
 
+        _other = other_slot if other_slot is not None else np.array([])
+
         def _progress(running_mean, collected, n_target):
-            self.raw_pair_updated.emit(running_mean, running_mean, collected, 0, collected)
+            if slot == "pump":
+                pump = running_mean
+                ref = _other if len(_other) == len(running_mean) else running_mean
+            else:
+                pump = _other if len(_other) == len(running_mean) else running_mean
+                ref = running_mean
+            self.raw_pair_updated.emit(pump, ref, collected, 0, collected)
             pct = 100.0 * collected / n_target
             self.status_updated.emit(
                 f"{phase_label}: {collected}/{n_target} frames ({pct:.0f}%)"

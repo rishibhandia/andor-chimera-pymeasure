@@ -542,10 +542,10 @@ class TAWindowPanel(QWidget):
             ref_time=getattr(self, "_static_ref_time", ""),
         )
 
-        # Show raw spectrum
-        self._live_display.on_raw_pair_updated(
-            avg_spectrum, avg_spectrum, 1, 0, 2
-        )
+        # Show raw spectra — use cached pump/ref so both curves display correctly
+        pump = self._static_pump_avg if self._static_pump_avg is not None else avg_spectrum
+        ref = self._static_ref_avg if self._static_ref_avg is not None else avg_spectrum
+        self._live_display.on_raw_pair_updated(pump, ref, 1, 0, 2)
 
         # If both phases collected, compute ΔOD
         if pump_done and ref_done:
