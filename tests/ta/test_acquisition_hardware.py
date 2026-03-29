@@ -96,10 +96,101 @@ class TestTAScanConfigNIDAQFields:
 
 
 class TestAcquireSoftwareFallback:
+    """Tests for boxcar (software alternation) acquisition mode."""
+
     def test_no_phase_reader_uses_software_mode(self):
         """Passing phase_reader=None uses software alternation (boxcar)."""
         n = 8
         hw = make_hw([[1000.0] * n, [1000.0] * n])
+        cfg = make_config(n_averages=1)
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
+        assert isinstance(result, np.ndarray)
+        assert len(result) == n
+
+    def test_correct_delta_signal(self):
+        """Boxcar ΔI/I₀ should equal (pump - ref) / ref."""
+        n = 5
+        on_val, off_val = 1200.0, 1000.0
+        hw = make_hw([[on_val] * n, [off_val] * n])
+        cfg = make_config(n_averages=1)
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
+        expected = (on_val - off_val) / off_val
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_multiple_averages(self):
+        """Multiple pairs should be averaged."""
+        n = 4
+        shots = []
+        for _ in range(3):
+            shots.append([1200.0] * n)  # pump
+            shots.append([1000.0] * n)  # ref
+        hw = make_hw(shots)
+        cfg = make_config(n_averages=3)
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
+        expected = (1200.0 - 1000.0) / 1000.0
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_dark_subtraction_applied(self):
+        """Dark frame should be subtracted from both pump and ref."""
+        n = 5
+        on_val, off_val, dark_val = 1200.0, 1000.0, 100.0
+        hw = make_hw([[on_val] * n, [off_val] * n])
+        cfg = make_config(n_averages=1)
+        dark = np.ones(n) * dark_val
+        result = acquire_delta_signal_at_delay(0.0, hw, cfg, dark=dark, phase_reader=None)
+        expected = ((on_val - dark_val) - (off_val - dark_val)) / (off_val - dark_val)
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_raw_callback_called_with_separate_pump_ref(self):
+        """raw_callback must receive distinct pump and ref averages."""
+        n = 5
+        on_val, off_val = 1200.0, 1000.0
+        hw = make_hw([[on_val] * n, [off_val] * n])
+        cfg = make_config(n_averages=1)
+        captured = {}
+
+        def _cb(pump, ref, n_matched, n_discarded, n_frames):
+            captured["pump"] = pump.copy()
+            captured["ref"] = ref.copy()
+
+        acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None, raw_callback=_cb)
+        assert "pump" in captured, "raw_callback was not called"
+        np.testing.assert_allclose(captured["pump"], on_val, rtol=1e-6)
+        np.testing.assert_allclose(captured["ref"], off_val, rtol=1e-6)
+        assert not np.array_equal(captured["pump"], captured["ref"]), \
+            "Pump and ref must be different arrays"
+
+    def test_stats_populated(self):
+        """last_acquisition_stats should be filled after boxcar acquisition."""
+        from andor_qt.ta.acquisition import last_acquisition_stats
+        n = 5
+        hw = make_hw([[1200.0] * n, [1000.0] * n])
+        cfg = make_config(n_averages=1)
+        acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
+        assert "pump_mean" in last_acquisition_stats
+        assert "ref_mean" in last_acquisition_stats
+        assert last_acquisition_stats["pump_mean"] == pytest.approx(1200.0, rel=1e-4)
+        assert last_acquisition_stats["ref_mean"] == pytest.approx(1000.0, rel=1e-4)
+
+    def test_stats_cleared_before_acquisition(self):
+        """Stats from a previous call should not leak into the next."""
+        from andor_qt.ta.acquisition import last_acquisition_stats
+        last_acquisition_stats["stale_key"] = "should_be_gone"
+        n = 5
+        hw = make_hw([[1000.0] * n, [1000.0] * n])
+        cfg = make_config(n_averages=1)
+        acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
+        assert "stale_key" not in last_acquisition_stats
+
+    def test_no_motion_manager_does_not_crash(self):
+        """Should work without a motion controller."""
+        n = 5
+        hw = MagicMock()
+        hw.motion_manager = None
+        hw.camera.get_spectrum.side_effect = [
+            np.ones(n) * 1200.0,
+            np.ones(n) * 1000.0,
+        ]
         cfg = make_config(n_averages=1)
         result = acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=None)
         assert isinstance(result, np.ndarray)
