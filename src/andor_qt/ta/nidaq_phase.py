@@ -205,8 +205,21 @@ class MockNIDAQPhaseReader:
         return np.array([self.read_one() for _ in range(n)], dtype=np.int8)
 
     def read_available_tags(self) -> np.ndarray:
-        """Non-blocking read — returns empty for mock."""
+        """Non-blocking read — mock returns pending tags from the buffer.
+
+        In real hardware, this returns however many tags the NI DAQ has
+        buffered since the last read. The mock simulates this by returning
+        ``_pending`` tags (set by ``set_pending()``), defaulting to 0.
+        """
+        n = getattr(self, "_pending_count", 0)
+        if n > 0:
+            self._pending_count = 0
+            return self.read_tags(n)
         return np.array([], dtype=np.int8)
+
+    def set_pending(self, n: int) -> None:
+        """Set the number of tags that ``read_available_tags`` will return."""
+        self._pending_count = n
 
     def __enter__(self) -> "MockNIDAQPhaseReader":
         self.start()

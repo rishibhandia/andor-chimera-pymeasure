@@ -271,9 +271,9 @@ def _acquire_shot_to_shot(
 
         # Read available tags — may be slightly more or fewer than n_read
         read_avail = getattr(phase_reader, "read_available_tags", None)
-        if callable(read_avail):
-            tags = read_avail()
-        else:
+        tags = read_avail() if callable(read_avail) else np.array([], dtype=np.int8)
+        if len(tags) == 0:
+            # Fallback: blocking read for exactly n_read tags
             tags = phase_reader.read_tags(n_read)
 
         # Align frame and tag counts
