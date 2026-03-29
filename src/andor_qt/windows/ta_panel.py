@@ -374,6 +374,7 @@ class TAWindowPanel(QWidget):
 
         trigger_gen, phase_reader = _make_daq_hardware(config)
 
+        self._live_display.set_monitor_mode(True)
         self._live_display.clear()
         self._monitor_widget.set_monitor_running(True)
         self._config_widget.set_scan_running(True)  # lock out scan
@@ -428,6 +429,7 @@ class TAWindowPanel(QWidget):
         """Handle monitor engine stopped."""
         self._monitor_widget.set_monitor_running(False)
         self._config_widget.set_scan_running(False)
+        self._live_display.set_monitor_mode(False)
         self.camera_busy.emit(False)
         self._status_label.setText("Monitor stopped")
 
@@ -436,6 +438,7 @@ class TAWindowPanel(QWidget):
         """Handle monitor engine error."""
         self._monitor_widget.set_monitor_running(False)
         self._config_widget.set_scan_running(False)
+        self._live_display.set_monitor_mode(False)
         self.camera_busy.emit(False)
         self._status_label.setText(f"Monitor error: {msg}")
         log.error(f"Monitor error: {msg}")

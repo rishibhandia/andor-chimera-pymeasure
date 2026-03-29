@@ -72,6 +72,8 @@ class TALiveDisplayWidget(QGroupBox):
         self._kinetic_delays: list = []
         self._kinetic_signals: list = []
         self._wavelengths: np.ndarray = np.array([])
+        self._monitor_mode: bool = False
+        self._monitor_cycle: int = 0
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -208,6 +210,23 @@ class TALiveDisplayWidget(QGroupBox):
     def probe_wavelength(self, value: float) -> None:
         self._probe_wl_spin.setValue(value)
 
+    def set_monitor_mode(self, enabled: bool) -> None:
+        """Switch kinetic trace between delay mode and monitor (cycle #) mode.
+
+        Args:
+            enabled: True to show signal vs cycle number, False for delay.
+        """
+        self._monitor_mode = enabled
+        self._monitor_cycle = 0
+        kinetic_pi = self._kinetic_plot.getPlotItem()
+        top_axis = kinetic_pi.getAxis("top")
+        if enabled:
+            self._kinetic_plot.setLabel("bottom", "Cycle #")
+            top_axis.hide()
+        else:
+            self._kinetic_plot.setLabel("bottom", "Position (\u00b5m)")
+            top_axis.show()
+
     # -- slots -------------------------------------------------------------
 
     @Slot(object, object, int, int, int)
@@ -259,7 +278,11 @@ class TALiveDisplayWidget(QGroupBox):
             self._probe_wl_spin.setRange(float(wl[0]), float(wl[-1]))
             self._probe_wl_spin.setValue(float(wl[len(wl) // 2]))
 
-        self._kinetic_delays.append(delay_ps)
+        if self._monitor_mode:
+            self._monitor_cycle += 1
+            self._kinetic_delays.append(float(self._monitor_cycle))
+        else:
+            self._kinetic_delays.append(delay_ps)
         self._kinetic_signals.append(sig)
         self._update_kinetic_curve()
 
@@ -305,6 +328,16 @@ class TALiveDisplayWidget(QGroupBox):
             idx = 0
 
         kinetic = np.array([s[idx] for s in self._kinetic_signals if len(s) > idx])
+
+        if self._monitor_mode:
+            # Monitor mode: x = cycle number, no unit conversion
+            x_vals = np.array(self._kinetic_delays[:len(kinetic)])
+            self._kinetic_curve.setData(x_vals, kinetic)
+            self._kinetic_plot.setTitle(
+                f"Signal Stability  (\u03bb = {probe_nm:.1f} nm)"
+            )
+            return
+
         delays_ps = np.array(self._kinetic_delays[:len(kinetic)])
         positions_um = np.array([ps_to_um(d) for d in delays_ps])
         self._kinetic_curve.setData(positions_um, kinetic)
@@ -334,6 +367,7 @@ class TALiveDisplayWidget(QGroupBox):
         """Reset all plots and kinetic buffers to empty state."""
         self._kinetic_delays.clear()
         self._kinetic_signals.clear()
+        self._monitor_cycle = 0
         self._wavelengths = np.array([])
         self._raw_curve_on.setData([], [])
         self._raw_curve_off.setData([], [])

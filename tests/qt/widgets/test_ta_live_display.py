@@ -102,6 +102,74 @@ class TestDualAxisRawSpectra:
         assert len(labels) == 2
 
 
+class TestMonitorModeKinetic:
+    """In monitor mode, kinetic trace should show signal vs cycle number."""
+
+    def test_set_monitor_mode_exists(self, widget):
+        assert hasattr(widget, "set_monitor_mode")
+
+    def test_monitor_mode_changes_axis_label(self, widget):
+        """Kinetic plot x-axis should say 'Cycle #' in monitor mode."""
+        widget.set_monitor_mode(True)
+        QApplication.instance().processEvents()
+        bottom = widget._kinetic_plot.getPlotItem().getAxis("bottom")
+        assert "Cycle" in bottom.labelText
+
+    def test_monitor_mode_hides_ps_top_axis(self, widget):
+        """ps top axis should be hidden in monitor mode (cycle # has no ps)."""
+        widget.set_monitor_mode(True)
+        QApplication.instance().processEvents()
+        top = widget._kinetic_plot.getPlotItem().getAxis("top")
+        assert not top.isVisible()
+
+    def test_exit_monitor_mode_restores_axis(self, widget):
+        """Exiting monitor mode should restore µm axis label and show ps axis."""
+        widget.set_monitor_mode(True)
+        widget.set_monitor_mode(False)
+        QApplication.instance().processEvents()
+        bottom = widget._kinetic_plot.getPlotItem().getAxis("bottom")
+        assert "m" in bottom.labelText.lower()  # µm
+        top = widget._kinetic_plot.getPlotItem().getAxis("top")
+        assert top.isVisible()
+
+    def test_monitor_kinetic_accumulates_by_cycle(self, widget):
+        """In monitor mode, kinetic trace x-values should be cycle numbers."""
+        widget.set_monitor_mode(True)
+        wavelengths = np.linspace(500.0, 700.0, 32)
+        for i in range(5):
+            # delay_ps is ignored in monitor mode; cycle count is used instead
+            widget.on_signal_updated(0.0, wavelengths, np.ones(32) * i * 0.001)
+        QApplication.instance().processEvents()
+
+        x, y = widget._kinetic_curve.getData()
+        assert len(x) == 5
+        # x should be [1, 2, 3, 4, 5] (cycle numbers)
+        np.testing.assert_array_equal(x, [1, 2, 3, 4, 5])
+
+    def test_monitor_mode_skips_fft(self, widget):
+        """FFT is not meaningful for cycle data; curve should remain empty."""
+        widget.set_monitor_mode(True)
+        wavelengths = np.linspace(500.0, 700.0, 32)
+        for i in range(10):
+            widget.on_signal_updated(0.0, wavelengths, np.ones(32) * i * 0.001)
+        QApplication.instance().processEvents()
+        x, _ = widget._fft_curve.getData()
+        assert x is None or len(x) == 0
+
+    def test_clear_resets_monitor_cycle_count(self, widget):
+        """Clearing in monitor mode should reset cycle counter."""
+        widget.set_monitor_mode(True)
+        wavelengths = np.linspace(500.0, 700.0, 32)
+        widget.on_signal_updated(0.0, wavelengths, np.ones(32) * 0.001)
+        widget.on_signal_updated(0.0, wavelengths, np.ones(32) * 0.002)
+        widget.clear()
+        widget.on_signal_updated(0.0, wavelengths, np.ones(32) * 0.003)
+        QApplication.instance().processEvents()
+        x, _ = widget._kinetic_curve.getData()
+        assert len(x) == 1
+        assert x[0] == 1  # reset to 1
+
+
 class TestWavelengthSelector:
     def test_selector_range_set_from_first_signal(self, widget):
         wavelengths = np.linspace(500.0, 750.0, 64)
