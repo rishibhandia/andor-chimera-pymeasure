@@ -40,7 +40,7 @@ from PySide6.QtCore import QObject, Signal
 
 from andor_qt.ta.engine_base import _EngineBase
 
-from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
+from andor_qt.ta.acquisition import acquire_delta_signal_at_delay, acquire_static_at_delay
 from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS
 
 log = logging.getLogger(__name__)
@@ -379,8 +379,6 @@ class _ScanWorker(QObject):
         ordered = config.ordered_delays(0)
         n_pts = len(ordered)
         camera = hw.camera
-        buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
-        max_chunk = max(1000, int(buf_size * 0.8))
 
         try:
             # --- Pass 1: Pump ON ---
@@ -410,18 +408,15 @@ class _ScanWorker(QObject):
                     axis.position_ps = delay_ps
 
                 try:
-                    avg, std, n = self._static_average_at_position(
-                        camera, config.n_averages, max_chunk,
-                        f"Pass 1 pt {pt_idx+1}/{n_pts}"
+                    avg, std, n = acquire_static_at_delay(
+                        delay_ps, hw, config.n_averages, self._abort_event,
+                        dark=self._dark, camera_settings=self._camera_settings,
                     )
                 except Exception as exc:
                     log.warning(f"Pass 1 pt {pt_idx+1} failed: {exc} — skipping")
                     self.point_completed.emit(0, delay_ps)
                     continue
 
-                if self._dark is not None:
-                    from andor_qt.ta.delta_signal import background_subtract
-                    avg = background_subtract(avg, self._dark)
                 pump_spectra[delay_ps] = (avg, std, n)
 
                 self.status_updated.emit(
@@ -494,18 +489,14 @@ class _ScanWorker(QObject):
                     continue
 
                 try:
-                    ref_avg, ref_std, ref_n = self._static_average_at_position(
-                        camera, config.n_averages, max_chunk,
-                        f"Pass 2 pt {pt_idx+1}/{n_pts}"
+                    ref_avg, ref_std, ref_n = acquire_static_at_delay(
+                        delay_ps, hw, config.n_averages, self._abort_event,
+                        dark=self._dark, camera_settings=self._camera_settings,
                     )
                 except Exception as exc:
                     log.warning(f"Pass 2 pt {pt_idx+1} failed: {exc} — skipping")
                     self.point_completed.emit(1, delay_ps)
                     continue
-
-                if self._dark is not None:
-                    from andor_qt.ta.delta_signal import background_subtract
-                    ref_avg = background_subtract(ref_avg, self._dark)
                 pump_avg, pump_std, pump_n = pump_spectra[delay_ps]
                 ref_safe = np.where(ref_avg == 0, 1.0, ref_avg)
                 delta_od = -np.log10(pump_avg / ref_safe)
@@ -565,12 +556,6 @@ class _ScanWorker(QObject):
                     _set_trigger("internal")
                 except Exception:
                     pass
-
-    def _static_average_at_position(self, camera, n_target, max_chunk, label):
-        """Acquire n_target frames at current position, return (mean, std, count)."""
-        from andor_qt.ta.acquisition import acquire_long_average
-        return acquire_long_average(camera, n_target, self._abort_event)
-
 
 class TransientAbsorptionEngine(_EngineBase):
     """High-level engine for TA pump-probe scanning.
