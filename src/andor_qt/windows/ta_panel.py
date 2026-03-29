@@ -349,6 +349,15 @@ class TAWindowPanel(QWidget):
 
     # -- Monitor mode ------------------------------------------------------
 
+    def _pre_set_wavelengths(self, camera_settings: dict) -> None:
+        """Pre-set wavelengths on live display so raw spectra save with nm axis."""
+        hbin = camera_settings.get("hbin", 1)
+        if isinstance(hbin, str):
+            hbin = int(hbin.replace("x", ""))
+        get_wl = getattr(self._hw_manager, "get_wavelengths", None)
+        if callable(get_wl):
+            self._live_display._wavelengths = np.asarray(get_wl(hbin=hbin))
+
     @Slot(object)
     def _on_monitor_requested(self, config: TAScanConfig) -> None:
         """Start monitor mode."""
@@ -368,12 +377,7 @@ class TAWindowPanel(QWidget):
         self._config_widget.set_scan_running(True)  # lock out scan
         self.camera_busy.emit(True)
         self._status_label.setText("Monitor starting...")
-
-        # Pre-set wavelengths on live display so raw spectra use wavelength axis
-        hbin = camera_settings.get("hbin", 1)
-        get_wl = getattr(self._hw_manager, "get_wavelengths", None)
-        if callable(get_wl):
-            self._live_display._wavelengths = np.asarray(get_wl(hbin=hbin))
+        self._pre_set_wavelengths(camera_settings)
 
         self._monitor_engine.start_monitor(
             config, self._hw_manager,
@@ -461,6 +465,7 @@ class TAWindowPanel(QWidget):
         self._config_widget.set_scan_running(True)
         self.camera_busy.emit(True)
         self._status_label.setText("Acquiring dark frame...")
+        self._pre_set_wavelengths(camera_settings)
 
         # Use single cycle — the cycle_completed callback stores the result
         self._dark_acquiring = True
@@ -510,6 +515,7 @@ class TAWindowPanel(QWidget):
         self._config_widget.set_scan_running(True)
         self.camera_busy.emit(True)
         self._status_label.setText(f"Static: acquiring {phase}...")
+        self._pre_set_wavelengths(camera_settings)
 
         self._monitor_engine.start_monitor(
             config, self._hw_manager,

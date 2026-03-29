@@ -489,6 +489,8 @@ class TAMonitorWidget(QGroupBox):
 
         # Use cached wavelengths (matched to data length at acquisition time)
         wavelengths = getattr(self, "_last_wavelengths", None)
+        if wavelengths is None or len(wavelengths) != len(data):
+            log.warning("Wavelength calibration missing or mismatched — saving as pixel indices")
 
         # Determine save path with auto-increment
         save_dir = self._save_dir_edit.text().strip()
