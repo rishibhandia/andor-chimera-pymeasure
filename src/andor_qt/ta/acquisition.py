@@ -85,7 +85,7 @@ def acquire_delta_signal_at_delay(
         return _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
     if config.acquisition_mode == "chopper_2x2" and phase_reader is not None:
         return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
-    return _acquire_software(hw_manager, config, dark)
+    return _acquire_software(hw_manager, config, dark, raw_callback=raw_callback)
 
 
 # ---------------------------------------------------------------------------
@@ -344,11 +344,14 @@ def _acquire_software(
     hw_manager: Any,
     config: TAScanConfig,
     dark: Optional[np.ndarray],
+    raw_callback: Optional[Callable[[np.ndarray, np.ndarray, int, int, int], None]] = None,
 ) -> np.ndarray:
     """Acquire using software alternation (first shot = pump-on)."""
     delta_signal_list = []
+    pump_sum = None
+    ref_sum = None
 
-    for _ in range(config.n_averages):
+    for i in range(config.n_averages):
         pumped = np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
         ref = np.asarray(hw_manager.camera.get_spectrum(), dtype=float)
 
@@ -356,7 +359,32 @@ def _acquire_software(
             pumped = background_subtract(pumped, dark)
             ref = background_subtract(ref, dark)
 
+        # Accumulate running averages for raw callback and stats
+        if pump_sum is None:
+            pump_sum = pumped.copy()
+            ref_sum = ref.copy()
+        else:
+            pump_sum += pumped
+            ref_sum += ref
+
         delta_signal_list.append(compute_delta_signal(pumped, ref))
+
+    n = config.n_averages
+    pump_avg = pump_sum / n if pump_sum is not None else np.array([])
+    ref_avg = ref_sum / n if ref_sum is not None else np.array([])
+
+    # Populate stats for spectrum saving (consistent with other modes)
+    last_acquisition_stats.update({
+        "pump_mean": float(pump_avg.mean()) if len(pump_avg) > 0 else 0.0,
+        "pump_std": float(pump_avg.std()) if len(pump_avg) > 0 else 0.0,
+        "ref_mean": float(ref_avg.mean()) if len(ref_avg) > 0 else 0.0,
+        "ref_std": float(ref_avg.std()) if len(ref_avg) > 0 else 0.0,
+        "n_on": n,
+        "n_off": n,
+    })
+
+    if raw_callback is not None and len(pump_avg) > 0:
+        raw_callback(pump_avg, ref_avg, n, 0, 2 * n)
 
     mean, _ = average_delta_signal(delta_signal_list)
     return mean
