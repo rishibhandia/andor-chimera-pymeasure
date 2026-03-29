@@ -106,6 +106,8 @@ class TAWindowPanel(QWidget):
         self._engine = TransientAbsorptionEngine(self)
         self._writer: Optional[TADataWriter] = None
         self._current_config: Optional[TAScanConfig] = None
+        self._dark_frame: Optional[np.ndarray] = None
+        self._dark_acquiring: bool = False
 
         # --- Trigger test state ---
         self._trigger_test_running = False
@@ -173,6 +175,8 @@ class TAWindowPanel(QWidget):
         self._monitor_widget.monitor_requested.connect(self._on_monitor_requested)
         self._monitor_widget.stop_requested.connect(self._on_monitor_stop)
         self._monitor_widget.static_acquire_requested.connect(self._on_static_acquire_requested)
+        self._monitor_widget.dark_requested.connect(self._on_dark_requested)
+        self._monitor_widget.dark_cleared.connect(self._on_dark_cleared)
 
         # Static ON/OFF state
         self._static_pump_avg = None
@@ -239,7 +243,8 @@ class TAWindowPanel(QWidget):
         self._engine.start_scan(config, self._hw_manager, writer=writer,
                                  camera_settings=camera_settings,
                                  trigger_gen=trigger_gen,
-                                 phase_reader=phase_reader)
+                                 phase_reader=phase_reader,
+                                 dark=self._dark_frame)
 
     def _finalize_writer(self) -> None:
         if self._writer is not None:
@@ -375,11 +380,27 @@ class TAWindowPanel(QWidget):
             camera_settings=camera_settings,
             trigger_gen=trigger_gen,
             phase_reader=phase_reader,
+            dark=self._dark_frame,
         )
 
     def _on_monitor_cycle(self, wavelengths, delta, avg_delta) -> None:
         """Handle monitor cycle completion — update live display."""
-        # Use delay_ps=0 placeholder for the signal plot
+        # Dark frame acquisition: store raw average and stop after first cycle
+        if getattr(self, "_dark_acquiring", False):
+            self._dark_acquiring = False
+            # Use the pump-ON average as the dark frame (shutter should be closed)
+            if hasattr(self._monitor_widget, "_last_pump"):
+                self._dark_frame = np.asarray(self._monitor_widget._last_pump).copy()
+                from datetime import datetime
+                ts = datetime.now().strftime("%H:%M:%S")
+                n = getattr(self._monitor_widget, "_last_n_on", 0)
+                self._monitor_widget.set_dark_status(f"Dark: {n} frames, {ts}")
+                self._status_label.setText(f"Dark frame acquired ({n} frames)")
+                log.info(f"Dark frame stored: {len(self._dark_frame)} pixels, {n} frames")
+            self._monitor_engine.stop()
+            return
+
+        # Normal monitor cycle
         axis = None
         if self._hw_manager.motion_manager:
             axis = self._hw_manager.motion_manager.get_axis("delay")
@@ -425,6 +446,36 @@ class TAWindowPanel(QWidget):
         self.camera_busy.emit(False)
         self._status_label.setText(f"Monitor error: {msg}")
         log.error(f"Monitor error: {msg}")
+
+    # -- Dark frame -----------------------------------------------------------
+
+    def _on_dark_requested(self, config: TAScanConfig) -> None:
+        """Acquire dark frame using the monitor engine in single-cycle mode."""
+        if self._monitor_engine.is_running:
+            return
+
+        camera_settings = self._monitor_widget.camera_settings
+        trigger_gen, phase_reader = _make_daq_hardware(config)
+
+        self._monitor_widget.set_monitor_running(True)
+        self._config_widget.set_scan_running(True)
+        self.camera_busy.emit(True)
+        self._status_label.setText("Acquiring dark frame...")
+
+        # Use single cycle — the cycle_completed callback stores the result
+        self._dark_acquiring = True
+        self._monitor_engine.start_monitor(
+            config, self._hw_manager,
+            camera_settings=camera_settings,
+            trigger_gen=trigger_gen,
+            phase_reader=phase_reader,
+        )
+
+    def _on_dark_cleared(self) -> None:
+        """Clear the stored dark frame."""
+        self._dark_frame = None
+        self._status_label.setText("Dark frame cleared")
+        log.info("Dark frame cleared")
 
     @Slot(str)
     def _on_user_prompt(self, msg: str) -> None:

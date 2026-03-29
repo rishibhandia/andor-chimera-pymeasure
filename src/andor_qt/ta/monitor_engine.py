@@ -57,6 +57,7 @@ class _MonitorWorker(QObject):
         trigger_gen: object = None,
         phase_reader: object = None,
         static_phase: Optional[str] = None,
+        dark: Optional[np.ndarray] = None,
     ) -> None:
         self._config = config
         self._hw = hw_manager
@@ -64,6 +65,7 @@ class _MonitorWorker(QObject):
         self._trigger_gen = trigger_gen
         self._phase_reader = phase_reader
         self._static_phase = static_phase
+        self._dark = dark
         self._abort.clear()
         self._user_response.clear()
 
@@ -128,7 +130,7 @@ class _MonitorWorker(QObject):
                     )
 
                 delta = acquire_delta_signal_at_delay(
-                    delay_ps, hw, config, dark=None,
+                    delay_ps, hw, config, dark=self._dark,
                     camera_settings=self._camera_settings,
                     phase_reader=phase_reader,
                     raw_callback=_raw_cb,
@@ -291,11 +293,13 @@ class TAMonitorEngine(_EngineBase):
         trigger_gen: object = None,
         phase_reader: object = None,
         static_phase: Optional[str] = None,
+        dark: Optional[np.ndarray] = None,
     ) -> None:
         if self.is_running:
             return
         self._worker.setup(config, hw_manager, camera_settings,
-                           trigger_gen, phase_reader, static_phase=static_phase)
+                           trigger_gen, phase_reader, static_phase=static_phase,
+                           dark=dark)
         self._start_worker()
 
     def stop(self) -> None:

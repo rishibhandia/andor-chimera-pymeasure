@@ -42,6 +42,8 @@ class TAMonitorWidget(QGroupBox):
     monitor_requested = Signal(object)  # TAScanConfig
     static_acquire_requested = Signal(str, object)  # (phase, TAScanConfig)
     stop_requested = Signal()
+    dark_requested = Signal(object)  # TAScanConfig
+    dark_cleared = Signal()
 
     def __init__(self, hw_manager=None, parent=None):
         super().__init__("Monitor Mode", parent)
@@ -170,6 +172,25 @@ class TAMonitorWidget(QGroupBox):
 
         left_layout.addWidget(self._static_group)
         self._static_group.setVisible(False)  # shown only for static_onoff mode
+
+        # --- Dark Frame ---
+        dark_group = QGroupBox("Dark Frame")
+        dark_layout = QVBoxLayout(dark_group)
+        dark_btn_row = QHBoxLayout()
+        self._acquire_dark_btn = QPushButton("Acquire Dark")
+        self._acquire_dark_btn.setToolTip("Acquire dark baseline (shutter closed)")
+        self._acquire_dark_btn.clicked.connect(self._on_acquire_dark)
+        dark_btn_row.addWidget(self._acquire_dark_btn)
+        self._clear_dark_btn = QPushButton("Clear Dark")
+        self._clear_dark_btn.setToolTip("Remove stored dark frame")
+        self._clear_dark_btn.clicked.connect(self._on_clear_dark)
+        self._clear_dark_btn.setEnabled(False)
+        dark_btn_row.addWidget(self._clear_dark_btn)
+        dark_layout.addLayout(dark_btn_row)
+        self._dark_status_label = QLabel("No dark frame")
+        self._dark_status_label.setStyleSheet("color: gray; font-size: 10px;")
+        dark_layout.addWidget(self._dark_status_label)
+        left_layout.addWidget(dark_group)
 
         left_layout.addStretch()
         splitter.addWidget(left)
@@ -370,6 +391,29 @@ class TAMonitorWidget(QGroupBox):
             crop_height=crop_height,
         )
         self.monitor_requested.emit(config)
+
+    def _on_acquire_dark(self) -> None:
+        """Emit dark_requested with a TAScanConfig for dark frame acquisition."""
+        config = TAScanConfig(
+            delay_list=[0.0],
+            n_averages=self._get_n_averages(),
+            acquisition_mode=self._acq_combo.currentText(),
+            scan_direction="forward",
+            sample_name="dark",
+            external_trigger=self._external_trigger_check.isChecked(),
+        )
+        self.dark_requested.emit(config)
+
+    def _on_clear_dark(self) -> None:
+        """Emit dark_cleared signal."""
+        self._dark_status_label.setText("No dark frame")
+        self._clear_dark_btn.setEnabled(False)
+        self.dark_cleared.emit()
+
+    def set_dark_status(self, text: str) -> None:
+        """Update the dark frame status label."""
+        self._dark_status_label.setText(text)
+        self._clear_dark_btn.setEnabled(True)
 
     def update_position(self) -> None:
         """Update position display from hardware."""

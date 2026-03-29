@@ -123,7 +123,7 @@ class _ScanWorker(QObject):
         self._writer = None
 
     def setup(self, config: TAScanConfig, hw_manager, writer, camera_settings=None,
-              trigger_gen=None, phase_reader=None) -> None:
+              trigger_gen=None, phase_reader=None, dark=None) -> None:
         """Configure the worker before starting."""
         self._config = config
         self._hw_manager = hw_manager
@@ -131,6 +131,7 @@ class _ScanWorker(QObject):
         self._camera_settings = camera_settings
         self._trigger_gen = trigger_gen
         self._phase_reader = phase_reader
+        self._dark = dark
         self._abort_event.clear()
         self._pause_event.set()
         self._user_response = threading.Event()
@@ -273,7 +274,7 @@ class _ScanWorker(QObject):
                     # Skip-on-error: if one point fails, log and continue
                     try:
                         delta_signal = acquire_delta_signal_at_delay(
-                            delay_ps, hw, config, dark=None,
+                            delay_ps, hw, config, dark=self._dark,
                             camera_settings=self._camera_settings,
                             phase_reader=phase_reader,
                             raw_callback=_raw_cb,
@@ -598,13 +599,15 @@ class TransientAbsorptionEngine(_EngineBase):
         worker.status_updated.connect(self.status_updated)
 
     def start_scan(self, config: TAScanConfig, hw_manager, writer=None,
-                   camera_settings=None, trigger_gen=None, phase_reader=None) -> None:
+                   camera_settings=None, trigger_gen=None, phase_reader=None,
+                   dark=None) -> None:
         """Start the TA scan in a background thread."""
         if self.is_running:
             log.warning("Scan already running")
             return
         self._worker.setup(config, hw_manager, writer, camera_settings=camera_settings,
-                           trigger_gen=trigger_gen, phase_reader=phase_reader)
+                           trigger_gen=trigger_gen, phase_reader=phase_reader,
+                           dark=dark)
         self._start_worker()
 
     def pause(self) -> None:
