@@ -16,7 +16,9 @@ import time as _time
 from typing import Optional
 
 import numpy as np
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Signal, Slot
+
+from andor_qt.ta.engine_base import _EngineBase
 
 from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 from andor_qt.ta.scan_config import TAScanConfig
@@ -256,7 +258,7 @@ class _MonitorWorker(QObject):
         )
 
 
-class TAMonitorEngine(QObject):
+class TAMonitorEngine(_EngineBase):
     """High-level monitor engine managing a QThread."""
 
     cycle_completed = Signal(object, object, object)
@@ -269,23 +271,17 @@ class TAMonitorEngine(QObject):
     error = Signal(str)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self._thread = QThread(self)
-        self._worker = _MonitorWorker()
-        self._worker.moveToThread(self._thread)
+        worker = _MonitorWorker()
+        super().__init__(worker, [worker.stopped, worker.error], parent)
 
-        self._worker.cycle_completed.connect(self.cycle_completed)
-        self._worker.raw_pair_updated.connect(self.raw_pair_updated)
-        self._worker.status_updated.connect(self.status_updated)
-        self._worker.user_prompt.connect(self.user_prompt)
-        self._worker.static_completed.connect(self.static_completed)
-        self._worker.single_phase_completed.connect(self.single_phase_completed)
-        self._worker.stopped.connect(self.stopped)
-        self._worker.stopped.connect(self._thread.quit)
-        self._worker.error.connect(self.error)
-        self._worker.error.connect(self._thread.quit)
-
-        self._thread.started.connect(self._worker.run)
+        worker.cycle_completed.connect(self.cycle_completed)
+        worker.raw_pair_updated.connect(self.raw_pair_updated)
+        worker.status_updated.connect(self.status_updated)
+        worker.user_prompt.connect(self.user_prompt)
+        worker.static_completed.connect(self.static_completed)
+        worker.single_phase_completed.connect(self.single_phase_completed)
+        worker.stopped.connect(self.stopped)
+        worker.error.connect(self.error)
 
     def start_monitor(
         self,
@@ -296,19 +292,11 @@ class TAMonitorEngine(QObject):
         phase_reader: object = None,
         static_phase: Optional[str] = None,
     ) -> None:
-        if self._thread.isRunning():
+        if self.is_running:
             return
         self._worker.setup(config, hw_manager, camera_settings,
                            trigger_gen, phase_reader, static_phase=static_phase)
-        self._thread.start()
+        self._start_worker()
 
     def stop(self) -> None:
         self._worker.stop()
-
-    def user_confirmed(self) -> None:
-        """Forward user confirmation to worker thread."""
-        self._worker.user_confirmed()
-
-    @property
-    def is_running(self) -> bool:
-        return self._thread.isRunning()

@@ -36,7 +36,9 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Signal
+
+from andor_qt.ta.engine_base import _EngineBase
 
 from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS
@@ -555,7 +557,7 @@ class _ScanWorker(QObject):
         return acquire_long_average(camera, n_target, self._abort_event)
 
 
-class TransientAbsorptionEngine(QObject):
+class TransientAbsorptionEngine(_EngineBase):
     """High-level engine for TA pump-probe scanning.
 
     Manages a QThread and exposes signals mirroring ``_ScanWorker``.
@@ -575,53 +577,35 @@ class TransientAbsorptionEngine(QObject):
     user_prompt = Signal(str)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self._thread = QThread(self)
-        self._worker = _ScanWorker()
-        self._worker.moveToThread(self._thread)
+        worker = _ScanWorker()
+        super().__init__(
+            worker,
+            [worker.scan_completed, worker.aborted, worker.error],
+            parent,
+        )
 
         # Forward worker signals
-        self._worker.scan_started.connect(self.scan_started)
-        self._worker.point_started.connect(self.point_started)
-        self._worker.point_completed.connect(self.point_completed)
-        self._worker.scan_completed.connect(self.scan_completed)
-        self._worker.aborted.connect(self.aborted)
-        self._worker.error.connect(self.error)
-        self._worker.user_prompt.connect(self.user_prompt)
-        self._worker.signal_updated.connect(self.signal_updated)
-        self._worker.map_updated.connect(self.map_updated)
-        self._worker.raw_pair_updated.connect(self.raw_pair_updated)
-        self._worker.status_updated.connect(self.status_updated)
-
-        # Stop thread when scan finishes
-        self._worker.scan_completed.connect(self._thread.quit)
-        self._worker.aborted.connect(self._thread.quit)
-        self._worker.error.connect(self._thread.quit)
-
-        self._thread.started.connect(self._worker.run)
+        worker.scan_started.connect(self.scan_started)
+        worker.point_started.connect(self.point_started)
+        worker.point_completed.connect(self.point_completed)
+        worker.scan_completed.connect(self.scan_completed)
+        worker.aborted.connect(self.aborted)
+        worker.error.connect(self.error)
+        worker.user_prompt.connect(self.user_prompt)
+        worker.signal_updated.connect(self.signal_updated)
+        worker.map_updated.connect(self.map_updated)
+        worker.raw_pair_updated.connect(self.raw_pair_updated)
+        worker.status_updated.connect(self.status_updated)
 
     def start_scan(self, config: TAScanConfig, hw_manager, writer=None,
                    camera_settings=None, trigger_gen=None, phase_reader=None) -> None:
-        """Start the TA scan in a background thread.
-
-        Args:
-            config: Scan parameters.
-            hw_manager: Hardware manager.
-            writer: Optional ``TADataWriter`` (already opened).
-            camera_settings: Optional dict passed to apply_camera_settings()
-                before each acquisition point.
-            trigger_gen: Optional ``NIDAQChopper500Hz`` (or mock) that generates
-                the 500 Hz camera trigger for chopper_2x2 mode.
-            phase_reader: Optional ``NIDAQPhaseReader`` (or mock) that reads
-                chopper phase tags from P0.0 for frame labelling.
-        """
-        if self._thread.isRunning():
+        """Start the TA scan in a background thread."""
+        if self.is_running:
             log.warning("Scan already running")
             return
-
         self._worker.setup(config, hw_manager, writer, camera_settings=camera_settings,
                            trigger_gen=trigger_gen, phase_reader=phase_reader)
-        self._thread.start()
+        self._start_worker()
 
     def pause(self) -> None:
         """Pause the scan after the current delay point completes."""
@@ -635,12 +619,7 @@ class TransientAbsorptionEngine(QObject):
         """Abort the scan as soon as possible."""
         self._worker._abort_event.set()
         self._worker._pause_event.set()  # Unblock if paused
-        if hasattr(self._worker, "_user_response"):
-            self._worker._user_response.set()  # Unblock if waiting for user
-
-    def user_confirmed(self) -> None:
-        """Forward user confirmation to worker (for static_onoff prompts)."""
-        self._worker.user_confirmed()
+        self._abort_worker()
 
     def emergency_stop(self) -> None:
         """Abort scan and stop all motion."""
