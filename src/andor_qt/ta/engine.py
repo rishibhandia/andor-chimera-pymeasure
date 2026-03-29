@@ -424,17 +424,6 @@ class _ScanWorker(QObject):
                     f"{delay_ps:.2f} ps  ETA: {eta_str}"
                 )
                 self.raw_pair_updated.emit(avg, avg, 1, 0, 2)
-
-                # Save pump spectrum
-                if spectra_folder is not None:
-                    try:
-                        _save_spectrum_file(
-                            spectra_folder, 0, delay_ps,
-                            self._wavelengths, avg,
-                        )
-                    except Exception as exc:
-                        log.warning(f"Failed to save pump spectrum: {exc}")
-
                 self.point_completed.emit(0, delay_ps)
 
             if self._abort_event.is_set():
@@ -527,15 +516,6 @@ class _ScanWorker(QObject):
                     self.map_updated.emit(
                         np.array(all_delays), self._wavelengths, np.array(all_signals)
                     )
-
-                if spectra_folder is not None:
-                    try:
-                        _save_spectrum_file(
-                            spectra_folder, 0, delay_ps,
-                            self._wavelengths, delta_od,
-                        )
-                    except Exception as exc:
-                        log.warning(f"Failed to save spectrum: {exc}")
 
                 self.status_updated.emit(
                     f"Pass 2 (pump OFF): pt {pt_idx+1}/{n_pts}  {delay_ps:.2f} ps"
