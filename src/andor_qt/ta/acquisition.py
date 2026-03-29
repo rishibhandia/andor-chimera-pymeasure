@@ -70,7 +70,8 @@ def acquire_delta_signal_at_delay(
         Averaged ΔI/I₀ spectrum (1-D numpy array).
     """
     # Move stage to target delay
-    axis = hw_manager.motion_manager.get_axis("delay")
+    mm = getattr(hw_manager, "motion_manager", None)
+    axis = mm.get_axis("delay") if mm is not None else None
     if axis is not None:
         axis.position_ps = delay_ps
 
