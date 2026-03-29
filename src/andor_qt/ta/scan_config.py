@@ -39,11 +39,10 @@ class TAScanConfig:
         delay_list: Time delays to measure in picoseconds.
         n_averages: Number of pump-on/pump-off pairs averaged per delay point.
         n_scans: Total number of complete scans through all delays.
-        acquisition_mode: ``"boxcar"`` or ``"shot_to_shot"``.
+        acquisition_mode: ``"boxcar"``, ``"shot_to_shot"``, ``"chopper_2x2"``,
+            or ``"static_onoff"``.
         scan_direction: ``"forward"`` (always same order) or
             ``"alternating"`` (even scans forward, odd scans reversed).
-        wavelengths: Optional list of wavelengths to record (nm). If None,
-            uses full detector range.
         sample_name: Name of the sample being measured.
         notes: Free-text notes about the measurement.
     """
@@ -53,7 +52,6 @@ class TAScanConfig:
     n_scans: int = 1
     acquisition_mode: str = "boxcar"
     scan_direction: str = "forward"
-    wavelengths: Optional[List[float]] = None
     sample_name: str = ""
     notes: str = ""
     # NI DAQ hardware phase reader settings
@@ -64,10 +62,6 @@ class TAScanConfig:
     # NI DAQ chopper_2x2 trigger generator settings
     nidaq_chopper_sync_source: str = "/Astrella_DAQ/PFI12"
     nidaq_chopper_counter: str = "ctr1"
-    # Delay stage scan parameters (positions in µm)
-    stage_start_um: float = -57000.0
-    stage_step_um: float = 3.0
-    stage_n_steps: int = 400
     stage_axis: int = 2
     # When True, camera trigger is supplied externally (e.g. DG535 or SDG)
     # and NIDAQChopper500Hz is NOT started even in chopper_2x2 mode.

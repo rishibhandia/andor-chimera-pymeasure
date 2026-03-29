@@ -36,7 +36,6 @@ class TestTAScanConfig:
             "n_scans": 2,
             "acquisition_mode": "boxcar",
             "scan_direction": "forward",
-            "wavelengths": None,
             "sample_name": "test_sample",
             "notes": "",
         }
@@ -121,7 +120,6 @@ class TestTAScanConfigYAML:
             n_scans=3,
             acquisition_mode="shot_to_shot",
             scan_direction="alternating",
-            wavelengths=[500.0, 600.0, 700.0],
             sample_name="rhodamine_6g",
             notes="test run",
         )
@@ -134,7 +132,6 @@ class TestTAScanConfigYAML:
         assert loaded.n_scans == 3
         assert loaded.acquisition_mode == "shot_to_shot"
         assert loaded.scan_direction == "alternating"
-        assert loaded.wavelengths == [500.0, 600.0, 700.0]
         assert loaded.sample_name == "rhodamine_6g"
         assert loaded.notes == "test run"
 
@@ -247,37 +244,19 @@ class TestTAScanConfigStageFields:
         config = TAScanConfig(delay_list=[0.0])
         assert config.stage_axis == 2
 
-    def test_default_stage_start_um(self):
-        config = TAScanConfig(delay_list=[0.0])
-        assert config.stage_start_um == pytest.approx(-57000.0)
-
-    def test_default_stage_step_um(self):
-        config = TAScanConfig(delay_list=[0.0])
-        assert config.stage_step_um == pytest.approx(3.0)
-
-    def test_default_stage_n_steps(self):
-        config = TAScanConfig(delay_list=[0.0])
-        assert config.stage_n_steps == 400
-
     def test_save_spectra_dir_default_none(self):
         config = TAScanConfig(delay_list=[0.0])
         assert config.save_spectra_dir is None
 
-    def test_stage_fields_yaml_roundtrip(self, tmp_path):
+    def test_stage_axis_yaml_roundtrip(self, tmp_path):
         config = TAScanConfig(
             delay_list=[0.0, 1.0],
-            stage_start_um=-57000.0,
-            stage_step_um=3.0,
-            stage_n_steps=400,
             stage_axis=2,
             save_spectra_dir="/tmp/spectra",
         )
         yaml_path = tmp_path / "config.yaml"
         config.to_yaml(yaml_path)
         loaded = TAScanConfig.from_yaml(yaml_path)
-        assert loaded.stage_start_um == pytest.approx(-57000.0)
-        assert loaded.stage_step_um == pytest.approx(3.0)
-        assert loaded.stage_n_steps == 400
         assert loaded.stage_axis == 2
         assert loaded.save_spectra_dir == "/tmp/spectra"
 

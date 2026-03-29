@@ -496,9 +496,6 @@ class TAScanConfigWidget(QGroupBox):
             external_trigger=self._external_trigger_check.isChecked(),
             scan_direction=self._scan_dir_combo.currentText(),
             sample_name=self._sample_name_edit.text(),
-            stage_start_um=stage_start,
-            stage_step_um=stage_step,
-            stage_n_steps=stage_n,
             stage_axis=self._stage_axis_spin.value(),
             save_hdf5_dir=save_hdf5_dir,
             save_spectra_dir=save_dir,
@@ -541,10 +538,14 @@ class TAScanConfigWidget(QGroupBox):
             self._scan_dir_combo.setCurrentIndex(idx)
         self._sample_name_edit.setText(config.sample_name or "")
         self._stage_axis_spin.setValue(config.stage_axis)
-        # Populate Stage tab from config fields
-        self._stg_start.setValue(config.stage_start_um)
-        self._stg_step.setValue(abs(config.stage_step_um) if config.stage_step_um else 3.0)
-        self._stg_n_steps.setValue(config.stage_n_steps)
+        # Populate Stage tab from delay_list
+        if config.delay_list:
+            from andor_qt.ta.scan_config import ps_to_um
+            self._stg_start.setValue(ps_to_um(config.delay_list[0]))
+            if len(config.delay_list) > 1:
+                step = ps_to_um(config.delay_list[1]) - ps_to_um(config.delay_list[0])
+                self._stg_step.setValue(abs(step) if step else 3.0)
+            self._stg_n_steps.setValue(len(config.delay_list))
         self._tabs.setCurrentIndex(0)
         self._update_preview()
 
