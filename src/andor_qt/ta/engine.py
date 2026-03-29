@@ -381,6 +381,9 @@ class _ScanWorker(QObject):
         camera = hw.camera
 
         try:
+            if writer is not None:
+                writer.begin_scan(0)
+
             # --- Pass 1: Pump ON ---
             self.scan_started.emit(0)
             self.status_updated.emit("Static Pass 1: Pump ON — scanning all delays...")
@@ -492,6 +495,11 @@ class _ScanWorker(QObject):
 
                 self.signal_updated.emit(delay_ps, self._wavelengths, delta_od)
                 self.raw_pair_updated.emit(pump_avg, ref_avg, 1, 0, 2)
+
+                # HDF5 save
+                if writer is not None:
+                    stage_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                    writer.write_point(0, delay_ps, delta_od, stage_position_um=stage_um)
 
                 # Save ref spectrum
                 if spectra_folder is not None:

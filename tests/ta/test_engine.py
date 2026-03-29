@@ -246,7 +246,8 @@ class TestEngineSaveSpectra:
         subdirs = [d for d in tmp_path.iterdir() if d.is_dir()]
         assert len(subdirs) == 1
         files = sorted(subdirs[0].glob("*.txt"))
-        assert len(files) == 3
+        # 3 delays × 5 files each (delta, pump, ref, pump_std, ref_std)
+        assert len(files) == 15
 
     def test_spectrum_file_is_two_column_text(self, qt_app, tmp_path):
         hw = make_mock_hw(n_pixels=4)
@@ -256,8 +257,9 @@ class TestEngineSaveSpectra:
         self._run_engine(engine, config, hw)
         subdirs = [d for d in tmp_path.iterdir() if d.is_dir()]
         assert len(subdirs) == 1
-        files = list(subdirs[0].glob("*.txt"))
-        assert len(files) == 1
+        # Pick the main delta spectrum file (scan000_pos*.txt)
+        files = sorted(subdirs[0].glob("scan*.txt"))
+        assert len(files) >= 1
         lines = [ln for ln in files[0].read_text().splitlines() if not ln.startswith("#")]
         assert len(lines) == 4  # 4 pixels
         cols = lines[0].split("\t")
