@@ -47,17 +47,62 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
-def _format_eta(elapsed_s: float, completed: int, remaining: int) -> str:
-    """Format estimated time remaining as a human-readable string."""
+def _format_eta(
+    elapsed_s: float, completed: int, remaining: int,
+    est_per_pt_s: float = 0.0,
+) -> str:
+    """Format estimated time remaining as a human-readable string.
+
+    Args:
+        elapsed_s: Time elapsed so far.
+        completed: Number of points completed.
+        remaining: Number of points remaining.
+        est_per_pt_s: Pre-computed estimate of seconds per point (used when
+            completed == 0 to show a prediction before any data arrives).
+    """
     if completed == 0:
+        if est_per_pt_s > 0:
+            return "~" + _format_time(est_per_pt_s * remaining)
         return "..."
     per_pt = elapsed_s / completed
     eta_s = per_pt * remaining
-    if eta_s < 60:
-        return f"{eta_s:.0f}s"
-    elif eta_s < 3600:
-        return f"{eta_s/60:.1f}m"
-    return f"{eta_s/3600:.1f}h"
+    return _format_time(eta_s)
+
+
+def _format_time(seconds: float) -> str:
+    """Format seconds as a human-readable duration string."""
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    elif seconds < 3600:
+        return f"{seconds/60:.1f}m"
+    return f"{seconds/3600:.1f}h"
+
+
+def _estimate_point_time_s(camera_settings: dict, n_averages: int) -> float:
+    """Estimate time per delay point from camera settings.
+
+    Uses exposure time + estimated readout time per frame, multiplied by
+    2 × n_averages (two frames per pump/ref pair).
+
+    Returns estimated seconds per point, or 0.0 if settings are missing.
+    """
+    exposure_s = camera_settings.get("exposure_time", 0.0)
+    if exposure_s <= 0:
+        return 0.0
+
+    # Estimate readout time from VS/HS speed settings
+    from andor_qt.utils.readout_time import calculate_readout_time_ms
+    vs_idx = camera_settings.get("vs_speed", 1)
+    hs_idx = camera_settings.get("hs_speed", 1)
+    hbin = camera_settings.get("hbin", 1)
+    if isinstance(hbin, str):
+        hbin = int(hbin.replace("x", ""))
+    readout_ms = calculate_readout_time_ms("fvb", 200, 1600, vs_idx, hs_idx, hbin)
+    readout_s = readout_ms / 1000.0
+
+    # 2 frames per pair (pump + ref) × n_averages
+    frames_per_point = 2 * n_averages
+    return (exposure_s + readout_s) * frames_per_point
 
 
 def _make_scan_folder(base_dir: str, sample_name: str = "") -> Path:
@@ -233,6 +278,9 @@ class _ScanWorker(QObject):
                 import time as _time
                 _scan_t0 = _time.perf_counter()
                 _pts_completed = 0
+                _est_per_pt = _estimate_point_time_s(
+                    self._camera_settings or {}, config.n_averages
+                )
 
                 for pt_idx, delay_ps in enumerate(ordered):
                     # Check abort
@@ -250,7 +298,8 @@ class _ScanWorker(QObject):
                     self.point_started.emit(scan_idx, delay_ps)
 
                     eta_str = _format_eta(
-                        _time.perf_counter() - _scan_t0, _pts_completed, n_pts - pt_idx
+                        _time.perf_counter() - _scan_t0, _pts_completed, n_pts - pt_idx,
+                        est_per_pt_s=_est_per_pt,
                     )
 
                     target_mm = (
@@ -393,6 +442,9 @@ class _ScanWorker(QObject):
 
             pump_spectra = {}  # delay_ps -> averaged spectrum
             _pass1_t0 = _time.perf_counter()
+            _est_per_pt = _estimate_point_time_s(
+                self._camera_settings or {}, config.n_averages
+            )
 
             for pt_idx, delay_ps in enumerate(ordered):
                 if self._abort_event.is_set():
@@ -402,7 +454,8 @@ class _ScanWorker(QObject):
                 self.point_started.emit(0, delay_ps)
 
                 eta_str = _format_eta(
-                    _time.perf_counter() - _pass1_t0, pt_idx, n_pts - pt_idx
+                    _time.perf_counter() - _pass1_t0, pt_idx, n_pts - pt_idx,
+                    est_per_pt_s=_est_per_pt,
                 )
 
                 if axis is not None:
@@ -463,7 +516,8 @@ class _ScanWorker(QObject):
                 self.point_started.emit(1, delay_ps)
 
                 eta_str = _format_eta(
-                    _time.perf_counter() - _pass2_t0, pt_idx, n_pts - pt_idx
+                    _time.perf_counter() - _pass2_t0, pt_idx, n_pts - pt_idx,
+                    est_per_pt_s=_est_per_pt,
                 )
 
                 if delay_ps not in pump_spectra:
