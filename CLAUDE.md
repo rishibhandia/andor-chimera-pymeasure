@@ -2,6 +2,17 @@
 
 Project-specific guidance for Claude Code when working on andor-chimera-pymeasure.
 
+## CRITICAL: Background Process Management
+
+**NEVER run more than 1-2 background Bash commands at a time.** This machine has limited memory. Excessive background processes (especially Python/pytest) cause Claude Code itself to crash.
+
+Rules:
+- **Run tests in FOREGROUND** — never use `run_in_background` for pytest or `uv run` commands
+- **Only use background for**: launching the app (`uv run python -m andor_qt`) or long git operations
+- **Before launching a new background process**, check if previous ones are still running
+- **Agent subprocesses are fine** — they manage their own lifecycle
+- If a foreground command takes >2 minutes, increase the timeout instead of backgrounding it
+
 ## CRITICAL: Development Workflow
 
 **STOP AND PLAN BEFORE CODING.** This project requires strict TDD with atomic commits.
