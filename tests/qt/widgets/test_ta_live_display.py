@@ -14,6 +14,7 @@ def widget(qt_app):
     w = TALiveDisplayWidget()
     yield w
     w.deleteLater()
+    qt_app.processEvents()  # force cleanup
 
 
 class TestTALiveDisplayWidgetCreation:

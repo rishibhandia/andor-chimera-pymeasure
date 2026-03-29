@@ -42,6 +42,8 @@ packages = ["src/andor_pymeasure", "src/andor_qt"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Ensure widgets are cleaned up between tests to prevent Qt memory leaks
+qt_qapp_cls = "PySide6.QtWidgets.QApplication"
 
 [tool.ruff]
 line-length = 100

@@ -14,3 +14,10 @@ def qt_app():
     if app is None:
         app = QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def _flush_qt_deletions(qt_app):
+    """Process pending deleteLater() calls after each test."""
+    yield
+    qt_app.processEvents()

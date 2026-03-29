@@ -38,6 +38,18 @@ def qt_app():
     # Don't delete the app, as it may be needed by other tests
 
 
+@pytest.fixture(autouse=True)
+def _flush_qt_deletions(qt_app):
+    """Process pending deleteLater() calls after each test.
+
+    Qt's deleteLater() only schedules deletion — without processing events,
+    widgets accumulate in memory across the entire test module. This autouse
+    fixture ensures cleanup happens after every test.
+    """
+    yield
+    qt_app.processEvents()
+
+
 @pytest.fixture(scope="function")
 def reset_hardware_manager(mock_sdk, qt_app):
     """Reset HardwareManager singleton before and after each test.
