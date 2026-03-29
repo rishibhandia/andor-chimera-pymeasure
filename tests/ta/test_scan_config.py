@@ -283,3 +283,137 @@ class TestTAScanConfigStageFields:
         loaded = TAScanConfig.from_yaml(yaml_path)
         assert loaded.stage_axis == 2
         assert loaded.save_spectra_dir is None
+
+
+# ---------------------------------------------------------------------------
+# Unit conversion functions
+# ---------------------------------------------------------------------------
+
+
+class TestUnitConversions:
+    def test_ps_to_um_zero(self):
+        from andor_qt.ta.scan_config import ps_to_um
+        assert ps_to_um(0.0) == pytest.approx(0.0)
+
+    def test_um_to_ps_zero(self):
+        from andor_qt.ta.scan_config import um_to_ps
+        assert um_to_ps(0.0) == pytest.approx(0.0)
+
+    def test_roundtrip_ps_um_ps(self):
+        from andor_qt.ta.scan_config import ps_to_um, um_to_ps
+        ps = 10.0
+        assert um_to_ps(ps_to_um(ps)) == pytest.approx(ps, rel=1e-10)
+
+    def test_roundtrip_um_ps_um(self):
+        from andor_qt.ta.scan_config import ps_to_um, um_to_ps
+        um = -57000.0
+        assert ps_to_um(um_to_ps(um)) == pytest.approx(um, rel=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# linear_delays_um, log_delays_um
+# ---------------------------------------------------------------------------
+
+
+class TestLinearDelaysUm:
+    def test_basic_forward(self):
+        from andor_qt.ta.scan_config import linear_delays_um, um_to_ps
+        result = linear_delays_um(0.0, 9.0, 3.0)
+        assert len(result) == 4  # 0, 3, 6, 9 µm
+        assert result[0] == pytest.approx(um_to_ps(0.0))
+        assert result[-1] == pytest.approx(um_to_ps(9.0))
+
+    def test_reverse_direction(self):
+        from andor_qt.ta.scan_config import linear_delays_um, um_to_ps
+        result = linear_delays_um(9.0, 0.0, 3.0)
+        assert len(result) == 4
+        assert result[0] == pytest.approx(um_to_ps(9.0))
+        assert result[-1] == pytest.approx(um_to_ps(0.0))
+
+    def test_single_point(self):
+        from andor_qt.ta.scan_config import linear_delays_um, um_to_ps
+        result = linear_delays_um(5.0, 5.0, 1.0)
+        assert len(result) == 1
+        assert result[0] == pytest.approx(um_to_ps(5.0))
+
+    def test_step_must_be_positive(self):
+        from andor_qt.ta.scan_config import linear_delays_um
+        with pytest.raises(ValueError, match="positive"):
+            linear_delays_um(0.0, 10.0, 0.0)
+
+
+class TestLogDelaysUm:
+    def test_basic(self):
+        from andor_qt.ta.scan_config import log_delays_um, um_to_ps
+        result = log_delays_um(1.0, 1000.0, 3)
+        assert len(result) > 2
+        assert result[0] == pytest.approx(um_to_ps(1.0), rel=1e-3)
+        assert result[-1] == pytest.approx(um_to_ps(1000.0), rel=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# parse_manual_um
+# ---------------------------------------------------------------------------
+
+
+class TestParseManualUm:
+    def test_plain_numbers(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        result = parse_manual_um("-57000, -56000, -55000")
+        assert result == [-57000.0, -56000.0, -55000.0]
+
+    def test_range_expression(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        result = parse_manual_um("range(0, 5, 1)")
+        assert result == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+    def test_range_two_args(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        result = parse_manual_um("range(0, 3)")
+        assert result == [0.0, 1.0, 2.0]
+
+    def test_comments_ignored(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        result = parse_manual_um("# comment\n100\n# another\n200")
+        assert result == [100.0, 200.0]
+
+    def test_empty_lines_ignored(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        result = parse_manual_um("\n\n100\n\n200\n\n")
+        assert result == [100.0, 200.0]
+
+    def test_mixed_numbers_and_range(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        result = parse_manual_um("10, 20, range(100, 103)")
+        assert result == [10.0, 20.0, 100.0, 101.0, 102.0]
+
+    def test_multiline(self):
+        from andor_qt.ta.scan_config import parse_manual_um
+        text = "-57000\n-56000\n-55000"
+        result = parse_manual_um(text)
+        assert len(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# linear_delays validation
+# ---------------------------------------------------------------------------
+
+
+class TestLinearDelaysValidation:
+    def test_step_zero_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            linear_delays(0.0, 10.0, 0.0)
+
+    def test_step_negative_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            linear_delays(0.0, 10.0, -1.0)
+
+
+class TestLogDelaysValidation:
+    def test_start_zero_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            log_delays(0.0, 10.0, 5)
+
+    def test_start_negative_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            log_delays(-1.0, 10.0, 5)

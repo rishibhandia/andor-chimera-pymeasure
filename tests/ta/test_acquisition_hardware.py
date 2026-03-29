@@ -311,6 +311,38 @@ class TestAcquireChopper2x2:
         expected = (on_val - dark_val - (off_val - dark_val)) / (off_val - dark_val)
         np.testing.assert_allclose(result, expected, rtol=1e-6)
 
+    def test_raw_callback_called(self):
+        """chopper_2x2 should invoke raw_callback at least once."""
+        n = 5
+        hw = make_hw_2x2([1200.0] * n, [1000.0] * n, n_pairs=2)
+        cfg = make_config_2x2(n_averages=2)
+        reader = MockNIDAQChopper2x2Reader()
+        captured = {}
+
+        def _cb(pump, ref, n_matched, n_discarded, n_frames):
+            captured["called"] = True
+            captured["n_matched"] = n_matched
+
+        acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader, raw_callback=_cb)
+        assert captured.get("called"), "raw_callback was not invoked"
+        assert captured["n_matched"] >= 1
+
+    def test_shot_to_shot_raw_callback_called(self):
+        """shot_to_shot should also call raw_callback."""
+        n = 5
+        hw = make_hw_s2s([1200.0] * n, [1000.0] * n, n_pairs=1)
+        cfg = make_config_s2s(n_averages=1)
+        reader = MockNIDAQPhaseReader()
+        captured = {}
+
+        def _cb(pump, ref, n_matched, n_discarded, n_frames):
+            captured["pump"] = pump.copy()
+            captured["ref"] = ref.copy()
+
+        acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader, raw_callback=_cb)
+        assert "pump" in captured
+        assert not np.array_equal(captured["pump"], captured["ref"])
+
 
 # ---------------------------------------------------------------------------
 # shot_to_shot acquisition mode
