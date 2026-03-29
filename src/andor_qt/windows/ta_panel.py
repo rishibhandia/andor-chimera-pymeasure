@@ -398,6 +398,12 @@ class TAWindowPanel(QWidget):
         self._monitor_widget._last_ref = np.asarray(ref)
         self._monitor_widget._last_n_on = n_matched
         self._monitor_widget._last_n_off = n_matched
+        # Cache wavelengths that match the data length
+        self._monitor_widget._last_wavelengths = (
+            self._live_display._wavelengths
+            if len(self._live_display._wavelengths) == len(pumped)
+            else None
+        )
 
     @Slot()
     def _on_monitor_stop(self) -> None:

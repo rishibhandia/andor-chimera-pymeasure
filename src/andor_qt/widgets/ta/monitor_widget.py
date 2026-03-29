@@ -431,13 +431,8 @@ class TAMonitorWidget(QGroupBox):
             log.warning(f"No {spec_type} data available")
             return
 
-        # Get wavelengths
-        wavelengths = None
-        if self._hw:
-            get_wl = getattr(self._hw, "get_wavelengths", None)
-            hbin = self._camera_settings.get_settings().get("hbin", 1)
-            if callable(get_wl):
-                wavelengths = _np.asarray(get_wl(hbin=hbin))
+        # Use cached wavelengths (matched to data length at acquisition time)
+        wavelengths = getattr(self, "_last_wavelengths", None)
 
         # Determine save path with auto-increment
         save_dir = self._save_dir_edit.text().strip()
