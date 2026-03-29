@@ -554,6 +554,17 @@ class TAWindowPanel(QWidget):
         ref = self._static_ref_avg if self._static_ref_avg is not None else avg_spectrum
         self._live_display.on_raw_pair_updated(pump, ref, 1, 0, 2)
 
+        # Update save cache so "Save Pump ON"/"Save Pump OFF" buttons use correct data
+        from datetime import datetime
+        self._monitor_widget._last_pump = np.asarray(pump).copy()
+        self._monitor_widget._last_ref = np.asarray(ref).copy()
+        self._monitor_widget._last_n_on = 1
+        self._monitor_widget._last_n_off = 1
+        self._monitor_widget._last_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._monitor_widget._last_wavelengths = (
+            np.asarray(wavelengths) if wavelengths is not None else None
+        )
+
         # If both phases collected, compute ΔOD
         if pump_done and ref_done:
             ref_safe = np.where(self._static_ref_avg == 0, 1.0, self._static_ref_avg)

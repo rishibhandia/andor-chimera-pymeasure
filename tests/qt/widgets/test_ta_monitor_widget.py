@@ -68,6 +68,48 @@ class TestDarkFrameUI:
         assert "1000" in widget._dark_status_label.text()
 
 
+class TestStaticPhaseSaveCache:
+    """After single-phase complete, cached pump/ref must be separate arrays."""
+
+    def test_cache_updated_after_single_phase_pump(self, qt_app, mock_hw):
+        """After pump phase, _last_pump should hold pump data, not ref data."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw)
+
+        # Simulate single-phase completion with distinct pump data
+        pump_data = np.ones(100) * 5000.0
+        panel._static_pump_avg = pump_data
+        panel._on_single_phase_completed("pump", np.linspace(400, 800, 100), pump_data)
+
+        cached_pump = getattr(panel._monitor_widget, "_last_pump", None)
+        assert cached_pump is not None, "Pump data should be cached after phase complete"
+        np.testing.assert_array_equal(cached_pump, pump_data)
+        panel.deleteLater()
+
+    def test_cache_separate_after_both_phases(self, qt_app, mock_hw):
+        """After both phases, _last_pump and _last_ref must be different arrays."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw)
+
+        pump_data = np.ones(100) * 5000.0
+        ref_data = np.ones(100) * 4000.0
+
+        panel._on_single_phase_completed("pump", np.linspace(400, 800, 100), pump_data)
+        panel._on_single_phase_completed("ref", np.linspace(400, 800, 100), ref_data)
+
+        cached_pump = panel._monitor_widget._last_pump
+        cached_ref = panel._monitor_widget._last_ref
+        assert not np.array_equal(cached_pump, cached_ref), \
+            "Cached pump and ref must be different after both phases"
+        np.testing.assert_array_equal(cached_pump, pump_data)
+        np.testing.assert_array_equal(cached_ref, ref_data)
+        panel.deleteLater()
+
+
 class TestDarkFrameIntegration:
     def test_ta_panel_has_dark_frame_storage(self, qt_app, mock_hw):
         from andor_qt.windows.ta_panel import TAWindowPanel
