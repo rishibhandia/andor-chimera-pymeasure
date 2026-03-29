@@ -415,6 +415,32 @@ class TAMonitorWidget(QGroupBox):
         self._dark_status_label.setText(text)
         self._clear_dark_btn.setEnabled(True)
 
+    def cache_raw_data(
+        self,
+        pump: "np.ndarray",
+        ref: "np.ndarray",
+        n_on: int = 0,
+        n_off: int = 0,
+        wavelengths: "np.ndarray | None" = None,
+    ) -> None:
+        """Store raw pump/ref spectra for save buttons.
+
+        Args:
+            pump: Averaged pump-ON spectrum.
+            ref: Averaged pump-OFF spectrum.
+            n_on: Number of pump-ON frames.
+            n_off: Number of pump-OFF frames.
+            wavelengths: Wavelength calibration array (or None for pixel mode).
+        """
+        import numpy as np
+        from datetime import datetime
+        self._last_pump = np.asarray(pump).copy()
+        self._last_ref = np.asarray(ref).copy()
+        self._last_n_on = n_on
+        self._last_n_off = n_off
+        self._last_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._last_wavelengths = np.asarray(wavelengths) if wavelengths is not None else None
+
     def update_position(self) -> None:
         """Update position display from hardware."""
         self._update_position()

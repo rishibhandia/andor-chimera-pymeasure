@@ -414,18 +414,12 @@ class TAWindowPanel(QWidget):
 
     def _cache_monitor_raw(self, pumped, ref, n_matched, n_discarded, n_frames):
         """Cache the last raw pair for the monitor save buttons."""
-        from datetime import datetime
-        self._monitor_widget._last_pump = np.asarray(pumped)
-        self._monitor_widget._last_ref = np.asarray(ref)
-        self._monitor_widget._last_n_on = n_matched
-        self._monitor_widget._last_n_off = n_matched
-        self._monitor_widget._last_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Cache wavelengths that match the data length
-        self._monitor_widget._last_wavelengths = (
+        wl = (
             self._live_display._wavelengths
             if len(self._live_display._wavelengths) == len(pumped)
             else None
         )
+        self._monitor_widget.cache_raw_data(pumped, ref, n_matched, n_matched, wl)
 
     @Slot()
     def _on_monitor_stop(self) -> None:
@@ -555,15 +549,7 @@ class TAWindowPanel(QWidget):
         self._live_display.on_raw_pair_updated(pump, ref, 1, 0, 2)
 
         # Update save cache so "Save Pump ON"/"Save Pump OFF" buttons use correct data
-        from datetime import datetime
-        self._monitor_widget._last_pump = np.asarray(pump).copy()
-        self._monitor_widget._last_ref = np.asarray(ref).copy()
-        self._monitor_widget._last_n_on = 1
-        self._monitor_widget._last_n_off = 1
-        self._monitor_widget._last_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self._monitor_widget._last_wavelengths = (
-            np.asarray(wavelengths) if wavelengths is not None else None
-        )
+        self._monitor_widget.cache_raw_data(pump, ref, 1, 1, wavelengths)
 
         # If both phases collected, compute ΔOD
         if pump_done and ref_done:
