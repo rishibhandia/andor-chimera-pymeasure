@@ -419,6 +419,9 @@ class _ScanWorker(QObject):
                     self.point_completed.emit(0, delay_ps)
                     continue
 
+                if self._dark is not None:
+                    from andor_qt.ta.delta_signal import background_subtract
+                    avg = background_subtract(avg, self._dark)
                 pump_spectra[delay_ps] = (avg, std, n)
 
                 self.status_updated.emit(
@@ -500,6 +503,9 @@ class _ScanWorker(QObject):
                     self.point_completed.emit(1, delay_ps)
                     continue
 
+                if self._dark is not None:
+                    from andor_qt.ta.delta_signal import background_subtract
+                    ref_avg = background_subtract(ref_avg, self._dark)
                 pump_avg, pump_std, pump_n = pump_spectra[delay_ps]
                 ref_safe = np.where(ref_avg == 0, 1.0, ref_avg)
                 delta_od = -np.log10(pump_avg / ref_safe)
