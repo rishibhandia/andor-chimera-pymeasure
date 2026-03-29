@@ -306,11 +306,8 @@ class AndorSpectrometerWindow(QMainWindow):
             lambda: self._status_label.setText("Sequence complete")
         )
 
-        # TA scan → stop realtime window to prevent concurrent camera access
-        self._ta_panel._engine.scan_started.connect(self._on_ta_scan_started)
-        self._ta_panel._engine.scan_completed.connect(self._on_ta_scan_ended)
-        self._ta_panel._engine.aborted.connect(self._on_ta_scan_ended)
-        self._ta_panel._engine.error.connect(lambda _: self._on_ta_scan_ended())
+        # TA module → lock out spectrometer acquire/queue during camera use
+        self._ta_panel.camera_busy.connect(self._on_ta_camera_busy)
 
         # Trace overlay signals
         self._spectrum_plot.trace_added.connect(self._trace_list.add_trace)
@@ -668,16 +665,13 @@ class AndorSpectrometerWindow(QMainWindow):
                 f"Failed to create desktop shortcut:\n{e}",
             )
 
-    @Slot(int)
-    def _on_ta_scan_started(self, _scan_idx: int) -> None:
-        """Stop realtime window when TA scan begins to prevent concurrent camera access."""
-        if hasattr(self, "_realtime_window") and self._realtime_window is not None:
+    @Slot(bool)
+    def _on_ta_camera_busy(self, busy: bool) -> None:
+        """Lock out spectrometer acquire/queue controls while TA uses the camera."""
+        self._acquire_control.set_acquiring(busy)
+        self._queue_control.set_running(busy)
+        if busy and hasattr(self, "_realtime_window") and self._realtime_window is not None:
             self._realtime_window.stop_acquisition()
-
-    @Slot()
-    def _on_ta_scan_ended(self) -> None:
-        """TA scan finished — realtime window must be restarted manually."""
-        pass
 
     @Slot()
     def _on_realtime_mode(self) -> None:

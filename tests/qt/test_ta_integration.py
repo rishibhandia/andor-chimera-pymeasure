@@ -207,6 +207,143 @@ class TestShotToShotPanel:
         assert captured.get("phase_reader") is not None
 
 
+class TestCameraBusySignal:
+    """TAWindowPanel.camera_busy should fire True/False around scan and monitor."""
+
+    def test_camera_busy_signal_exists(self, qt_app, mock_hw_manager):
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        assert hasattr(panel, "camera_busy"), "TAWindowPanel must have camera_busy signal"
+        panel.deleteLater()
+
+    def test_camera_busy_true_on_scan_start(self, qt_app, mock_hw_manager):
+        """camera_busy(True) should be emitted when a scan starts."""
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        received = []
+        panel.camera_busy.connect(lambda v: received.append(v))
+
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="test",
+        )
+        panel.config_widget.scan_requested.emit(config)
+        panel.engine.abort()
+        panel.deleteLater()
+        assert True in received, "camera_busy(True) not emitted on scan start"
+
+    def test_camera_busy_false_on_scan_end(self, qt_app, mock_hw_manager):
+        """camera_busy(False) should be emitted when a scan completes/aborts."""
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
+        from PySide6.QtWidgets import QApplication
+        import time
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        received = []
+        panel.camera_busy.connect(lambda v: received.append(v))
+
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="test",
+        )
+        panel.config_widget.scan_requested.emit(config)
+        panel.engine.abort()
+
+        # Process events to let signals propagate
+        app = QApplication.instance()
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            app.processEvents()
+            if False in received:
+                break
+            time.sleep(0.05)
+
+        panel.deleteLater()
+        assert False in received, "camera_busy(False) not emitted on scan end"
+
+    def test_camera_busy_true_on_monitor_start(self, qt_app, mock_hw_manager):
+        """camera_busy(True) should be emitted when monitor starts."""
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        received = []
+        panel.camera_busy.connect(lambda v: received.append(v))
+
+        # Simulate monitor request
+        config_dict = {"acq_mode": "boxcar", "n_averages": 1}
+        panel._on_monitor_requested(config_dict)
+        panel._monitor_engine.stop()
+
+        panel.deleteLater()
+        assert True in received, "camera_busy(True) not emitted on monitor start"
+
+    def test_camera_busy_false_on_monitor_stop(self, qt_app, mock_hw_manager):
+        """camera_busy(False) should be emitted when monitor stops."""
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from PySide6.QtWidgets import QApplication
+        import time
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        received = []
+        panel.camera_busy.connect(lambda v: received.append(v))
+
+        config_dict = {"acq_mode": "boxcar", "n_averages": 1}
+        panel._on_monitor_requested(config_dict)
+        panel._monitor_engine.stop()
+
+        app = QApplication.instance()
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            app.processEvents()
+            if False in received:
+                break
+            time.sleep(0.05)
+
+        panel.deleteLater()
+        assert False in received, "camera_busy(False) not emitted on monitor stop"
+
+
+class TestMainWindowAcquireLockout:
+    """Main window acquire/queue buttons should be disabled during TA camera use."""
+
+    def test_acquire_disabled_during_ta_scan(self, qt_app, mock_sdk):
+        from andor_qt.windows.main_window import AndorSpectrometerWindow
+
+        window = AndorSpectrometerWindow()
+        # Simulate TA camera busy
+        window._ta_panel.camera_busy.emit(True)
+
+        assert not window._acquire_control._acquire_btn.isEnabled(), \
+            "Acquire button should be disabled when TA camera is busy"
+        window.deleteLater()
+
+    def test_acquire_reenabled_after_ta_scan(self, qt_app, mock_sdk):
+        from andor_qt.windows.main_window import AndorSpectrometerWindow
+
+        window = AndorSpectrometerWindow()
+        window._ta_panel.camera_busy.emit(True)
+        window._ta_panel.camera_busy.emit(False)
+
+        assert window._acquire_control._acquire_btn.isEnabled(), \
+            "Acquire button should be re-enabled when TA camera is free"
+        window.deleteLater()
+
+    def test_queue_disabled_during_ta_scan(self, qt_app, mock_sdk):
+        from andor_qt.windows.main_window import AndorSpectrometerWindow
+
+        window = AndorSpectrometerWindow()
+        window._ta_panel.camera_busy.emit(True)
+
+        assert not window._queue_control._queue_button.isEnabled(), \
+            "Queue button should be disabled when TA camera is busy"
+        window.deleteLater()
+
+
 class TestMainWindowTATab:
     def test_main_window_has_ta_tab(self, qt_app, mock_sdk):
         """Main window should have a TA tab."""

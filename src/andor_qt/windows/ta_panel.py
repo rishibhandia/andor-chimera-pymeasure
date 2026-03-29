@@ -16,7 +16,7 @@ import os
 from typing import Optional, Tuple
 
 import numpy as np
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget
 
 from andor_qt.ta.engine import TransientAbsorptionEngine
@@ -85,10 +85,18 @@ def _make_daq_hardware(config: TAScanConfig) -> Tuple:
 class TAWindowPanel(QWidget):
     """TA measurement panel composed of config, engine, and live display.
 
+    Signals:
+        camera_busy: Emitted with ``True`` when the TA module starts using
+            the camera (scan or monitor) and ``False`` when it finishes.
+            The main window connects this to disable/re-enable the
+            spectrometer acquire and queue controls.
+
     Args:
         hw_manager: Hardware manager instance.
         parent: Optional parent widget.
     """
+
+    camera_busy = Signal(bool)
 
     def __init__(self, hw_manager, parent=None):
         super().__init__(parent)
@@ -198,6 +206,7 @@ class TAWindowPanel(QWidget):
                  f"{len(config.delay_list)} delays, {config.n_scans} scans")
         self._current_config = config
         self._config_widget.set_scan_running(True)
+        self.camera_busy.emit(True)
         self._status_label.setText(
             f"Starting scan — {len(config.delay_list)} delays × {config.n_scans} scan(s)"
         )
@@ -246,6 +255,7 @@ class TAWindowPanel(QWidget):
         self._config_widget.set_scan_running(False)
         self._trigger_test_btn.setEnabled(True)
         self._current_config = None
+        self.camera_busy.emit(False)
 
     @Slot(int)
     def _on_scan_started(self, scan_idx: int) -> None:
@@ -367,6 +377,7 @@ class TAWindowPanel(QWidget):
         self._live_display.clear()
         self._monitor_widget.set_monitor_running(True)
         self._config_widget.set_scan_running(True)  # lock out scan
+        self.camera_busy.emit(True)
         self._status_label.setText("Monitor starting...")
 
         # Pre-set wavelengths on live display so raw spectra use wavelength axis
@@ -417,6 +428,7 @@ class TAWindowPanel(QWidget):
         """Handle monitor engine stopped."""
         self._monitor_widget.set_monitor_running(False)
         self._config_widget.set_scan_running(False)
+        self.camera_busy.emit(False)
         self._status_label.setText("Monitor stopped")
 
     @Slot(str)
@@ -424,6 +436,7 @@ class TAWindowPanel(QWidget):
         """Handle monitor engine error."""
         self._monitor_widget.set_monitor_running(False)
         self._config_widget.set_scan_running(False)
+        self.camera_busy.emit(False)
         self._status_label.setText(f"Monitor error: {msg}")
         log.error(f"Monitor error: {msg}")
 
