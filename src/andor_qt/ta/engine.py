@@ -405,9 +405,12 @@ class _ScanWorker(QObject):
                     _time.perf_counter() - _pass1_t0, pt_idx, n_pts - pt_idx
                 )
 
+                if axis is not None:
+                    axis.position_ps = delay_ps
+
                 try:
                     avg, std, n = acquire_static_at_delay(
-                        delay_ps, hw, config.n_averages, self._abort_event,
+                        hw, config.n_averages, self._abort_event,
                         dark=self._dark, camera_settings=self._camera_settings,
                     )
                 except Exception as exc:
@@ -468,9 +471,12 @@ class _ScanWorker(QObject):
                     self.point_completed.emit(1, delay_ps)
                     continue
 
+                if axis is not None:
+                    axis.position_ps = delay_ps
+
                 try:
                     ref_avg, ref_std, ref_n = acquire_static_at_delay(
-                        delay_ps, hw, config.n_averages, self._abort_event,
+                        hw, config.n_averages, self._abort_event,
                         dark=self._dark, camera_settings=self._camera_settings,
                     )
                 except Exception as exc:

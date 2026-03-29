@@ -473,7 +473,6 @@ def acquire_long_average(
 # ---------------------------------------------------------------------------
 
 def acquire_static_at_delay(
-    delay_ps: float,
     hw_manager: Any,
     n_frames: int,
     abort_event: "threading.Event",
@@ -481,16 +480,13 @@ def acquire_static_at_delay(
     camera_settings: Optional[dict[str, Any]] = None,
     progress_cb: Optional[Callable[[np.ndarray, int, int], None]] = None,
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Acquire bulk frames at a delay position for static ON/OFF mode.
+    """Acquire bulk frames at the current position for static ON/OFF mode.
 
-    Handles stage movement, camera settings, dark subtraction, and stats
-    population — the same pre/post steps as ``acquire_delta_signal_at_delay``
-    but using ``acquire_long_average`` (batch read) instead of per-pair
-    alternation.
+    Handles camera settings, dark subtraction, and stats population.
+    The caller is responsible for moving the stage before calling this.
 
     Args:
-        delay_ps: Target delay in picoseconds.
-        hw_manager: Hardware manager with ``.camera``, ``.motion_manager``.
+        hw_manager: Hardware manager with ``.camera`` attribute.
         n_frames: Number of frames to average.
         abort_event: Set to abort early.
         dark: Optional dark spectrum to subtract from the mean.
@@ -500,12 +496,6 @@ def acquire_static_at_delay(
     Returns:
         ``(mean, std, count)`` — dark-subtracted mean, std, and frame count.
     """
-    # Move stage
-    mm = getattr(hw_manager, "motion_manager", None)
-    axis = mm.get_axis("delay") if mm is not None else None
-    if axis is not None:
-        axis.position_ps = delay_ps
-
     # Apply camera settings
     if camera_settings is not None:
         apply = getattr(hw_manager.camera, "apply_camera_settings", None)

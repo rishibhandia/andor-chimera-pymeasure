@@ -283,7 +283,7 @@ class _MonitorWorker(QObject):
             )
 
         return acquire_static_at_delay(
-            0.0, hw, config.n_averages, self._abort,
+            hw, config.n_averages, self._abort,
             dark=self._dark,
             camera_settings=self._camera_settings,
             progress_cb=_progress,
