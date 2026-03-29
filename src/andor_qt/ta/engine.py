@@ -47,6 +47,19 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
+def _format_eta(elapsed_s: float, completed: int, remaining: int) -> str:
+    """Format estimated time remaining as a human-readable string."""
+    if completed == 0:
+        return "..."
+    per_pt = elapsed_s / completed
+    eta_s = per_pt * remaining
+    if eta_s < 60:
+        return f"{eta_s:.0f}s"
+    elif eta_s < 3600:
+        return f"{eta_s/60:.1f}m"
+    return f"{eta_s/3600:.1f}h"
+
+
 def _make_scan_folder(base_dir: str, sample_name: str = "") -> Path:
     """Create a timestamped subfolder for a scan run.
 
@@ -236,20 +249,9 @@ class _ScanWorker(QObject):
 
                     self.point_started.emit(scan_idx, delay_ps)
 
-                    # ETA calculation
-                    if _pts_completed > 0:
-                        elapsed = _time.perf_counter() - _scan_t0
-                        per_pt = elapsed / _pts_completed
-                        remaining_pts = n_pts - pt_idx
-                        eta_s = per_pt * remaining_pts
-                        if eta_s < 60:
-                            eta_str = f"{eta_s:.0f}s"
-                        elif eta_s < 3600:
-                            eta_str = f"{eta_s/60:.1f}m"
-                        else:
-                            eta_str = f"{eta_s/3600:.1f}h"
-                    else:
-                        eta_str = "..."
+                    eta_str = _format_eta(
+                        _time.perf_counter() - _scan_t0, _pts_completed, n_pts - pt_idx
+                    )
 
                     target_mm = (
                         getattr(axis, "t0_offset_mm", 0.0) + (delay_ps * SPEED_OF_LIGHT_MM_PS) / 2
@@ -399,13 +401,9 @@ class _ScanWorker(QObject):
 
                 self.point_started.emit(0, delay_ps)
 
-                # ETA
-                if pt_idx > 0:
-                    per_pt = (_time.perf_counter() - _pass1_t0) / pt_idx
-                    eta_s = per_pt * (n_pts - pt_idx)
-                    eta_str = f"{eta_s/60:.1f}m" if eta_s >= 60 else f"{eta_s:.0f}s"
-                else:
-                    eta_str = "..."
+                eta_str = _format_eta(
+                    _time.perf_counter() - _pass1_t0, pt_idx, n_pts - pt_idx
+                )
 
                 try:
                     avg, std, n = acquire_static_at_delay(
@@ -461,13 +459,9 @@ class _ScanWorker(QObject):
 
                 self.point_started.emit(1, delay_ps)
 
-                # ETA
-                if pt_idx > 0:
-                    per_pt = (_time.perf_counter() - _pass2_t0) / pt_idx
-                    eta_s = per_pt * (n_pts - pt_idx)
-                    eta_str = f"{eta_s/60:.1f}m" if eta_s >= 60 else f"{eta_s:.0f}s"
-                else:
-                    eta_str = "..."
+                eta_str = _format_eta(
+                    _time.perf_counter() - _pass2_t0, pt_idx, n_pts - pt_idx
+                )
 
                 if delay_ps not in pump_spectra:
                     log.warning(f"Pass 2: no pump data for {delay_ps:.2f} ps — skipping")
@@ -532,10 +526,10 @@ class _ScanWorker(QObject):
             self.error.emit(str(exc))
         finally:
             # Restore internal trigger so the camera is usable after scan
-            _set_trigger = getattr(camera, "set_trigger_mode", None)
-            if callable(_set_trigger):
+            _restore = getattr(camera, "apply_camera_settings", None)
+            if callable(_restore):
                 try:
-                    _set_trigger("internal")
+                    _restore({"trigger_mode": "internal"})
                 except Exception:
                     pass
 
