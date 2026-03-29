@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -51,6 +51,7 @@ class TAMonitorWidget(QGroupBox):
         self._running = False
         self._jog_buttons = []
         self._build_ui()
+        self._load_settings()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -375,6 +376,7 @@ class TAMonitorWidget(QGroupBox):
         self._update_position()
 
     def _on_start(self) -> None:
+        self._save_settings()
         camera_settings = self._camera_settings.get_settings()
         crop_height = (
             camera_settings.get("crop_height", 50)
@@ -440,6 +442,46 @@ class TAMonitorWidget(QGroupBox):
         self._last_n_off = n_off
         self._last_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._last_wavelengths = np.asarray(wavelengths) if wavelengths is not None else None
+
+    # -- Persistent settings (QSettings) -------------------------------------
+
+    def _save_settings(self) -> None:
+        """Persist current widget values to QSettings."""
+        s = QSettings("AndorSpectrometer", "TAMonitor")
+        s.setValue("acq_mode", self._acq_combo.currentText())
+        s.setValue("external_trigger", self._external_trigger_check.isChecked())
+        s.setValue("avg_mode", self._avg_mode_combo.currentIndex())
+        s.setValue("n_averages", self._n_avg_spin.value())
+        s.setValue("avg_time", self._avg_time_spin.value())
+        s.setValue("save_dir", self._save_dir_edit.text())
+        s.setValue("save_prefix", self._save_prefix_edit.text())
+
+    def _load_settings(self) -> None:
+        """Restore widget values from QSettings (if any)."""
+        s = QSettings("AndorSpectrometer", "TAMonitor")
+        acq = s.value("acq_mode")
+        if acq is not None:
+            idx = self._acq_combo.findText(str(acq))
+            if idx >= 0:
+                self._acq_combo.setCurrentIndex(idx)
+        ext = s.value("external_trigger")
+        if ext is not None:
+            self._external_trigger_check.setChecked(str(ext).lower() == "true")
+        avg_mode = s.value("avg_mode")
+        if avg_mode is not None:
+            self._avg_mode_combo.setCurrentIndex(int(avg_mode))
+        n_avg = s.value("n_averages")
+        if n_avg is not None:
+            self._n_avg_spin.setValue(int(n_avg))
+        avg_time = s.value("avg_time")
+        if avg_time is not None:
+            self._avg_time_spin.setValue(float(avg_time))
+        save_dir = s.value("save_dir")
+        if save_dir:
+            self._save_dir_edit.setText(str(save_dir))
+        prefix = s.value("save_prefix")
+        if prefix:
+            self._save_prefix_edit.setText(str(prefix))
 
     def update_position(self) -> None:
         """Update position display from hardware."""
