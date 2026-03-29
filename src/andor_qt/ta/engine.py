@@ -407,9 +407,6 @@ class _ScanWorker(QObject):
                 else:
                     eta_str = "..."
 
-                if axis is not None:
-                    axis.position_ps = delay_ps
-
                 try:
                     avg, std, n = acquire_static_at_delay(
                         delay_ps, hw, config.n_averages, self._abort_event,
@@ -471,9 +468,6 @@ class _ScanWorker(QObject):
                     eta_str = f"{eta_s/60:.1f}m" if eta_s >= 60 else f"{eta_s:.0f}s"
                 else:
                     eta_str = "..."
-
-                if axis is not None:
-                    axis.position_ps = delay_ps
 
                 if delay_ps not in pump_spectra:
                     log.warning(f"Pass 2: no pump data for {delay_ps:.2f} ps — skipping")
