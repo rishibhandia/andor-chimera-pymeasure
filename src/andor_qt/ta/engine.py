@@ -78,19 +78,25 @@ def _format_time(seconds: float) -> str:
     return f"{seconds/3600:.1f}h"
 
 
-def _estimate_point_time_s(camera_settings: dict, n_averages: int) -> float:
+def _estimate_point_time_s(
+    camera_settings: dict, n_averages: int, static: bool = False,
+) -> float:
     """Estimate time per delay point from camera settings.
 
-    Uses exposure time + estimated readout time per frame, multiplied by
-    2 × n_averages (two frames per pump/ref pair).
+    Args:
+        camera_settings: Dict with exposure_time, vs_speed, hs_speed, hbin.
+        n_averages: Number of frames (static) or pump/ref pairs (alternating).
+        static: If True, each point acquires n_averages single frames
+            (not pairs). If False, each point acquires 2 × n_averages
+            frames (pump + ref alternation).
 
-    Returns estimated seconds per point, or 0.0 if settings are missing.
+    Returns:
+        Estimated seconds per point, or 0.0 if settings are missing.
     """
     exposure_s = camera_settings.get("exposure_time", 0.0)
     if exposure_s <= 0:
         return 0.0
 
-    # Estimate readout time from VS/HS speed settings
     from andor_qt.utils.readout_time import calculate_readout_time_ms
     vs_idx = camera_settings.get("vs_speed", 1)
     hs_idx = camera_settings.get("hs_speed", 1)
@@ -100,8 +106,7 @@ def _estimate_point_time_s(camera_settings: dict, n_averages: int) -> float:
     readout_ms = calculate_readout_time_ms("fvb", 200, 1600, vs_idx, hs_idx, hbin)
     readout_s = readout_ms / 1000.0
 
-    # 2 frames per pair (pump + ref) × n_averages
-    frames_per_point = 2 * n_averages
+    frames_per_point = n_averages if static else 2 * n_averages
     return (exposure_s + readout_s) * frames_per_point
 
 
@@ -443,7 +448,7 @@ class _ScanWorker(QObject):
             pump_spectra = {}  # delay_ps -> averaged spectrum
             _pass1_t0 = _time.perf_counter()
             _est_per_pt = _estimate_point_time_s(
-                self._camera_settings or {}, config.n_averages
+                self._camera_settings or {}, config.n_averages, static=True,
             )
 
             for pt_idx, delay_ps in enumerate(ordered):

@@ -113,6 +113,14 @@ class _MonitorWorker(QObject):
         if phase_reader is not None:
             phase_reader.start()
 
+        from andor_qt.ta.engine import _estimate_point_time_s, _format_time
+        is_static = config.acquisition_mode == "static_onoff"
+        est_cycle_s = _estimate_point_time_s(
+            self._camera_settings or {}, config.n_averages, static=is_static,
+        )
+        if est_cycle_s > 0:
+            self.status_updated.emit(f"Monitor starting — est. ~{_format_time(est_cycle_s)}/cycle")
+
         avg_stack = []
         cycle = 0
 
@@ -164,8 +172,14 @@ class _MonitorWorker(QObject):
         camera = hw.camera
 
         try:
+            from andor_qt.ta.engine import _estimate_point_time_s, _format_time
+            est_s = _estimate_point_time_s(
+                self._camera_settings or {}, config.n_averages, static=True,
+            )
+            est_str = f" (est. ~{_format_time(est_s)})" if est_s > 0 else ""
+
             # --- Phase 1: Pump ON ---
-            self.status_updated.emit("Phase 1: Acquiring pump+probe (pump ON)...")
+            self.status_updated.emit(f"Phase 1: Acquiring pump+probe (pump ON)...{est_str}")
             log.info(f"Static ON/OFF phase 1: {config.n_averages} frames")
 
             pump_avg, _pump_std, _pump_n = self._acquire_static(
@@ -196,7 +210,7 @@ class _MonitorWorker(QObject):
                 return
 
             # --- Phase 2: Pump OFF ---
-            self.status_updated.emit("Phase 2: Acquiring probe only (pump OFF)...")
+            self.status_updated.emit(f"Phase 2: Acquiring probe only (pump OFF)...{est_str}")
             log.info(f"Static ON/OFF phase 2: {config.n_averages} frames")
 
             ref_avg, _ref_std, _ref_n = self._acquire_static(
@@ -233,7 +247,12 @@ class _MonitorWorker(QObject):
         phase = self._static_phase
         label = "Pump ON" if phase == "pump" else "Pump OFF"
         try:
-            self.status_updated.emit(f"Acquiring {label}...")
+            from andor_qt.ta.engine import _estimate_point_time_s, _format_time
+            est_s = _estimate_point_time_s(
+                self._camera_settings or {}, config.n_averages, static=True,
+            )
+            est_str = f" (est. ~{_format_time(est_s)})" if est_s > 0 else ""
+            self.status_updated.emit(f"Acquiring {label}...{est_str}")
             avg, std, n = self._acquire_static(
                 hw, config, label, slot="pump" if phase == "pump" else "ref",
             )
