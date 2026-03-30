@@ -398,6 +398,9 @@ class AndorCamera:
         if not self._initialized:
             raise RuntimeError("Camera not initialized")
 
+        # Ensure no acquisition is running (prevents DRV_ACQUIRING 20072)
+        self._ensure_idle()
+
         hbin = self._current_hbin
         xpixels = self._info.xpixels
         self._rta_eff_pixels = xpixels // hbin
@@ -448,6 +451,9 @@ class AndorCamera:
         """
         if not self._initialized:
             raise RuntimeError("Camera not initialized")
+
+        # Ensure no acquisition is running (prevents DRV_ACQUIRING 20072)
+        self._ensure_idle()
 
         self._rta_eff_pixels = crop_width // hbin
 
@@ -526,6 +532,24 @@ class AndorCamera:
         n_valid = validlast - validfirst + 1
         frames = np.array(arr, dtype=np.float64).reshape(n_valid, eff_pixels)
         return frames, n_valid
+
+    def _ensure_idle(self) -> None:
+        """If camera is acquiring, abort and wait for idle before proceeding.
+
+        Prevents DRV_ACQUIRING (20072) errors when starting a new acquisition
+        immediately after the previous one.
+        """
+        import time
+        with self._lock:
+            ret, status = self._sdk.GetStatus()
+            if status == 20072:  # DRV_ACQUIRING
+                log.warning("Camera still acquiring — aborting before restart")
+                self._sdk.AbortAcquisition()
+                for _ in range(100):
+                    ret, status = self._sdk.GetStatus()
+                    if status == 20073:  # DRV_IDLE
+                        break
+                    time.sleep(0.005)
 
     def abort_acquisition(self) -> None:
         """Abort any running acquisition and wait until camera is idle."""
