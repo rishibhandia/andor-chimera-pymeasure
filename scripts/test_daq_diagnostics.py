@@ -198,35 +198,33 @@ def test_phase_tag_pattern():
 # =========================================================================
 
 def test_phase_lock_stability():
-    """Start counter /2, read tags, check if ON/OFF correlate with counter phase.
+    """Start 500 Hz retriggered counter, read tags, check ON/OFF correlation.
 
-    Runs multiple short acquisitions and checks if the ON/OFF tag assignment
-    is stable -- i.e., the same counter output phase always maps to the same
-    chopper state.
+    Uses the same approach as NIDAQChopper500Hz: 500 Hz from 20 MHz timebase,
+    retriggered on every PFI0 rising edge (1 kHz).
     """
     import nidaqmx
     from nidaqmx.constants import AcquisitionType, Edge, Level
 
     print("\n" + "=" * 60)
-    print("TEST 3: Phase-lock stability (counter + tags)")
+    print("TEST 3: Phase-lock stability (500 Hz retriggered + tags)")
     print("=" * 60)
 
     try:
-        # Start counter
+        # Start 500 Hz counter (same as NIDAQChopper500Hz)
+        _TIMEBASE_HZ = 20_000_000
+        period_ticks = _TIMEBASE_HZ // 500
+        high_ticks = int(200e-6 * _TIMEBASE_HZ)
+        low_ticks = period_ticks - high_ticks
+
         ctr_task = nidaqmx.Task("ctr_phase_test")
-        chan = ctr_task.co_channels.add_co_pulse_chan_ticks(
+        ctr_task.co_channels.add_co_pulse_chan_ticks(
             f"{DEVICE}/ctr1",
-            source_terminal=PFI0,
-            low_ticks=2,
-            high_ticks=2,
+            source_terminal=f"/{DEVICE}/20MHzTimebase",
+            low_ticks=low_ticks,
+            high_ticks=high_ticks,
             idle_state=Level.LOW,
         )
-        try:
-            from nidaqmx.constants import Toggle
-            chan.co_pulse_done_event_output_behavior = Toggle.PULSE
-        except (ImportError, AttributeError):
-            print("  WARNING: pulse mode not available, using toggle (/4)")
-
         ctr_task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
         )
@@ -234,8 +232,9 @@ def test_phase_lock_stability():
             trigger_source=PFI0,
             trigger_edge=Edge.RISING,
         )
+        ctr_task.triggers.start_trigger.retriggerable = True
         ctr_task.start()
-        print("  Counter started")
+        print("  Counter started: 500 Hz from 20 MHz, retriggered by PFI0")
 
         # Read tags in multiple bursts
         results = []
