@@ -5,18 +5,18 @@ Run from project root:
     uv run python scripts/test_daq_diagnostics.py
 
 Tests:
-  1. Counter divide-by-2 (pulse mode) — verify 500 Hz output from 1 kHz input
-  2. Phase tag pattern analysis — verify P0.0 tags show chopper modulation
-  3. Phase-lock stability — check if counter output stays locked across cycles
-  4. Retrigger test — verify if PCIe-6353 supports retriggerable counters
-  5. Counter divide-by-4 (toggle mode) — fallback 250 Hz output
+  1. Counter divide-by-2 (pulse mode) -- verify 500 Hz output from 1 kHz input
+  2. Phase tag pattern analysis -- verify P0.0 tags show chopper modulation
+  3. Phase-lock stability -- check if counter output stays locked across cycles
+  4. Retrigger test -- verify if PCIe-6353 supports retriggerable counters
+  5. Counter divide-by-4 (toggle mode) -- fallback 250 Hz output
 
 Each test prints PASS/FAIL with diagnostic data. No GUI needed.
 
 Required wiring (same as chopper_2x2 mode):
   - PFI0:  1 kHz laser sync input
   - P0.0:  Chopper controller digital output (pump phase)
-  - PFI13: CTR1 output → camera trigger (User 1 BNC)
+  - PFI13: CTR1 output -> camera trigger (User 1 BNC)
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import time
 
 import numpy as np
 
-# NI DAQ device name — change if yours differs
+# NI DAQ device name -- change if yours differs
 DEVICE = "Astrella_DAQ"
 PFI0 = f"/{DEVICE}/PFI0"
 DI_CHANNEL = f"{DEVICE}/port0/line0"
@@ -62,7 +62,7 @@ def test_counter_divide_by_2():
     print("TEST 1: Counter divide-by-2 (pulse mode)")
     print("=" * 60)
     print(f"  Source: {PFI0} (expected 1 kHz)")
-    print(f"  Output: CTR1 → PFI13 (expected 500 Hz)")
+    print(f"  Output: CTR1 -> PFI13 (expected 500 Hz)")
     print(f"  Mode: pulse (not toggle)")
 
     try:
@@ -89,7 +89,7 @@ def test_counter_divide_by_2():
             chan.co_pulse_done_event_output_behavior = Toggle.PULSE
             print("  Set pulse mode: OK")
         else:
-            print("  WARNING: Pulse mode not available, using toggle (÷4)")
+            print("  WARNING: Pulse mode not available, using toggle (/4)")
 
         task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
@@ -108,11 +108,11 @@ def test_counter_divide_by_2():
         task.stop()
         task.close()
         print("  Task stopped: OK")
-        print("  RESULT: PASS — counter started and ran without error")
+        print("  RESULT: PASS -- counter started and ran without error")
         return True
 
     except Exception as exc:
-        print(f"  RESULT: FAIL — {exc}")
+        print(f"  RESULT: FAIL -- {exc}")
         return False
 
 
@@ -175,21 +175,21 @@ def test_phase_tag_pattern():
             print(f"  Expected run length for 500 Hz chopper: 1 sample")
 
             if 1.5 < run_lengths.mean() < 2.5:
-                print(f"  RESULT: PASS — pattern consistent with 250 Hz chopper")
+                print(f"  RESULT: PASS -- pattern consistent with 250 Hz chopper")
             elif 0.8 < run_lengths.mean() < 1.2:
-                print(f"  RESULT: PASS — pattern consistent with 500 Hz chopper")
+                print(f"  RESULT: PASS -- pattern consistent with 500 Hz chopper")
             else:
-                print(f"  RESULT: WARNING — unexpected run length "
+                print(f"  RESULT: WARNING -- unexpected run length "
                       f"({run_lengths.mean():.1f} samples)")
         else:
-            print(f"  RESULT: FAIL — no transitions detected "
+            print(f"  RESULT: FAIL -- no transitions detected "
                   f"(all {'1s' if n_ones > n_zeros else '0s'})")
             print(f"  Check: is the chopper running? Is P0.0 connected?")
 
         return True
 
     except Exception as exc:
-        print(f"  RESULT: FAIL — {exc}")
+        print(f"  RESULT: FAIL -- {exc}")
         return False
 
 
@@ -198,10 +198,10 @@ def test_phase_tag_pattern():
 # =========================================================================
 
 def test_phase_lock_stability():
-    """Start counter ÷2, read tags, check if ON/OFF correlate with counter phase.
+    """Start counter /2, read tags, check if ON/OFF correlate with counter phase.
 
     Runs multiple short acquisitions and checks if the ON/OFF tag assignment
-    is stable — i.e., the same counter output phase always maps to the same
+    is stable -- i.e., the same counter output phase always maps to the same
     chopper state.
     """
     import nidaqmx
@@ -225,7 +225,7 @@ def test_phase_lock_stability():
             from nidaqmx.constants import Toggle
             chan.co_pulse_done_event_output_behavior = Toggle.PULSE
         except (ImportError, AttributeError):
-            print("  WARNING: pulse mode not available, using toggle (÷4)")
+            print("  WARNING: pulse mode not available, using toggle (/4)")
 
         ctr_task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
@@ -284,16 +284,16 @@ def test_phase_lock_stability():
 
         avg_discard = np.mean(discard_counts)
         if avg_discard < 5:
-            print(f"  RESULT: PASS — low discard rate ({avg_discard:.1f}/cycle)")
+            print(f"  RESULT: PASS -- low discard rate ({avg_discard:.1f}/cycle)")
         else:
-            print(f"  RESULT: WARNING — high discard rate ({avg_discard:.1f}/cycle)")
+            print(f"  RESULT: WARNING -- high discard rate ({avg_discard:.1f}/cycle)")
             print(f"  This suggests the counter output is not phase-locked "
                   f"to the chopper")
 
         return True
 
     except Exception as exc:
-        print(f"  RESULT: FAIL — {exc}")
+        print(f"  RESULT: FAIL -- {exc}")
         return False
 
 
@@ -337,7 +337,7 @@ def test_retrigger():
             task.triggers.start_trigger.retriggerable = True
             print("  Set retriggerable=True: OK (no error)")
         except Exception as exc:
-            print(f"  Set retriggerable=True: FAILED — {exc}")
+            print(f"  Set retriggerable=True: FAILED -- {exc}")
             task.close()
             return False
 
@@ -347,17 +347,17 @@ def test_retrigger():
             time.sleep(2)
             task.stop()
             print("  Task ran for 2s and stopped: OK")
-            print("  RESULT: PASS — retriggerable is supported")
+            print("  RESULT: PASS -- retriggerable is supported")
         except Exception as exc:
             print(f"  Task start failed: {exc}")
-            print("  RESULT: FAIL — retriggerable not supported on this hardware")
+            print("  RESULT: FAIL -- retriggerable not supported on this hardware")
         finally:
             task.close()
 
         return True
 
     except Exception as exc:
-        print(f"  RESULT: FAIL — {exc}")
+        print(f"  RESULT: FAIL -- {exc}")
         return False
 
 
@@ -368,7 +368,7 @@ def test_retrigger():
 def test_counter_divide_by_4():
     """Divide PFI0 by 4 using toggle mode (known to work).
 
-    If ÷2 pulse mode fails, ÷4 toggle mode is the fallback.
+    If /2 pulse mode fails, /4 toggle mode is the fallback.
     Output: 250 Hz from 1 kHz input.
     """
     import nidaqmx
@@ -378,7 +378,7 @@ def test_counter_divide_by_4():
     print("TEST 5: Counter divide-by-4 (toggle mode, fallback)")
     print("=" * 60)
     print(f"  Source: {PFI0} (expected 1 kHz)")
-    print(f"  Output: CTR1 → PFI13 (expected 250 Hz)")
+    print(f"  Output: CTR1 -> PFI13 (expected 250 Hz)")
 
     try:
         task = nidaqmx.Task()
@@ -389,7 +389,7 @@ def test_counter_divide_by_4():
             high_ticks=2,
             idle_state=Level.LOW,
         )
-        # No pulse mode — default toggle mode
+        # No pulse mode -- default toggle mode
         task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
         )
@@ -405,11 +405,11 @@ def test_counter_divide_by_4():
         task.stop()
         task.close()
         print("  Task stopped: OK")
-        print("  RESULT: PASS — ÷4 toggle mode works")
+        print("  RESULT: PASS -- /4 toggle mode works")
         return True
 
     except Exception as exc:
-        print(f"  RESULT: FAIL — {exc}")
+        print(f"  RESULT: FAIL -- {exc}")
         return False
 
 
@@ -457,19 +457,19 @@ def test_measure_pfi0_frequency():
         print(f"  Readings: {[f'{r:.1f}' for r in readings]}")
 
         if 900 < mean_freq < 1100:
-            print(f"  RESULT: PASS — PFI0 is ~1 kHz")
+            print(f"  RESULT: PASS -- PFI0 is ~1 kHz")
         elif 450 < mean_freq < 550:
-            print(f"  RESULT: WARNING — PFI0 is ~500 Hz (not 1 kHz)")
+            print(f"  RESULT: WARNING -- PFI0 is ~500 Hz (not 1 kHz)")
             print(f"  Check: is PFI0 connected to laser sync or SDG output?")
         elif 200 < mean_freq < 300:
-            print(f"  RESULT: WARNING — PFI0 is ~250 Hz")
+            print(f"  RESULT: WARNING -- PFI0 is ~250 Hz")
         else:
-            print(f"  RESULT: FAIL — unexpected frequency ({mean_freq:.1f} Hz)")
+            print(f"  RESULT: FAIL -- unexpected frequency ({mean_freq:.1f} Hz)")
 
         return True
 
     except Exception as exc:
-        print(f"  RESULT: FAIL — {exc}")
+        print(f"  RESULT: FAIL -- {exc}")
         return False
 
 
@@ -489,8 +489,8 @@ def main():
     tests = [
         ("PFI0 frequency", test_measure_pfi0_frequency),
         ("Phase tag pattern", test_phase_tag_pattern),
-        ("Counter ÷2 pulse mode", test_counter_divide_by_2),
-        ("Counter ÷4 toggle mode", test_counter_divide_by_4),
+        ("Counter /2 pulse mode", test_counter_divide_by_2),
+        ("Counter /4 toggle mode", test_counter_divide_by_4),
         ("Retrigger support", test_retrigger),
         ("Phase-lock stability", test_phase_lock_stability),
     ]

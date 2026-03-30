@@ -109,45 +109,52 @@ class NIDAQChopper500Hz:
             ) from exc
 
         # ----------------------------------------------------------
-        # Divide PFI0 (1 kHz) by 2 → 500 Hz using pulse mode.
+        # 500 Hz camera trigger from 20 MHz timebase, retriggered
+        # on every PFI0 rising edge (1 kHz) to maintain phase lock.
         #
-        # In toggle mode (default), the counter toggles its output
-        # every N ticks, requiring minimum 2+2=4 ticks (÷4 minimum).
-        # In PULSE mode, the counter emits one complete pulse every
-        # N ticks of the source — so low_ticks=2 gives ÷2.
+        # The counter generates one 500 Hz period (2 ms) per retrigger.
+        # PFI0 fires at 1 kHz, but only every OTHER retrigger produces
+        # an output edge (500 Hz = half of 1 kHz). The retrigger keeps
+        # the output phase-locked to PFI0 — and since the chopper is
+        # also locked to PFI0 (via the SDG or directly), the camera
+        # frames stay aligned with the chopper blade.
         #
-        # Reference: NI forums "Dividing Digital Pulses Using Counter"
-        # https://forums.ni.com/t5/Example-Code/ta-p/3522720
+        # 500 Hz with 200 us pulse from 20 MHz timebase:
+        #   period = 20,000,000 / 500 = 40,000 ticks = 2 ms
+        #   high   = 200 us x 20 MHz  =  4,000 ticks
+        #   low    = 40,000 - 4,000   = 36,000 ticks = 1.8 ms
         #
-        # Output on CTR1OUT / PFI13 → Camera Ext Trigger.
-        # Phase-locked to PFI0: every output edge is derived from
-        # counting PFI0 edges, so there is zero drift.
+        # Output on CTR1OUT / PFI13 -> Camera Ext Trigger.
         # ----------------------------------------------------------
-        from nidaqmx.constants import Toggle
+        _TIMEBASE_HZ = 20_000_000
+        period_ticks = _TIMEBASE_HZ // 500
+        high_ticks = int(200e-6 * _TIMEBASE_HZ)     # 4,000 ticks = 200 us
+        low_ticks = period_ticks - high_ticks         # 36,000 ticks = 1.8 ms
 
         self._task = nidaqmx.Task()
-        chan = self._task.co_channels.add_co_pulse_chan_ticks(
+        self._task.co_channels.add_co_pulse_chan_ticks(
             f"{self._device}/{self._counter}",
-            source_terminal=self._clock_source,   # PFI0 — 1 kHz laser sync
-            low_ticks=2,                           # 2 PFI0 edges low → ÷2
-            high_ticks=2,                          # 2 PFI0 edges high
+            source_terminal=f"/{self._device}/20MHzTimebase",
+            low_ticks=low_ticks,
+            high_ticks=high_ticks,
             idle_state=Level.LOW,
         )
-        # Switch from toggle mode to pulse mode for true ÷2
-        chan.co_pulse_done_event_output_behavior = Toggle.PULSE
-
         self._task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
         )
-        # Arm on PFI0 rising edge for deterministic phase.
+        # Retrigger on every PFI0 rising edge (1 kHz).
+        # This resets the counter phase to PFI0 every 1 ms, ensuring
+        # the 500 Hz output stays locked to the laser/chopper.
         self._task.triggers.start_trigger.cfg_dig_edge_start_trig(
             trigger_source=self._clock_source,
             trigger_edge=Edge.RISING,
         )
+        self._task.triggers.start_trigger.retriggerable = True
+
         self._task.start()
         log.info(
-            f"NIDAQChopper500Hz started: {self._counter} divides "
-            f"{self._clock_source} by 2 → 500 Hz (pulse mode, zero drift)"
+            f"NIDAQChopper500Hz started: 500 Hz on {self._counter}, "
+            f"retriggered by {self._clock_source} (1 kHz)"
         )
 
     def stop(self) -> None:
