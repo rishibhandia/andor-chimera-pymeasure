@@ -275,33 +275,46 @@ class TAMonitorWidget(QGroupBox):
         self._update_avg_info()
 
     def _update_avg_info(self) -> None:
-        """Show estimated time or pair count."""
+        """Show estimated duration or pair count based on camera settings."""
+        from andor_qt.ta.acquisition import _compute_frame_period_s
+
+        if not hasattr(self, "_camera_settings"):
+            return  # widget still being built
+        camera_settings = self._camera_settings.get_settings()
+        frame_period = _compute_frame_period_s(camera_settings)
         mode = self._acq_combo.currentText()
-        fps = 500.0 if mode == "chopper_2x2" else 1000.0
+        is_static = mode == "static_onoff"
+
+        # Static: 1 frame per sample; alternating: 2 frames per pair
+        frames_per_avg = 1 if is_static else 2
 
         if self._avg_mode_combo.currentIndex() == 0:
-            # By count → show estimated time
+            # By count → show estimated duration
             n = self._n_avg_spin.value()
-            t = n * 2 / fps  # 2 frames per pair
+            t = n * frames_per_avg * frame_period
             if t < 60:
                 self._avg_info_label.setText(f"\u2248 {t:.1f} s")
             else:
                 self._avg_info_label.setText(f"\u2248 {t/60:.1f} min")
         else:
-            # By time → show estimated pairs
+            # By time → show estimated pairs/frames
             t = self._avg_time_spin.value()
-            n = int(t * fps / 2)  # 2 frames per pair
-            self._avg_info_label.setText(f"\u2248 {n:,} pairs")
+            n = int(t / (frames_per_avg * frame_period))
+            label = "frames" if is_static else "pairs"
+            self._avg_info_label.setText(f"\u2248 {n:,} {label}")
 
     def _get_n_averages(self) -> int:
         """Get effective n_averages from either count or time mode."""
         if self._avg_mode_combo.currentIndex() == 0:
             return self._n_avg_spin.value()
         else:
+            from andor_qt.ta.acquisition import _compute_frame_period_s
+            camera_settings = self._camera_settings.get_settings()
+            frame_period = _compute_frame_period_s(camera_settings)
             mode = self._acq_combo.currentText()
-            fps = 500.0 if mode == "chopper_2x2" else 1000.0
+            frames_per_avg = 1 if mode == "static_onoff" else 2
             t = self._avg_time_spin.value()
-            return max(1, int(t * fps / 2))
+            return max(1, int(t / (frames_per_avg * frame_period)))
 
     def _on_static_acquire(self, phase: str) -> None:
         config = TAScanConfig(

@@ -482,8 +482,10 @@ def acquire_long_average(
 def _compute_frame_period_s(camera_settings: Optional[dict] = None) -> float:
     """Estimate the time per frame from camera settings.
 
-    Uses exposure_time + readout_time. Falls back to 2 ms if settings
-    are unavailable (the chopper_2x2 default at 500 Hz).
+    For external trigger modes, the frame period is determined by the trigger
+    source (e.g. 1 kHz laser sync → 1 ms, 500 Hz chopper → 2 ms), not by
+    the camera's internal exposure + readout. For internal trigger, uses
+    exposure_time + readout_time.
 
     Returns:
         Seconds per frame.
@@ -491,9 +493,18 @@ def _compute_frame_period_s(camera_settings: Optional[dict] = None) -> float:
     if camera_settings is None:
         return 0.002
 
+    trigger_mode = camera_settings.get("trigger_mode", "internal")
+
+    # External trigger: frame rate set by trigger source, not camera internals
+    if trigger_mode == "fast_external":
+        # Fast external with overlap: limited by trigger rate (typically 1 kHz)
+        return 0.001  # 1 ms at 1 kHz laser sync
+    elif trigger_mode == "external":
+        # Non-fast external: exposure + readout (no overlap)
+        pass  # fall through to calculation below
+
     exposure_s = camera_settings.get("exposure_time", 0.002)
 
-    # Estimate readout time
     try:
         from andor_qt.utils.readout_time import calculate_readout_time_ms
         vs_idx = camera_settings.get("vs_speed", 1)
@@ -503,7 +514,7 @@ def _compute_frame_period_s(camera_settings: Optional[dict] = None) -> float:
             hbin = int(hbin.replace("x", ""))
         readout_s = calculate_readout_time_ms("fvb", 200, 1600, vs_idx, hs_idx, hbin) / 1000.0
     except Exception:
-        readout_s = 0.001  # 1 ms fallback
+        readout_s = 0.001
 
     return exposure_s + readout_s
 

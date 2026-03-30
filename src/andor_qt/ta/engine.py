@@ -84,7 +84,8 @@ def _estimate_point_time_s(
     """Estimate time per delay point from camera settings.
 
     Args:
-        camera_settings: Dict with exposure_time, vs_speed, hs_speed, hbin.
+        camera_settings: Dict with exposure_time, vs_speed, hs_speed, hbin,
+            trigger_mode.
         n_averages: Number of frames (static) or pump/ref pairs (alternating).
         static: If True, each point acquires n_averages single frames
             (not pairs). If False, each point acquires 2 × n_averages
@@ -93,21 +94,11 @@ def _estimate_point_time_s(
     Returns:
         Estimated seconds per point, or 0.0 if settings are missing.
     """
-    exposure_s = camera_settings.get("exposure_time", 0.0)
-    if exposure_s <= 0:
-        return 0.0
+    from andor_qt.ta.acquisition import _compute_frame_period_s
 
-    from andor_qt.utils.readout_time import calculate_readout_time_ms
-    vs_idx = camera_settings.get("vs_speed", 1)
-    hs_idx = camera_settings.get("hs_speed", 1)
-    hbin = camera_settings.get("hbin", 1)
-    if isinstance(hbin, str):
-        hbin = int(hbin.replace("x", ""))
-    readout_ms = calculate_readout_time_ms("fvb", 200, 1600, vs_idx, hs_idx, hbin)
-    readout_s = readout_ms / 1000.0
-
+    frame_period = _compute_frame_period_s(camera_settings)
     frames_per_point = n_averages if static else 2 * n_averages
-    return (exposure_s + readout_s) * frames_per_point
+    return frame_period * frames_per_point
 
 
 def _make_scan_folder(base_dir: str, sample_name: str = "") -> Path:
