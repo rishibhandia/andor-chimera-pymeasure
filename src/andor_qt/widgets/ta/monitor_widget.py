@@ -159,8 +159,8 @@ class TAMonitorWidget(QGroupBox):
         static_layout = QVBoxLayout(self._static_group)
 
         static_btn_row = QHBoxLayout()
-        self._acq_pump_btn = QPushButton("Acquire Pump ON")
-        self._acq_ref_btn = QPushButton("Acquire Pump OFF")
+        self._acq_pump_btn = QPushButton("Acquire Pump ON (pump+probe)")
+        self._acq_ref_btn = QPushButton("Acquire Pump OFF (probe only)")
         self._acq_pump_btn.clicked.connect(lambda: self._on_static_acquire("pump"))
         self._acq_ref_btn.clicked.connect(lambda: self._on_static_acquire("ref"))
         static_btn_row.addWidget(self._acq_pump_btn)

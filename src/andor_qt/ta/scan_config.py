@@ -174,13 +174,14 @@ def linear_delays_um(start_um: float, end_um: float, step_um: float) -> list[flo
     Returns:
         List of delay values in picoseconds.
     """
-    if step_um <= 0:
-        raise ValueError("step_um must be positive")
+    if step_um == 0:
+        raise ValueError("step_um must be non-zero")
+    abs_step = abs(step_um)
     if start_um == end_um:
         return [um_to_ps(start_um)]
-    n = math.ceil(abs(end_um - start_um) / step_um) + 1
+    n = math.ceil(abs(end_um - start_um) / abs_step) + 1
     sign = 1.0 if end_um >= start_um else -1.0
-    positions = [start_um + i * sign * step_um for i in range(n)]
+    positions = [start_um + i * sign * abs_step for i in range(n)]
     if sign > 0 and positions[-1] > end_um + 1e-6:
         positions = positions[:-1]
     elif sign < 0 and positions[-1] < end_um - 1e-6:
@@ -278,4 +279,4 @@ def stage_delays_ps(start_um: float, step_um: float, n_steps: int) -> list[float
         List of delay values in picoseconds.
     """
     end_um = start_um + (n_steps - 1) * step_um
-    return linear_delays_um(start_um, end_um, step_um)
+    return linear_delays_um(start_um, end_um, abs(step_um))

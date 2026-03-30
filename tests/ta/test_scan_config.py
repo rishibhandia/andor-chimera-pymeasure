@@ -351,9 +351,9 @@ class TestLinearDelaysUm:
         from andor_qt.ta.scan_config import um_to_ps
         assert result[-1] == pytest.approx(um_to_ps(0.0), rel=1e-6)
 
-    def test_step_must_be_positive(self):
+    def test_step_zero_raises(self):
         from andor_qt.ta.scan_config import linear_delays_um
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(ValueError, match="non-zero"):
             linear_delays_um(0.0, 10.0, 0.0)
 
 

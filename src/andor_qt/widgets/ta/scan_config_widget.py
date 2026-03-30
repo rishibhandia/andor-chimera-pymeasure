@@ -124,6 +124,15 @@ class TAScanConfigWidget(QGroupBox):
         )
         form.addRow("", self._external_trigger_check)
 
+        self._static_note_label = QLabel(
+            "Pass 1: Pump ON (pump+probe)\n"
+            "Pass 2: Pump OFF (probe only)\n"
+            "You will be prompted to block the pump between passes."
+        )
+        self._static_note_label.setStyleSheet("color: #888; font-size: 10px;")
+        self._static_note_label.setVisible(False)
+        form.addRow("", self._static_note_label)
+
         self._scan_dir_combo = QComboBox()
         self._scan_dir_combo.addItems(["forward", "alternating"])
         form.addRow("Scan direction:", self._scan_dir_combo)
@@ -234,7 +243,7 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Start position:", self._stg_start)
 
         self._stg_step = QDoubleSpinBox()
-        self._stg_step.setRange(0.1, 100000.0)
+        self._stg_step.setRange(-100000.0, 100000.0)
         self._stg_step.setDecimals(2)
         self._stg_step.setValue(3.0)
         self._stg_step.setSuffix(" \u00b5m")
@@ -402,6 +411,7 @@ class TAScanConfigWidget(QGroupBox):
     def _on_acq_mode_changed(self, mode: str) -> None:
         """Auto-configure camera when acquisition mode changes."""
         self._external_trigger_check.setVisible(mode == "chopper_2x2")
+        self._static_note_label.setVisible(mode == "static_onoff")
         if mode in ("chopper_2x2", "shot_to_shot", "static_onoff"):
             self._camera_settings.apply_mode_preset(mode)
 
