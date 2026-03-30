@@ -345,6 +345,8 @@ class TAMonitorWidget(QGroupBox):
         """Auto-configure camera when mode changes."""
         is_static = mode == "static_onoff"
         self._external_trigger_check.setVisible(mode == "chopper_2x2")
+        if mode != "chopper_2x2":
+            self._external_trigger_check.setChecked(False)
         self._static_group.setVisible(is_static)
         self._start_btn.setVisible(not is_static)
         self._stop_btn.setVisible(True)
