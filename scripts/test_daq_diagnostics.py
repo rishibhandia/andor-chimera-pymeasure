@@ -255,20 +255,25 @@ def test_phase_lock_stability():
             di_task.close()
 
             tags = np.array(data, dtype=np.int8)
-            # Reshape into pairs (2 tags per 500 Hz frame)
-            n_pairs = len(tags) // 2
-            pairs = tags[:n_pairs * 2].reshape(n_pairs, 2)
-            matched = (pairs[:, 0] == pairs[:, 1])
-            on_count = int((pairs[matched, 0] == 1).sum())
-            off_count = int((pairs[matched, 0] == 0).sum())
-            discarded = int(n_pairs - matched.sum())
+            # Try both offsets (0 and 1) — pick the one with more matched pairs
+            best_on, best_off, best_disc, best_offset = 0, 0, len(tags), 0
+            for offset in (0, 1):
+                t = tags[offset:]
+                n_pairs = len(t) // 2
+                pairs = t[:n_pairs * 2].reshape(n_pairs, 2)
+                matched = (pairs[:, 0] == pairs[:, 1])
+                on_c = int((pairs[matched, 0] == 1).sum())
+                off_c = int((pairs[matched, 0] == 0).sum())
+                disc = int(n_pairs - matched.sum())
+                if disc < best_disc:
+                    best_on, best_off, best_disc, best_offset = on_c, off_c, disc, offset
 
             results.append({
-                "on": on_count, "off": off_count, "discarded": discarded,
-                "first_tag": int(tags[0]),
+                "on": best_on, "off": best_off, "discarded": best_disc,
+                "first_tag": int(tags[0]), "offset": best_offset,
             })
-            print(f"  Cycle {cycle+1}: ON={on_count}, OFF={off_count}, "
-                  f"discarded={discarded}, first_tag={tags[0]}")
+            print(f"  Cycle {cycle+1}: ON={best_on}, OFF={best_off}, "
+                  f"discarded={best_disc}, offset={best_offset}, first_tag={tags[0]}")
 
         ctr_task.stop()
         ctr_task.close()
