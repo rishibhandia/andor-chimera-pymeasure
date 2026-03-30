@@ -175,6 +175,15 @@ def _acquire_chopper_2x2(
     off_frames = matched_frames[matched_tags == 0]
     n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
 
+    log.info(
+        f"chopper_2x2 tag stats: {n_read} frames, {n_discarded} discarded, "
+        f"{len(on_frames)} ON, {len(off_frames)} OFF, {n_pairs} pairs  |  "
+        f"ON mean={on_frames.mean():.1f}, OFF mean={off_frames.mean():.1f}"
+        if len(on_frames) > 0 and len(off_frames) > 0 else
+        f"chopper_2x2 tag stats: {n_read} frames, {n_discarded} discarded, "
+        f"{len(on_frames)} ON, {len(off_frames)} OFF"
+    )
+
     if n_pairs == 0:
         raise RuntimeError(
             f"chopper_2x2: {n_read} frames, {n_discarded} discarded, "
