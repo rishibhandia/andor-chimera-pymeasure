@@ -131,7 +131,7 @@ class NIDAQChopper500Hz:
             trigger_edge=Edge.RISING,
         )
         self._divider_task.start()
-        log.debug(
+        log.info(
             f"NIDAQChopper500Hz divider started: "
             f"{self._divider_counter} divides {self._clock_source} → 250 Hz"
         )
@@ -171,7 +171,7 @@ class NIDAQChopper500Hz:
         self._task.triggers.start_trigger.retriggerable = True
 
         self._task.start()
-        log.debug(
+        log.info(
             f"NIDAQChopper500Hz started: 500 Hz on {self._counter}, "
             f"locked via {ctr2_internal}"
         )
