@@ -110,14 +110,11 @@ class NIDAQChopper500Hz:
 
         # ----------------------------------------------------------
         # 500 Hz camera trigger from 20 MHz timebase, retriggered
-        # on every PFI0 rising edge (1 kHz) to maintain phase lock.
+        # on every sync_source rising edge (500 Hz from SDG on PFI12).
         #
-        # The counter generates one 500 Hz period (2 ms) per retrigger.
-        # PFI0 fires at 1 kHz, but only every OTHER retrigger produces
-        # an output edge (500 Hz = half of 1 kHz). The retrigger keeps
-        # the output phase-locked to PFI0 — and since the chopper is
-        # also locked to PFI0 (via the SDG or directly), the camera
-        # frames stay aligned with the chopper blade.
+        # Each retrigger restarts the counter, producing one 2 ms
+        # pulse cycle. Since the SDG also drives the chopper reference,
+        # the counter output is phase-locked to the chopper blade.
         #
         # 500 Hz with 200 us pulse from 20 MHz timebase:
         #   period = 20,000,000 / 500 = 40,000 ticks = 2 ms
@@ -142,11 +139,11 @@ class NIDAQChopper500Hz:
         self._task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
         )
-        # Retrigger on every PFI0 rising edge (1 kHz).
-        # This resets the counter phase to PFI0 every 1 ms, ensuring
-        # the 500 Hz output stays locked to the laser/chopper.
+        # Retrigger on every sync_source rising edge (500 Hz on PFI12).
+        # This resets the counter phase every 2 ms, keeping the output
+        # locked to the SDG/chopper timing chain.
         self._task.triggers.start_trigger.cfg_dig_edge_start_trig(
-            trigger_source=self._clock_source,
+            trigger_source=self._sync_source,
             trigger_edge=Edge.RISING,
         )
         self._task.triggers.start_trigger.retriggerable = True
@@ -154,7 +151,7 @@ class NIDAQChopper500Hz:
         self._task.start()
         log.info(
             f"NIDAQChopper500Hz started: 500 Hz on {self._counter}, "
-            f"retriggered by {self._clock_source} (1 kHz)"
+            f"retriggered by {self._sync_source} (500 Hz)"
         )
 
     def stop(self) -> None:

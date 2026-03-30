@@ -228,13 +228,14 @@ def test_phase_lock_stability():
         ctr_task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
         )
+        PFI12 = f"/{DEVICE}/PFI12"
         ctr_task.triggers.start_trigger.cfg_dig_edge_start_trig(
-            trigger_source=PFI0,
+            trigger_source=PFI12,
             trigger_edge=Edge.RISING,
         )
         ctr_task.triggers.start_trigger.retriggerable = True
         ctr_task.start()
-        print("  Counter started: 500 Hz from 20 MHz, retriggered by PFI0")
+        print(f"  Counter started: 500 Hz from 20 MHz, retriggered by {PFI12} (500 Hz)")
 
         # Read tags in multiple bursts
         results = []
@@ -284,12 +285,12 @@ def test_phase_lock_stability():
         avg_discard = np.mean(discard_counts)
         if avg_discard < 5:
             print(f"  RESULT: PASS -- low discard rate ({avg_discard:.1f}/cycle)")
+            return True
         else:
-            print(f"  RESULT: WARNING -- high discard rate ({avg_discard:.1f}/cycle)")
+            print(f"  RESULT: FAIL -- high discard rate ({avg_discard:.1f}/cycle)")
             print(f"  This suggests the counter output is not phase-locked "
                   f"to the chopper")
-
-        return True
+            return False
 
     except Exception as exc:
         print(f"  RESULT: FAIL -- {exc}")
