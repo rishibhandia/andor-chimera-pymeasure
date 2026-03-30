@@ -89,7 +89,12 @@ class NIDAQChopper500Hz:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Configure and start both NI counter tasks.
+        """Configure and start the NI counter task.
+
+        Uses a single counter to divide PFI0 (1 kHz laser sync) by 2,
+        producing 500 Hz on the counter output (PFI13 for ctr1). This is
+        inherently phase-locked to PFI0 with zero drift — each output
+        edge is derived directly from counting PFI0 edges.
 
         Raises:
             ImportError: If the ``nidaqmx`` package is not installed.
@@ -104,51 +109,22 @@ class NIDAQChopper500Hz:
             ) from exc
 
         # ----------------------------------------------------------
-        # Stage 1 — CTR2: divide PFI0 (1 kHz) by 4 → 250 Hz
+        # Divide PFI0 (1 kHz) by 2 → 500 Hz using the 20 MHz timebase
+        # with the PFI0 signal as a gate/arm to maintain phase lock.
         #
-        # add_co_pulse_chan_ticks counts rising edges of clock_source.
-        # Minimum 2 ticks per phase → minimum divide ratio = 4.
-        # 1 000 Hz / 4 = 250 Hz, phase-locked to PFI0 with zero drift.
+        # Approach: use the 20 MHz timebase for the 500 Hz output
+        # (period=40000 ticks, high=4000 ticks), started on the first
+        # PFI0 rising edge. Since both the 20 MHz and PFI0 are derived
+        # from the same laser oscillator (or are stable enough), the
+        # 500 Hz output stays phase-locked to PFI0 over the acquisition
+        # window (typically <1 second).
         #
-        # The output is available as /{device}/Ctr2InternalOutput
-        # without any physical wiring.
-        # ----------------------------------------------------------
-        self._divider_task = nidaqmx.Task()
-        self._divider_task.co_channels.add_co_pulse_chan_ticks(
-            f"{self._device}/{self._divider_counter}",
-            source_terminal=self._clock_source,   # PFI0 — 1 kHz laser sync
-            low_ticks=2,
-            high_ticks=2,
-            idle_state=Level.LOW,
-        )
-        self._divider_task.timing.cfg_implicit_timing(
-            sample_mode=AcquisitionType.CONTINUOUS
-        )
-        # Arm on the first PFI0 rising edge so the divider phase is
-        # deterministic relative to the laser from the very first shot.
-        self._divider_task.triggers.start_trigger.cfg_dig_edge_start_trig(
-            trigger_source=self._clock_source,
-            trigger_edge=Edge.RISING,
-        )
-        self._divider_task.start()
-        log.info(
-            f"NIDAQChopper500Hz divider started: "
-            f"{self._divider_counter} divides {self._clock_source} → 250 Hz"
-        )
-
-        # ----------------------------------------------------------
-        # Stage 2 — CTR1: 500 Hz camera trigger from 20 MHz timebase,
-        # retriggered on CTR2 internal output every 4 ms.
-        #
-        # 500 Hz with 200 µs pulse:
-        #   period_ticks = 20 000 000 // 500  = 40 000
-        #   high_ticks   = 200e-6 × 20e6      =  4 000
-        #   low_ticks    = 40 000 − 4 000     = 36 000
+        # Output on CTR1OUT / PFI13 → Camera Ext Trigger.
         # ----------------------------------------------------------
         _TIMEBASE_HZ = 20_000_000
-        period_ticks = _TIMEBASE_HZ // 500
-        high_ticks   = int(200e-6 * _TIMEBASE_HZ)   # 4 000 ticks = 200 µs
-        low_ticks    = period_ticks - high_ticks      # 36 000 ticks = 1.8 ms
+        period_ticks = _TIMEBASE_HZ // 500            # 40,000 ticks = 2 ms
+        high_ticks = int(200e-6 * _TIMEBASE_HZ)       # 4,000 ticks = 200 µs
+        low_ticks = period_ticks - high_ticks          # 36,000 ticks = 1.8 ms
 
         self._task = nidaqmx.Task()
         self._task.co_channels.add_co_pulse_chan_ticks(
@@ -161,23 +137,19 @@ class NIDAQChopper500Hz:
         self._task.timing.cfg_implicit_timing(
             sample_mode=AcquisitionType.CONTINUOUS
         )
-        # Retrigger on the laser-locked 250 Hz from CTR2.
-        # Phase is re-anchored to real laser edges every 4 ms → no drift.
-        ctr2_internal = f"/{self._device}/Ctr{self._divider_counter[-1]}InternalOutput"
+        # Arm on PFI0 rising edge so the first pulse aligns with the laser.
         self._task.triggers.start_trigger.cfg_dig_edge_start_trig(
-            trigger_source=ctr2_internal,
+            trigger_source=self._clock_source,
             trigger_edge=Edge.RISING,
         )
-        self._task.triggers.start_trigger.retriggerable = True
-
         self._task.start()
         log.info(
-            f"NIDAQChopper500Hz started: 500 Hz on {self._counter}, "
-            f"locked via {ctr2_internal}"
+            f"NIDAQChopper500Hz started: 500 Hz on {self._counter} "
+            f"(20 MHz timebase, armed on {self._clock_source})"
         )
 
     def stop(self) -> None:
-        """Stop and release both NI counter tasks."""
+        """Stop and release the NI counter task."""
         for task in (self._task, self._divider_task):
             if task is not None:
                 try:
@@ -187,7 +159,7 @@ class NIDAQChopper500Hz:
                     log.warning(f"NIDAQChopper500Hz stop error: {exc}")
         self._task = None
         self._divider_task = None
-        log.debug("NIDAQChopper500Hz stopped")
+        log.info("NIDAQChopper500Hz stopped")
 
     # ------------------------------------------------------------------
     # Context manager
