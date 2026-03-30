@@ -407,6 +407,7 @@ def acquire_long_average(
     n_target: int,
     abort_event: threading.Event,
     progress_cb: Optional[Callable[[np.ndarray, int, int], None]] = None,
+    frame_period_s: float = 0.002,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Acquire many frames and return running-mean statistics.
 
@@ -421,6 +422,9 @@ def acquire_long_average(
         abort_event: Set this event to abort early.
         progress_cb: Optional ``(running_mean, collected, n_target)`` callback
             invoked after each chunk for live progress updates.
+        frame_period_s: Expected time per frame in seconds. Used to calculate
+            how long to wait for a chunk of frames. Default 2 ms (500 Hz).
+            For external trigger at 1 kHz, pass 0.001.
 
     Returns:
         ``(mean, std, count)`` where ``mean`` and ``std`` are 1-D arrays.
@@ -440,7 +444,7 @@ def acquire_long_average(
 
         camera.start_run_till_abort()
         try:
-            wait_s = (chunk * 2.0) / 1000.0 * 1.2 + 0.05
+            wait_s = chunk * frame_period_s * 1.2 + 0.05
             time.sleep(wait_s)
             frames, n_read = camera.get_buffered_frames()
         finally:
@@ -469,6 +473,39 @@ def acquire_long_average(
     variance = running_sum_sq / collected - mean ** 2
     std = np.sqrt(np.maximum(variance, 0.0))
     return mean, std, collected
+
+
+# ---------------------------------------------------------------------------
+# Frame period estimation
+# ---------------------------------------------------------------------------
+
+def _compute_frame_period_s(camera_settings: Optional[dict] = None) -> float:
+    """Estimate the time per frame from camera settings.
+
+    Uses exposure_time + readout_time. Falls back to 2 ms if settings
+    are unavailable (the chopper_2x2 default at 500 Hz).
+
+    Returns:
+        Seconds per frame.
+    """
+    if camera_settings is None:
+        return 0.002
+
+    exposure_s = camera_settings.get("exposure_time", 0.002)
+
+    # Estimate readout time
+    try:
+        from andor_qt.utils.readout_time import calculate_readout_time_ms
+        vs_idx = camera_settings.get("vs_speed", 1)
+        hs_idx = camera_settings.get("hs_speed", 1)
+        hbin = camera_settings.get("hbin", 1)
+        if isinstance(hbin, str):
+            hbin = int(hbin.replace("x", ""))
+        readout_s = calculate_readout_time_ms("fvb", 200, 1600, vs_idx, hs_idx, hbin) / 1000.0
+    except Exception:
+        readout_s = 0.001  # 1 ms fallback
+
+    return exposure_s + readout_s
 
 
 # ---------------------------------------------------------------------------
@@ -505,9 +542,13 @@ def acquire_static_at_delay(
         if callable(apply):
             apply(camera_settings)
 
+    # Compute frame period from camera settings for accurate wait time
+    frame_period_s = _compute_frame_period_s(camera_settings)
+
     # Acquire
     mean, std, count = acquire_long_average(
-        hw_manager.camera, n_frames, abort_event, progress_cb=progress_cb,
+        hw_manager.camera, n_frames, abort_event,
+        progress_cb=progress_cb, frame_period_s=frame_period_s,
     )
 
     # Dark subtraction
