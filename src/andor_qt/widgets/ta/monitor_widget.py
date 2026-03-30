@@ -464,7 +464,7 @@ class TAMonitorWidget(QGroupBox):
         """Persist current widget values to QSettings."""
         s = QSettings("AndorSpectrometer", "TAMonitor")
         s.setValue("acq_mode", self._acq_combo.currentText())
-        s.setValue("external_trigger", self._external_trigger_check.isChecked())
+        # external_trigger NOT persisted — defaults to unchecked each session
         s.setValue("avg_mode", self._avg_mode_combo.currentIndex())
         s.setValue("n_averages", self._n_avg_spin.value())
         s.setValue("avg_time", self._avg_time_spin.value())
@@ -479,9 +479,8 @@ class TAMonitorWidget(QGroupBox):
             idx = self._acq_combo.findText(str(acq))
             if idx >= 0:
                 self._acq_combo.setCurrentIndex(idx)
-        ext = s.value("external_trigger")
-        if ext is not None:
-            self._external_trigger_check.setChecked(str(ext).lower() == "true")
+        # external_trigger is NOT restored from QSettings — it defaults to
+        # unchecked each session to prevent accidental NIDAQChopper500Hz bypass
         avg_mode = s.value("avg_mode")
         if avg_mode is not None:
             self._avg_mode_combo.setCurrentIndex(int(avg_mode))
