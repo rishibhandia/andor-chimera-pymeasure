@@ -127,28 +127,9 @@ class _MonitorWorker(QObject):
         log.info(f"=== MONITOR STARTED === mode={config.acquisition_mode}")
         is_chopper = config.acquisition_mode == "chopper_2x2" and phase_reader is not None
 
-        # PFI13 hardware sync: wait for chopper rising edge before starting
-        # the camera, so the first frame aligns with pump-ON phase.
-        if is_chopper:
-            self.status_updated.emit("Waiting for chopper phase sync...")
-            log.info("Waiting for chopper rising edge on PFI13 (hardware)...")
-            try:
-                import nidaqmx
-                from nidaqmx.constants import Edge
-                device = config.nidaq_device
-                with nidaqmx.Task("chopper_sync") as sync_task:
-                    sync_task.ci_channels.add_ci_count_edges_chan(
-                        f"{device}/ctr0",
-                        edge=Edge.RISING,
-                    )
-                    sync_task.ci_channels[0].ci_count_edges_term = f"/{device}/PFI13"
-                    sync_task.start()
-                    sync_task.read(timeout=5.0)
-                log.info("Chopper rising edge detected on PFI13 -- starting camera")
-            except Exception as exc:
-                log.warning(f"Chopper sync failed ({exc}) -- starting without sync")
-
-        # Non-chopper modes: start phase reader before session
+        # Non-chopper modes: start phase reader before session.
+        # For chopper_2x2, AcquisitionSession starts the phase reader
+        # with Camera Fire (PFI13) as start trigger.
         if not is_chopper and phase_reader is not None:
             phase_reader.start()
 

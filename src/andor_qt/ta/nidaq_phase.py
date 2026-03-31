@@ -67,8 +67,16 @@ class NIDAQPhaseReader:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self) -> None:
-        """Create and start the NI DAQ task."""
+    def start(self, start_trigger: str | None = None) -> None:
+        """Create and start the NI DAQ task.
+
+        Args:
+            start_trigger: Optional PFI terminal for a digital-edge start
+                trigger (e.g. ``"/{device}/PFI13"``).  When set, the task
+                arms but does not acquire samples until the specified
+                rising edge arrives.  Use the Camera Fire output to
+                guarantee that tag[0] corresponds to frame[0].
+        """
         try:
             import nidaqmx
             from nidaqmx.constants import AcquisitionType, Edge
@@ -88,6 +96,11 @@ class NIDAQPhaseReader:
             sample_mode=AcquisitionType.CONTINUOUS,
             samps_per_chan=self._buffer_size,
         )
+        if start_trigger is not None:
+            self._task.triggers.start_trigger.cfg_dig_edge_start_trig(
+                trigger_source=start_trigger,
+                trigger_edge=Edge.RISING,
+            )
         self._task.start()
 
     def stop(self) -> None:
@@ -184,7 +197,7 @@ class MockNIDAQPhaseReader:
         self._shots_per_frame = shots_per_frame
         self._shot_counter = 0
 
-    def start(self) -> None:
+    def start(self, start_trigger: str | None = None) -> None:
         self._shot_counter = 0
 
     def stop(self) -> None:

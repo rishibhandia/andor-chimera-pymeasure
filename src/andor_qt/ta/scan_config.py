@@ -62,6 +62,9 @@ class TAScanConfig:
     # NI DAQ chopper_2x2 trigger generator settings
     nidaq_chopper_sync_source: str = "/Astrella_DAQ/PFI12"
     nidaq_chopper_counter: str = "ctr1"
+    # Camera Fire output terminal — used as start trigger for the phase
+    # reader so that tag[0] corresponds to frame[0] deterministically.
+    nidaq_fire_trigger: str = "/Astrella_DAQ/PFI13"
     stage_axis: int = 2
     # When True, camera trigger is supplied externally (e.g. DG535 or SDG)
     # and NIDAQChopper500Hz is NOT started even in chopper_2x2 mode.

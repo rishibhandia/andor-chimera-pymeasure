@@ -63,7 +63,7 @@ def _make_hw_software(shot_values):
 
 class TestAcquisitionSessionChopper2x2:
 
-    def test_enter_starts_camera_and_phase_reader(self):
+    def test_enter_starts_camera_then_phase_reader_with_fire_trigger(self):
         from andor_qt.ta.acquisition import AcquisitionSession
 
         hw = _make_hw_chopper(1200, 1000, n_pairs=5)
@@ -72,9 +72,12 @@ class TestAcquisitionSessionChopper2x2:
         config = _make_config("chopper_2x2")
 
         with AcquisitionSession(hw, config, phase_reader=reader):
+            # Camera starts FIRST (Fire output must be active)
             hw.camera.start_run_till_abort.assert_called_once()
-            reader.start.assert_called_once()
-            reader.drain.assert_called_once()
+            # Phase reader starts with Fire trigger from config
+            reader.start.assert_called_once_with(
+                start_trigger=config.nidaq_fire_trigger,
+            )
 
     def test_exit_stops_camera(self):
         from andor_qt.ta.acquisition import AcquisitionSession

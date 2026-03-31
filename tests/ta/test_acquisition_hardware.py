@@ -286,7 +286,7 @@ class TestAcquireChopper2x2:
         n_frames = 10
 
         class AllMixedReader:
-            def start(self): pass
+            def start(self, **kwargs): pass
             def stop(self): pass
             def drain(self): pass
             def read_tags(self, k):
