@@ -181,20 +181,12 @@ def _acquire_chopper_2x2(
     matched_frames = frames[matched_mask]
     matched_tags = tag_groups[matched_mask, 0]  # use first tag as the label
 
-    tag1_frames = matched_frames[matched_tags == 1]
-    tag0_frames = matched_frames[matched_tags == 0]
-
-    # Auto-detect phase: P0.0=1 should be pump-ON (higher signal with pump).
-    # If tag1 has lower mean than tag0, the counter phase is flipped —
-    # swap so "on_frames" always has the higher signal (pump-ON).
-    if len(tag1_frames) > 0 and len(tag0_frames) > 0:
-        if tag1_frames.mean() < tag0_frames.mean():
-            on_frames, off_frames = tag0_frames, tag1_frames
-            log.info("chopper_2x2: phase auto-corrected (tag 0 = pump-ON)")
-        else:
-            on_frames, off_frames = tag1_frames, tag0_frames
-    else:
-        on_frames, off_frames = tag1_frames, tag0_frames
+    # P0.0=1 means pump chopper is open (pump-ON), P0.0=0 means closed (pump-OFF).
+    # Trust the chopper controller output directly — do NOT auto-swap based on
+    # intensity, as that would flip the sign of ΔI/I₀ in real TA experiments
+    # where the pump-ON/OFF difference is tiny.
+    on_frames = matched_frames[matched_tags == 1]
+    off_frames = matched_frames[matched_tags == 0]
 
     n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
 
