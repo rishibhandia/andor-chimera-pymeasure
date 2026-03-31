@@ -455,9 +455,9 @@ camera.abort_acquisition()  # stops ONCE after the loop
 
 **Phase sync on startup:** A hardware counter edge detection on PFI13 waits for the chopper blade rising edge before starting the camera. However, testing confirmed this does NOT deterministically set the tag-to-frame alignment — the initial phase is still random (50/50). **Continuous mode is what actually prevents flipping** — the phase is set once on first read and stays stable for the entire session.
 
-**Tag-to-frame alignment:** The offset detection in `_process_chopper_frames` tries offsets 0 through `shots_per_frame-1` and picks the one with the most matched tag groups. This offset is re-detected each read cycle, but in continuous mode it stays consistent because the camera never restarts.
+**Tag-to-frame alignment:** The offset detection in `_process_chopper_frames` tries offsets 0 through `shots_per_frame-1` and picks the one with the most matched tag groups (all tags identical within a group). This works purely from the P0.0 tag pattern — it does NOT need intensity data or a chopped probe. The tag pattern `[1,1,0,0,1,1,0,0...]` determines the correct offset regardless of what the camera sees. In continuous mode, the offset stays consistent because the camera never restarts.
 
-**P0.0 polarity (MC2000B):** The photo-interrupter polarity is fixed by hardware and does NOT change between sessions. From testing with the MC1F10HP blade with INNER REF OUT: P0.0=0 typically means beam passes (slot open), P0.0=1 means beam blocked. But the actual assignment depends on the tag-to-frame alignment offset, which varies per camera start. The ΔI/I₀ sign is determined by which tag group has higher intensity — this is consistent within a session.
+**P0.0 polarity (MC2000B):** The photo-interrupter polarity is fixed by hardware and does NOT change between sessions. The MC2000B INNER REF OUT always outputs the same logic level for blade-open vs blade-closed. This means tag=1 always maps to the same physical state (pump-ON or pump-OFF) — no auto-detection needed for real experiments.
 
 **`_ensure_idle()` prevents DRV_ACQUIRING (20072).** Called at the top of `start_run_till_abort()` and `start_run_till_abort_crop()` — checks `GetStatus()` and aborts if still acquiring.
 
