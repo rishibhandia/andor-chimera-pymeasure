@@ -141,17 +141,19 @@ class _MonitorWorker(QObject):
             log.info("Waiting for chopper rising edge (P0.0: 0 -> 1)...")
             try:
                 import nidaqmx
-                di_chan = config.nidaq_di_channel
                 device = config.nidaq_device
+                # Read chopper REF OUT on PFI13 (User 1 BNC) — separate
+                # from the phase reader's P0.0 to avoid resource conflicts.
+                sync_line = f"{device}/port2/line5"  # PFI13 = P2.5
                 prev = 0
                 with nidaqmx.Task("chopper_sync") as sync_task:
-                    sync_task.di_channels.add_di_chan(f"{device}/{di_chan}")
+                    sync_task.di_channels.add_di_chan(sync_line)
                     for _ in range(50000):  # timeout ~50k reads
                         val = sync_task.read()
                         if prev == 0 and val == 1:
                             break  # rising edge detected
                         prev = val
-                log.info("Chopper rising edge detected -- starting camera")
+                log.info("Chopper rising edge detected on PFI13 -- starting camera")
             except Exception as exc:
                 log.warning(f"Chopper sync failed ({exc}) -- starting without sync")
 
