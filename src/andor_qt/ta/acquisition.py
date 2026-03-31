@@ -622,16 +622,14 @@ class AcquisitionSession:
                 apply(self._camera_settings)
 
         if self._is_chopper:
-            # Start camera FIRST — its Fire output triggers the phase
-            # reader, so the camera must be running before the reader arms.
-            self._hw.camera.start_run_till_abort()
-            self._camera_running = True
-            # Phase reader starts with Camera Fire (PFI13) as start
-            # trigger: it arms immediately but does NOT acquire samples
-            # until the camera fires its first exposure.  This guarantees
-            # tag[0] = chopper state during frame[0].
+            # Phase reader arms FIRST with Camera Fire (PFI13) as start
+            # trigger — it waits for the rising edge before acquiring.
+            # Camera starts AFTER so the first Fire pulse is guaranteed
+            # to be caught by the already-armed reader.
             fire = getattr(self._config, "nidaq_fire_trigger", None)
             self._phase_reader.start(start_trigger=fire)
+            self._hw.camera.start_run_till_abort()
+            self._camera_running = True
 
         return self
 
