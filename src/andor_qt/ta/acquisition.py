@@ -129,44 +129,47 @@ def _acquire_chopper_2x2(
     all_tags_list = []
     remaining = n_target
 
-    while remaining > 0:
-        chunk = min(remaining, max_chunk)
+    # Start camera once — keep it running for the entire acquisition.
+    # This preserves the phase relationship between the counter output
+    # and the camera frames, preventing random ON/OFF flipping.
+    camera.start_run_till_abort()
+    phase_reader.drain()
 
-        camera.start_run_till_abort()
-        phase_reader.drain()
+    try:
+        while remaining > 0:
+            chunk = min(remaining, max_chunk)
 
-        try:
             wait_s = (chunk * frame_period_ms) / 1000.0 + 0.05
             time.sleep(wait_s)
             chunk_frames, n_chunk = camera.get_buffered_frames()
-        finally:
-            camera.abort_acquisition()
 
-        if n_chunk == 0:
-            break
+            if n_chunk == 0:
+                break
 
-        # Read spf tags per frame + 1 for alignment detection
-        chunk_tags = phase_reader.read_tags(n_chunk * spf + 1)
+            # Read spf tags per frame + 1 for alignment detection
+            chunk_tags = phase_reader.read_tags(n_chunk * spf + 1)
 
-        # Auto-detect alignment offset for this chunk
-        best_offset = 0
-        best_matched = -1
-        for offset in range(spf):
-            usable = (len(chunk_tags) - offset) // spf
-            if usable < 1:
-                continue
-            tag_groups = chunk_tags[offset:offset + usable * spf].reshape(usable, spf)
-            # A frame is "matched" if all tags in the group are the same
-            n_matched = int((tag_groups == tag_groups[:, :1]).all(axis=1).sum())
-            if n_matched > best_matched:
-                best_matched = n_matched
-                best_offset = offset
+            # Auto-detect alignment offset for this chunk
+            best_offset = 0
+            best_matched = -1
+            for offset in range(spf):
+                usable = (len(chunk_tags) - offset) // spf
+                if usable < 1:
+                    continue
+                tag_groups = chunk_tags[offset:offset + usable * spf].reshape(usable, spf)
+                # A frame is "matched" if all tags in the group are the same
+                n_matched = int((tag_groups == tag_groups[:, :1]).all(axis=1).sum())
+                if n_matched > best_matched:
+                    best_matched = n_matched
+                    best_offset = offset
 
-        usable = min(n_chunk, (len(chunk_tags) - best_offset) // spf)
-        tag_groups = chunk_tags[best_offset:best_offset + usable * spf].reshape(usable, spf)
-        all_frames_list.append(chunk_frames[:usable])
-        all_tags_list.append(tag_groups)
-        remaining -= usable
+            usable = min(n_chunk, (len(chunk_tags) - best_offset) // spf)
+            tag_groups = chunk_tags[best_offset:best_offset + usable * spf].reshape(usable, spf)
+            all_frames_list.append(chunk_frames[:usable])
+            all_tags_list.append(tag_groups)
+            remaining -= usable
+    finally:
+        camera.abort_acquisition()
 
     if not all_frames_list:
         raise RuntimeError("chopper_2x2: no frames acquired — check trigger")
