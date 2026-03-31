@@ -108,10 +108,12 @@ class _MonitorWorker(QObject):
 
     def _run_continuous(self, config: TAScanConfig, hw: object, phase_reader: object, trigger_gen: object) -> None:
         """Standard monitor: continuous cycles at current position."""
+        from andor_qt.ta.acquisition import AcquisitionSession
+        from andor_qt.ta.engine import _estimate_point_time_s, _format_time
+
         if trigger_gen is not None:
             trigger_gen.start()
 
-        from andor_qt.ta.engine import _estimate_point_time_s, _format_time
         is_static = config.acquisition_mode == "static_onoff"
         est_cycle_s = _estimate_point_time_s(
             self._camera_settings or {}, config.n_averages, static=is_static,
@@ -122,21 +124,12 @@ class _MonitorWorker(QObject):
         avg_stack = []
         cycle = 0
 
-        # For chopper_2x2, start camera once and keep it running to
-        # preserve the phase relationship with the chopper tags.
         log.info(f"=== MONITOR STARTED === mode={config.acquisition_mode}")
         is_chopper = config.acquisition_mode == "chopper_2x2" and phase_reader is not None
-        camera = hw.camera
-        if is_chopper:
-            _apply = getattr(camera, "apply_camera_settings", None)
-            if callable(_apply) and self._camera_settings:
-                _apply(self._camera_settings)
 
-            # Wait for chopper rising edge on PFI13 (User 1 BNC) before
-            # starting camera, so the first frame aligns with pump-ON.
-            # Uses a hardware counter edge detection — blocks at the NI DAQ
-            # level until the rising edge arrives, then returns immediately.
-            # This gives microsecond-level sync, not millisecond polling.
+        # PFI13 hardware sync: wait for chopper rising edge before starting
+        # the camera, so the first frame aligns with pump-ON phase.
+        if is_chopper:
             self.status_updated.emit("Waiting for chopper phase sync...")
             log.info("Waiting for chopper rising edge on PFI13 (hardware)...")
             try:
@@ -150,79 +143,61 @@ class _MonitorWorker(QObject):
                     )
                     sync_task.ci_channels[0].ci_count_edges_term = f"/{device}/PFI13"
                     sync_task.start()
-                    sync_task.read(timeout=5.0)  # blocks until rising edge
+                    sync_task.read(timeout=5.0)
                 log.info("Chopper rising edge detected on PFI13 -- starting camera")
             except Exception as exc:
                 log.warning(f"Chopper sync failed ({exc}) -- starting without sync")
 
-            camera.start_run_till_abort()
+        # Non-chopper modes: start phase reader before session
+        if not is_chopper and phase_reader is not None:
             phase_reader.start()
-            phase_reader.drain()
-        else:
-            # Non-chopper modes: start phase reader normally
-            if phase_reader is not None:
-                phase_reader.start()
+
+        session = AcquisitionSession(
+            hw, config,
+            camera_settings=self._camera_settings,
+            phase_reader=phase_reader,
+        )
 
         try:
-            while not self._abort.is_set():
-                axis = getattr(
-                    getattr(hw, "motion_manager", None),
-                    "get_axis", lambda _: None
-                )("delay")
-                delay_ps = getattr(axis, "position_ps", 0.0) if axis else 0.0
+            with session:
+                while not self._abort.is_set():
+                    axis = getattr(
+                        getattr(hw, "motion_manager", None),
+                        "get_axis", lambda _: None
+                    )("delay")
+                    delay_ps = getattr(axis, "position_ps", 0.0) if axis else 0.0
 
-                def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames):
-                    self.raw_pair_updated.emit(
-                        pumped, ref, n_matched, n_discarded, n_frames
-                    )
+                    def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames):
+                        self.raw_pair_updated.emit(
+                            pumped, ref, n_matched, n_discarded, n_frames
+                        )
 
-                if is_chopper:
-                    # Camera is already running — just read accumulated frames
-                    from andor_qt.ta.acquisition import _process_chopper_frames
-                    spf = getattr(config, "shots_per_frame", 2)
-                    frame_period_ms = spf
-                    n_target = int(config.n_averages * 2.2) + 10
-                    wait_s = (n_target * frame_period_ms) / 1000.0 + 0.05
-                    import time as _t
-                    _t.sleep(wait_s)
-                    chunk_frames, n_chunk = camera.get_buffered_frames()
-                    if n_chunk == 0:
+                    try:
+                        delta = session.acquire_one_cycle(
+                            dark=self._dark, raw_callback=_raw_cb,
+                        )
+                    except RuntimeError:
+                        # Zero frames in cycle — retry
                         continue
-                    # Read exactly n_chunk * spf tags — no extra +1 that
-                    # would shift the phase reader and flip ON/OFF
-                    chunk_tags = phase_reader.read_tags(n_chunk * spf)
-                    delta = _process_chopper_frames(
-                        chunk_frames, chunk_tags, config, self._dark,
-                        raw_callback=_raw_cb,
+
+                    cycle += 1
+                    avg_stack.append(delta)
+                    avg = np.mean(avg_stack, axis=0)
+
+                    self.cycle_completed.emit(self._wavelengths, delta, avg)
+
+                    pos_um = getattr(axis, "position", 0.0) * 1000 if axis else 0.0
+                    self.status_updated.emit(
+                        f"Monitor cycle {cycle}  |  "
+                        f"{delay_ps:.2f} ps ({pos_um:.0f} \u00b5m)  |  "
+                        f"avg of {len(avg_stack)} cycles"
                     )
-                else:
-                    delta = acquire_delta_signal_at_delay(
-                        delay_ps, hw, config, dark=self._dark,
-                        camera_settings=self._camera_settings,
-                        phase_reader=phase_reader,
-                        raw_callback=_raw_cb,
-                    )
-
-                cycle += 1
-                avg_stack.append(delta)
-                avg = np.mean(avg_stack, axis=0)
-
-                self.cycle_completed.emit(self._wavelengths, delta, avg)
-
-                pos_um = getattr(axis, "position", 0.0) * 1000 if axis else 0.0
-                self.status_updated.emit(
-                    f"Monitor cycle {cycle}  |  "
-                    f"{delay_ps:.2f} ps ({pos_um:.0f} \u00b5m)  |  "
-                    f"avg of {len(avg_stack)} cycles"
-                )
 
         except Exception as exc:
             log.exception("Monitor error")
             self.error.emit(str(exc))
         finally:
             log.info("=== MONITOR STOPPED ===")
-            if is_chopper:
-                camera.abort_acquisition()
             if trigger_gen is not None:
                 trigger_gen.stop()
             if phase_reader is not None:
