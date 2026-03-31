@@ -124,6 +124,17 @@ class _MonitorWorker(QObject):
         avg_stack = []
         cycle = 0
 
+        # For chopper_2x2, start camera once and keep it running to
+        # preserve the phase relationship with the chopper tags.
+        is_chopper = config.acquisition_mode == "chopper_2x2" and phase_reader is not None
+        camera = hw.camera
+        if is_chopper:
+            _apply = getattr(camera, "apply_camera_settings", None)
+            if callable(_apply) and self._camera_settings:
+                _apply(self._camera_settings)
+            camera.start_run_till_abort()
+            phase_reader.drain()
+
         try:
             while not self._abort.is_set():
                 axis = getattr(
@@ -137,12 +148,19 @@ class _MonitorWorker(QObject):
                         pumped, ref, n_matched, n_discarded, n_frames
                     )
 
-                delta = acquire_delta_signal_at_delay(
-                    delay_ps, hw, config, dark=self._dark,
-                    camera_settings=self._camera_settings,
-                    phase_reader=phase_reader,
-                    raw_callback=_raw_cb,
-                )
+                if is_chopper:
+                    # Camera is already running — just read frames
+                    from andor_qt.ta.acquisition import _read_chopper_frames
+                    delta = _read_chopper_frames(
+                        hw, config, self._dark, phase_reader, raw_callback=_raw_cb,
+                    )
+                else:
+                    delta = acquire_delta_signal_at_delay(
+                        delay_ps, hw, config, dark=self._dark,
+                        camera_settings=self._camera_settings,
+                        phase_reader=phase_reader,
+                        raw_callback=_raw_cb,
+                    )
 
                 cycle += 1
                 avg_stack.append(delta)
@@ -161,6 +179,8 @@ class _MonitorWorker(QObject):
             log.exception("Monitor error")
             self.error.emit(str(exc))
         finally:
+            if is_chopper:
+                camera.abort_acquisition()
             if trigger_gen is not None:
                 trigger_gen.stop()
             if phase_reader is not None:
