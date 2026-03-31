@@ -585,11 +585,61 @@ tests/
 ├── qt/
 │   ├── conftest.py      # Qt fixtures (qt_app, hardware_manager, wait_for)
 │   └── test_*.py        # Widget and integration tests
+├── integration/
+│   ├── conftest.py      # Hardware marker, camera/spectrograph/phase_reader fixtures
+│   ├── test_nidaq_diagnostics.py       # NI DAQ counter, phase tags, retrigger
+│   ├── test_chopper_acquisition.py     # chopper_2x2 ON/OFF separation
+│   ├── test_chopper_phase_stability.py # Continuous vs restart phase stability
+│   ├── test_camera_readout_modes.py    # RTA batch read, frame rate, spectra
+│   └── test_readout_time_sdk.py        # Readout time formula vs SDK reference
 ├── procedures/          # Procedure tests
 └── e2e/                 # End-to-end workflow tests
 ```
 
-### Key Fixtures
+### Hardware Integration Tests
+
+Tests under `tests/integration/` require real hardware. They are marked with
+`@pytest.mark.hardware` and **skipped by default**. Run with:
+```bash
+uv run pytest tests/integration/ --hardware -v
+```
+
+### Hardware Fixture Lifecycle Rules
+
+**All hardware fixtures MUST be function-scoped** (not session or module).
+The Andor camera SDK locks the DLL exclusively — if a fixture keeps the
+camera initialized after the test, subsequent tests (or the GUI) cannot
+acquire it.
+
+Rules for hardware integration test fixtures:
+- **Function scope** — `@pytest.fixture` (no `scope=` argument). Init in setup, shutdown in teardown. Every test gets a fresh camera/spectrograph.
+- **Always teardown** — Use `yield` + cleanup after yield. Camera: `cam.shutdown()`. Phase reader: `reader.stop()`. Spectrograph: `spec.shutdown()`.
+- **Abort before shutdown** — If the test starts acquisition, the `finally` block must call `camera.abort_acquisition()` before the fixture's `shutdown()` runs.
+- **No leftover NI DAQ tasks** — Use `with nidaqmx.Task() as task:` context managers so tasks are always closed, even on exception.
+- **Pop ANDOR_MOCK** — Hardware fixtures must `os.environ.pop("ANDOR_MOCK", None)` before importing the real camera, because the top-level conftest sets `ANDOR_MOCK=1`.
+
+Example pattern:
+```python
+@pytest.fixture
+def camera():
+    os.environ.pop("ANDOR_MOCK", None)
+    cam = AndorCamera(sdk_path=SDK_PATH)
+    cam.initialize()
+    yield cam
+    cam.shutdown()
+
+def test_batch_read(camera):
+    camera.apply_camera_settings(SETTINGS)
+    camera.start_run_till_abort()
+    try:
+        frames, n = camera.get_buffered_frames()
+        assert n > 0
+    finally:
+        camera.abort_acquisition()
+    # fixture teardown calls camera.shutdown() automatically
+```
+
+### Key Fixtures (Mock Tests)
 - `qt_app` — QApplication instance (module scope)
 - `hardware_manager` — Fresh HardwareManager with mock SDK
 - `wait_for` — Polling helper for async operations
