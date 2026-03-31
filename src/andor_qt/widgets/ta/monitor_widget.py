@@ -121,6 +121,12 @@ class TAMonitorWidget(QGroupBox):
         self._acq_combo.currentTextChanged.connect(self._on_acq_mode_changed)
         acq_form.addRow("Mode:", self._acq_combo)
 
+        self._shots_per_frame_spin = QSpinBox()
+        self._shots_per_frame_spin.setRange(1, 10)
+        self._shots_per_frame_spin.setValue(2)
+        self._shots_per_frame_spin.setToolTip("Laser shots per camera frame (2=500Hz, 4=250Hz)")
+        acq_form.addRow("Shots/frame:", self._shots_per_frame_spin)
+
         self._external_trigger_check = QCheckBox("External trigger (SDG)")
         acq_form.addRow("", self._external_trigger_check)
 
@@ -404,6 +410,7 @@ class TAMonitorWidget(QGroupBox):
             acquisition_mode=self._acq_combo.currentText(),
             scan_direction="forward",
             sample_name="monitor",
+            shots_per_frame=self._shots_per_frame_spin.value(),
             external_trigger=self._external_trigger_check.isChecked(),
             crop_height=crop_height,
         )
@@ -464,6 +471,7 @@ class TAMonitorWidget(QGroupBox):
         """Persist current widget values to QSettings."""
         s = QSettings("AndorSpectrometer", "TAMonitor")
         s.setValue("acq_mode", self._acq_combo.currentText())
+        s.setValue("shots_per_frame", self._shots_per_frame_spin.value())
         # external_trigger NOT persisted — defaults to unchecked each session
         s.setValue("avg_mode", self._avg_mode_combo.currentIndex())
         s.setValue("n_averages", self._n_avg_spin.value())
@@ -479,6 +487,9 @@ class TAMonitorWidget(QGroupBox):
             idx = self._acq_combo.findText(str(acq))
             if idx >= 0:
                 self._acq_combo.setCurrentIndex(idx)
+        spf = s.value("shots_per_frame")
+        if spf is not None:
+            self._shots_per_frame_spin.setValue(int(spf))
         # external_trigger is NOT restored from QSettings — it defaults to
         # unchecked each session to prevent accidental NIDAQChopper500Hz bypass
         avg_mode = s.value("avg_mode")

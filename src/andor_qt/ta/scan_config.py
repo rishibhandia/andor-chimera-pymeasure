@@ -66,6 +66,9 @@ class TAScanConfig:
     # When True, camera trigger is supplied externally (e.g. DG535 or SDG)
     # and NIDAQChopper500Hz is NOT started even in chopper_2x2 mode.
     external_trigger: bool = False
+    # Number of laser shots per camera frame. 2 for 500 Hz camera / 250 Hz
+    # chopper, 4 for 250 Hz camera / 125 Hz chopper.
+    shots_per_frame: int = 2
     # Crop mode height for shot_to_shot mode (rows, anchored to sensor bottom)
     crop_height: int = 50
     # Optional directory to save the HDF5 data file

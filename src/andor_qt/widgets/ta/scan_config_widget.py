@@ -116,6 +116,16 @@ class TAScanConfigWidget(QGroupBox):
         self._acq_mode_combo.currentTextChanged.connect(self._on_acq_mode_changed)
         form.addRow("Acquisition mode:", self._acq_mode_combo)
 
+        self._shots_per_frame_spin = QSpinBox()
+        self._shots_per_frame_spin.setRange(1, 10)
+        self._shots_per_frame_spin.setValue(2)
+        self._shots_per_frame_spin.setToolTip(
+            "Laser shots integrated per camera frame.\n"
+            "2 = 500 Hz camera / 250 Hz chopper\n"
+            "4 = 250 Hz camera / 125 Hz chopper"
+        )
+        form.addRow("Shots per frame:", self._shots_per_frame_spin)
+
         self._external_trigger_check = QCheckBox("External camera trigger (DG535/SDG)")
         self._external_trigger_check.setToolTip(
             "Camera trigger is supplied by an external instrument (e.g. DG535).\n"
@@ -503,6 +513,7 @@ class TAScanConfigWidget(QGroupBox):
             n_averages=self._n_averages_spin.value(),
             n_scans=self._n_scans_spin.value(),
             acquisition_mode=self._acq_mode_combo.currentText(),
+            shots_per_frame=self._shots_per_frame_spin.value(),
             external_trigger=self._external_trigger_check.isChecked(),
             scan_direction=self._scan_dir_combo.currentText(),
             sample_name=self._sample_name_edit.text(),
@@ -682,6 +693,7 @@ class TAScanConfigWidget(QGroupBox):
         s.setValue("n_averages", self._n_averages_spin.value())
         s.setValue("n_scans", self._n_scans_spin.value())
         s.setValue("acq_mode", self._acq_mode_combo.currentText())
+        s.setValue("shots_per_frame", self._shots_per_frame_spin.value())
         s.setValue("external_trigger", self._external_trigger_check.isChecked())
         s.setValue("scan_direction", self._scan_dir_combo.currentText())
         s.setValue("sample_name", self._sample_name_edit.text())
@@ -720,6 +732,9 @@ class TAScanConfigWidget(QGroupBox):
         idx = self._acq_mode_combo.findText(str(s.value("acq_mode", "chopper_2x2")))
         if idx >= 0:
             self._acq_mode_combo.setCurrentIndex(idx)
+        spf = s.value("shots_per_frame", 2)
+        if spf is not None:
+            self._shots_per_frame_spin.setValue(int(spf))
         self._external_trigger_check.setChecked(s.value("external_trigger", "false") == "true")
         idx = self._scan_dir_combo.findText(str(s.value("scan_direction", "forward")))
         if idx >= 0:

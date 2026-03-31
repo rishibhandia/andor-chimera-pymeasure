@@ -115,11 +115,15 @@ def _acquire_chopper_2x2(
     try both offsets (0 and 1); the offset with more matched pairs wins.
     """
     camera = hw_manager.camera
+    spf = getattr(config, "shots_per_frame", 2)  # laser shots per camera frame
     # Need ~2 frames per pair (1 ON + 1 OFF), plus ~10% margin for discards
     n_target = int(config.n_averages * 2.2) + 10
     # Use 80% of circular buffer to avoid overflow
     buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
     max_chunk = max(1000, int(buf_size * 0.8))
+
+    # Frame period: spf laser shots at 1 kHz = spf ms per frame
+    frame_period_ms = spf  # 2 ms for 500 Hz, 4 ms for 250 Hz
 
     all_frames_list = []
     all_tags_list = []
@@ -132,7 +136,7 @@ def _acquire_chopper_2x2(
         phase_reader.drain()
 
         try:
-            wait_s = (chunk * 2.0) / 1000.0 + 0.05
+            wait_s = (chunk * frame_period_ms) / 1000.0 + 0.05
             time.sleep(wait_s)
             chunk_frames, n_chunk = camera.get_buffered_frames()
         finally:
@@ -141,35 +145,41 @@ def _acquire_chopper_2x2(
         if n_chunk == 0:
             break
 
-        chunk_tags = phase_reader.read_tags(n_chunk * 2 + 1)
+        # Read spf tags per frame + 1 for alignment detection
+        chunk_tags = phase_reader.read_tags(n_chunk * spf + 1)
 
         # Auto-detect alignment offset for this chunk
         best_offset = 0
         best_matched = -1
-        for offset in (0, 1):
-            tag_pairs = chunk_tags[offset:offset + n_chunk * 2].reshape(n_chunk, 2)
-            n_matched = int((tag_pairs[:, 0] == tag_pairs[:, 1]).sum())
+        for offset in range(spf):
+            usable = (len(chunk_tags) - offset) // spf
+            if usable < 1:
+                continue
+            tag_groups = chunk_tags[offset:offset + usable * spf].reshape(usable, spf)
+            # A frame is "matched" if all tags in the group are the same
+            n_matched = int((tag_groups == tag_groups[:, :1]).all(axis=1).sum())
             if n_matched > best_matched:
                 best_matched = n_matched
                 best_offset = offset
 
-        tag_pairs = chunk_tags[best_offset:best_offset + n_chunk * 2].reshape(n_chunk, 2)
-        all_frames_list.append(chunk_frames)
-        all_tags_list.append(tag_pairs)
-        remaining -= n_chunk
+        usable = min(n_chunk, (len(chunk_tags) - best_offset) // spf)
+        tag_groups = chunk_tags[best_offset:best_offset + usable * spf].reshape(usable, spf)
+        all_frames_list.append(chunk_frames[:usable])
+        all_tags_list.append(tag_groups)
+        remaining -= usable
 
     if not all_frames_list:
         raise RuntimeError("chopper_2x2: no frames acquired — check trigger")
 
     frames = np.concatenate(all_frames_list)
-    tag_pairs = np.concatenate(all_tags_list)
+    tag_groups = np.concatenate(all_tags_list)
     n_read = len(frames)
 
-    # Separate matched frames by pump state
-    matched_mask = tag_pairs[:, 0] == tag_pairs[:, 1]
+    # A frame is "matched" if all spf tags in its group are the same value
+    matched_mask = (tag_groups == tag_groups[:, :1]).all(axis=1)
     n_discarded = int(n_read - matched_mask.sum())
     matched_frames = frames[matched_mask]
-    matched_tags = tag_pairs[matched_mask, 0]
+    matched_tags = tag_groups[matched_mask, 0]  # use first tag as the label
 
     on_frames = matched_frames[matched_tags == 1]
     off_frames = matched_frames[matched_tags == 0]
