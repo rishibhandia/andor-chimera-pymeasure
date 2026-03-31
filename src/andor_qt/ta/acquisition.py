@@ -704,3 +704,127 @@ def acquire_static_at_delay(
     })
 
     return mean, std, count
+
+
+# ---------------------------------------------------------------------------
+# AcquisitionSession — unified camera lifecycle for scan and monitor
+# ---------------------------------------------------------------------------
+
+
+class AcquisitionSession:
+    """Context manager owning the camera lifecycle across multiple acquisitions.
+
+    For ``chopper_2x2``: camera starts once in ``__enter__``, reads buffered
+    frames per ``acquire_one_cycle()``, stops in ``__exit__``.  This
+    preserves the phase relationship between camera frames and chopper tags.
+
+    For ``shot_to_shot``: delegates to ``_acquire_shot_to_shot`` per cycle
+    (which manages its own crop-mode camera start/stop).
+
+    For ``boxcar``/software: delegates to ``_acquire_software`` per cycle
+    (which uses ``get_spectrum()`` per shot, no RTA).
+
+    Usage::
+
+        with AcquisitionSession(hw, config, camera_settings, phase_reader) as s:
+            for delay_ps in delays:
+                axis.position_ps = delay_ps
+                delta = s.acquire_one_cycle(dark=dark, raw_callback=cb)
+
+    Args:
+        hw_manager: Hardware manager with ``.camera`` attribute.
+        config: Scan configuration (``acquisition_mode``, ``n_averages``, etc.).
+        camera_settings: Optional dict passed to ``apply_camera_settings()``.
+        phase_reader: Optional phase reader for hardware-tagged modes.
+    """
+
+    def __init__(
+        self,
+        hw_manager: Any,
+        config: TAScanConfig,
+        camera_settings: Optional[dict[str, Any]] = None,
+        phase_reader: Any = None,
+    ) -> None:
+        self._hw = hw_manager
+        self._config = config
+        self._camera_settings = camera_settings
+        self._phase_reader = phase_reader
+        self._camera_running = False
+        self._is_chopper = (
+            config.acquisition_mode == "chopper_2x2"
+            and phase_reader is not None
+        )
+
+    def __enter__(self) -> "AcquisitionSession":
+        # Apply camera settings once
+        if self._camera_settings is not None:
+            apply = getattr(self._hw.camera, "apply_camera_settings", None)
+            if callable(apply):
+                apply(self._camera_settings)
+
+        if self._is_chopper:
+            self._hw.camera.start_run_till_abort()
+            self._camera_running = True
+            self._phase_reader.drain()
+
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self._camera_running:
+            self._hw.camera.abort_acquisition()
+            self._camera_running = False
+
+    def acquire_one_cycle(
+        self,
+        dark: Optional[np.ndarray] = None,
+        raw_callback: Optional[Callable] = None,
+    ) -> np.ndarray:
+        """Acquire one delta-signal measurement at the current position.
+
+        For ``chopper_2x2``, reads frames from the already-running camera.
+        For other modes, delegates to the existing mode-specific functions.
+
+        Args:
+            dark: Optional dark spectrum to subtract.
+            raw_callback: Optional ``(pumped, ref, n_matched, n_discarded,
+                n_frames)`` callback for live display.
+
+        Returns:
+            Averaged ΔI/I₀ spectrum (1-D numpy array).
+        """
+        config = self._config
+
+        if self._is_chopper:
+            return self._acquire_chopper_cycle(dark, raw_callback)
+        if config.acquisition_mode == "shot_to_shot" and self._phase_reader is not None:
+            return _acquire_shot_to_shot(
+                self._hw, config, dark, self._phase_reader,
+                raw_callback=raw_callback,
+            )
+        return _acquire_software(self._hw, config, dark, raw_callback=raw_callback)
+
+    def _acquire_chopper_cycle(
+        self,
+        dark: Optional[np.ndarray],
+        raw_callback: Optional[Callable],
+    ) -> np.ndarray:
+        """Read one cycle of frames from the already-running camera."""
+        camera = self._hw.camera
+        config = self._config
+        spf = getattr(config, "shots_per_frame", 2)
+        n_target = int(config.n_averages * 2.2) + 10
+
+        frame_period_ms = spf  # 2 ms for 500 Hz, 4 ms for 250 Hz
+        wait_s = (n_target * frame_period_ms) / 1000.0 + 0.05
+        time.sleep(wait_s)
+
+        frames, n_chunk = camera.get_buffered_frames()
+        if n_chunk == 0:
+            raise RuntimeError(
+                "chopper_2x2: no frames in cycle — check trigger"
+            )
+
+        tags = self._phase_reader.read_tags(n_chunk * spf)
+        return _process_chopper_frames(
+            frames, tags, config, dark, raw_callback,
+        )
