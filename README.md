@@ -1,6 +1,6 @@
 # Andor Chimera PyMeasure
 
-Qt-based GUI and PyMeasure integration for Andor spectrometer control. This package provides a modern PySide6 interface for acquiring spectra from Andor CCD cameras and spectrographs, with support for automated parameter sweeps via PyMeasure's sequencer.
+Qt/PySide6 GUI and PyMeasure integration for Andor CCD spectrometer control with transient absorption (TA) pump-probe measurement capabilities.
 
 ## Features
 
@@ -8,214 +8,120 @@ Qt-based GUI and PyMeasure integration for Andor spectrometer control. This pack
 - **FVB (Full Vertical Binning)** and **Image** acquisition modes
 - Real-time spectrum display with wavelength calibration
 - Configurable exposure time, accumulations, and binning
+- Up to 20 simultaneous spectrum overlays with individual visibility toggles
 
-### Spectrum Overlay
-- Multiple traces displayed on a single plot
-- Individual visibility toggles for each trace
-- Color-coded traces with automatic cycling
-- Up to 20 simultaneous overlays
+### Transient Absorption (TA) Module
+- **chopper_2x2** acquisition: hardware-synchronized pump-probe with NI DAQ phase tagging
+- **shot_to_shot** mode: 1 kHz single-shot crop-mode acquisition
+- **boxcar** mode: software alternation (no NI DAQ required)
+- **static_onoff** mode: two-pass scan with user-controlled pump blocking
+- Live delta-OD spectrum, kinetic trace, and 2D heatmap display
+- HDF5 data files with per-point pump/ref/std saving
+- Monitor mode for real-time signal optimization before scanning
+- Dark frame acquisition and subtraction
+- Configurable delay stage positions in micrometres (Linear, Log, Manual tabs)
+
+### Motion Control
+- **Newport ESP302** delay stage (RS-232 or TCP socket)
+- **OptoSigma GSC-02C** rotation stage (RS-232)
+- Dual readout: position in mm and ps simultaneously
+- Jog buttons with software limit enforcement
 
 ### PyMeasure Sequencer Integration
 - Queue parameter sweeps using PyMeasure's SequencerWidget
 - Sequence over exposure time, wavelength, grating, and more
-- CSV, nested lists, or range-based parameter definitions
 - Background execution with progress tracking
-
-### Temperature Monitoring
-- Color-coded temperature status indicator
-- Real-time current and target temperature display
-- Status states: Stabilized (green), Cooling (orange), Off (gray)
-
-### Session Management
-- Sample ID and operator name fields
-- Notes field for experiment documentation
-- Auto-save with configurable directory
-- Timestamp or counter-based file naming
 
 ### Hardware Control
 - Spectrograph grating and wavelength control
-- Camera temperature management with warmup on exit
-- Graceful shutdown with progress dialog
+- Camera temperature management with automatic warmup on exit
+- NI DAQ PCIe-6353 integration for chopper phase reading and trigger generation
 
 ## Requirements
 
-- **Python 3.8+**
-- **Andor SDK** (for real hardware operation)
-- Dependencies from pyproject.toml:
-  - numpy >= 1.20
-  - matplotlib >= 3.5
-  - pymeasure >= 0.15.0
-  - pyqtgraph >= 0.13.3
-  - PySide6 >= 6.6.3.1
-  - pyyaml >= 6.0
+- **Python 3.11+**
+- **Andor SDK** at `C:\Program Files\Andor SDK` (Windows)
+- **NI DAQ** PCIe-6353 with nidaqmx driver (for TA chopper modes)
+- Dependencies managed via `pyproject.toml` (installed automatically by uv)
 
 ## Installation
 
-### Clone the Repository
-
 ```bash
-git clone https://github.com/rishibhandia/andor-chimera-pymeasure.git
+git clone <repo-url>
 cd andor-chimera-pymeasure
-```
-
-### Install with uv (Recommended)
-
-```bash
-uv pip install -e .
-```
-
-### Install with pip
-
-```bash
-pip install -e .
-```
-
-### Install Development Dependencies
-
-```bash
 uv pip install -e ".[dev]"
 ```
 
-## Usage
+## Quick Start
 
-### Qt GUI (Mock Mode - No Hardware Required)
-
-Test the interface without connected hardware:
+### Mock Mode (no hardware)
 
 ```bash
-andor-qt --mock
+uv run python -m andor_qt --mock
 ```
 
-Or using the module directly:
+### Real Hardware
 
 ```bash
-python -m andor_qt --mock
+uv run python -m andor_qt
 ```
 
-### Qt GUI (Real Hardware)
+## Hardware Wiring (BNC-2110)
+
+For chopper_2x2 TA acquisition, the NI PCIe-6353 requires:
+
+| BNC-2110 Connector | NI Terminal | Signal |
+|---------------------|-------------|--------|
+| (dedicated BNC) | PFI0 | 1 kHz laser sync (phase reader sample clock) |
+| (dedicated BNC) | PFI12 | SDG 500 Hz (camera trigger + chopper REF IN) |
+| User 1 BNC | PFI13 | Camera Fire output (phase reader start trigger) |
+| User 2 BNC | P0.0 | Chopper REF OUT (pump phase tags) |
+
+The Camera Fire output on PFI13 ensures deterministic tag-to-frame alignment across camera restarts.
+
+## Testing
 
 ```bash
-andor-qt
-```
-
-Additional options:
-- `--debug` - Enable debug logging
-- `--config PATH` - Specify a custom configuration file
-
-### PyMeasure CLI
-
-For command-line operation using PyMeasure procedures:
-
-```bash
-andor-pymeasure
-```
-
-## Hardware Setup
-
-### Andor SDK Installation
-
-1. **Install the Andor SDK** to `C:\Program Files\Andor SDK` (default Windows location)
-
-2. **Verify DLL access**: The following DLLs must be accessible:
-   - `atmcd64d.dll` (camera control)
-   - `ShamrockCIF.dll` (spectrograph control)
-
-3. **Connect hardware** via USB:
-   - Andor CCD camera (e.g., Newton, iDus)
-   - Andor spectrograph (e.g., Shamrock)
-
-4. **Driver installation**: Install Andor drivers from the SDK package
-
-### Environment Variables
-
-- `ANDOR_MOCK=1` - Force mock mode (useful for development)
-- `ANDOR_DEBUG=1` - Enable debug logging
-
-### Configuration File
-
-The application looks for configuration at platform-specific locations:
-- **Windows**: `%APPDATA%\AndorSpectrometer\config.yaml`
-- **macOS**: `~/Library/Application Support/AndorSpectrometer/config.yaml`
-- **Linux**: `~/.config/andor-spectrometer/config.yaml`
-
-## Development
-
-### Running Tests
-
-```bash
+# Run all tests (mock mode, no hardware needed)
 uv run pytest
+
+# Run hardware integration tests (requires real camera + NI DAQ)
+uv run pytest tests/integration/ --hardware -v
 ```
 
-The test suite includes 349 tests covering:
-- Qt widget functionality
-- PyMeasure procedures
-- Hardware mock implementations
-- End-to-end integration tests
-
-### Running Tests with Coverage
-
-```bash
-uv run pytest --cov=andor_qt --cov=andor_pymeasure
-```
-
-### Code Formatting
-
-```bash
-uv run ruff check src/
-uv run ruff format src/
-```
+The test suite includes 1100+ tests covering widgets, procedures, acquisition logic, and hardware integration.
 
 ## Project Structure
 
 ```
 src/
-├── andor_pymeasure/           # PyMeasure-based procedures
-│   ├── instruments/           # Instrument drivers
-│   │   ├── andor_camera.py    # Camera instrument
-│   │   ├── andor_spectrograph.py
-│   │   ├── delay_stage.py     # For pump-probe experiments
-│   │   └── mock.py            # Mock implementations
-│   ├── procedures/            # Experiment procedures
-│   │   ├── spectrum.py        # Basic spectrum acquisition
-│   │   ├── wavelength_scan.py
-│   │   └── pump_probe.py
-│   └── app.py                 # CLI entry point
-│
-├── andor_qt/                  # Qt GUI application
-│   ├── core/                  # Core functionality
-│   │   ├── config.py          # Configuration management
-│   │   ├── event_bus.py       # Inter-widget communication
-│   │   ├── experiment_queue.py
-│   │   ├── hardware_manager.py
-│   │   ├── sequencer_adapter.py  # PyMeasure integration
-│   │   └── signals.py
-│   ├── widgets/               # UI components
-│   │   ├── display/           # Data visualization
-│   │   │   ├── spectrum_plot.py   # Multi-trace plot
-│   │   │   ├── trace_list.py      # Trace management
-│   │   │   ├── image_plot.py
-│   │   │   └── results_table.py
-│   │   ├── hardware/          # Hardware control panels
-│   │   │   ├── spectrograph_control.py
-│   │   │   ├── temperature_control.py
-│   │   │   ├── temperature_monitor.py
-│   │   │   └── data_settings.py
-│   │   ├── inputs/            # Parameter inputs
-│   │   │   ├── dynamic_inputs.py
-│   │   │   ├── acquire_control.py
-│   │   │   └── queue_control.py
-│   │   └── dialogs/           # Modal dialogs
-│   │       ├── shutdown_dialog.py
-│   │       └── benchmark_dialog.py
-│   ├── windows/               # Main windows
-│   │   └── main_window.py
-│   ├── procedures/            # Qt-specific procedures
-│   │   ├── base.py
-│   │   └── spectrum.py
-│   └── app.py                 # GUI entry point
-│
-tests/                         # Test suite (349 tests)
+├── andor_pymeasure/              # PyMeasure instrument drivers
+│   └── instruments/              # Camera, spectrograph, delay stage, rotation stage
+├── andor_qt/                     # Qt GUI application
+│   ├── core/                     # HardwareManager, EventBus, experiment queue
+│   ├── ta/                       # Transient absorption module
+│   │   ├── acquisition.py        # AcquisitionSession + frame processing
+│   │   ├── engine.py             # Scan engine (QThread)
+│   │   ├── monitor_engine.py     # Monitor engine (continuous at one position)
+│   │   ├── nidaq_phase.py        # NI DAQ phase reader
+│   │   ├── nidaq_trigger.py      # NI DAQ trigger generator
+│   │   ├── scan_config.py        # Scan parameters dataclass
+│   │   └── hdf5_writer.py        # HDF5 data output
+│   ├── widgets/                  # UI components (display, hardware, TA config)
+│   └── windows/                  # Main window, TA panel, realtime window
+tests/
+├── ta/                           # TA module unit tests
+├── qt/                           # Qt widget tests
+├── integration/                  # Hardware integration tests (--hardware flag)
+└── conftest.py                   # Mock SDK fixtures
 ```
+
+## Documentation
+
+- **[User Guide](docs/user_guide.md)** — How to operate the spectrometer and run TA scans
+- **[CLAUDE.md](CLAUDE.md)** — Developer reference with architecture, hardware notes, and coding conventions
+- **[ESP302-API-Reference.md](ESP302-API-Reference.md)** — Newport delay stage command reference
+- **[GSC02-SGSP-YAW-Reference.md](GSC02-SGSP-YAW-Reference.md)** — OptoSigma rotation stage command reference
 
 ## License
 

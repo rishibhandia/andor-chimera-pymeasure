@@ -8,6 +8,7 @@ Andor Chimera is a Qt-based GUI for controlling an Andor Newton DU970P EMCCD cam
 - **Andor Kymera** spectrograph (2 gratings)
 - **Newport ESP302** delay stage controller
 - **NI PCIe-6353** DAQ for chopper phase reading
+- **Thorlabs MC2000B** optical chopper (250 Hz, 10-slot blade)
 
 ## 2. Getting Started
 
@@ -44,8 +45,11 @@ Before starting the program with real hardware:
 - [ ] Spectrograph power is on
 - [ ] ESP302 delay stage controller is on and homed
 - [ ] NI DAQ BNC-2110 cables are connected (see Section 6)
+- [ ] Camera Fire output wired to User 1 BNC (PFI13)
+- [ ] Chopper REF OUT wired to User 2 BNC (P0.0)
 - [ ] Laser is running (1 kHz rep rate)
-- [ ] Chopper controller is running (250 Hz)
+- [ ] SDG 500 Hz output connected to camera Ext Trigger and PFI12
+- [ ] Chopper controller is running (250 Hz, locked to SDG)
 
 ## 3. Camera & Spectrograph
 
@@ -71,8 +75,8 @@ The camera settings panel appears in both the Realtime window and the TA scan co
 | Setting | Description | Typical Value |
 |---------|-------------|---------------|
 | **Trigger mode** | Internal (free-run) or Fast External (hardware trigger) | Internal for realtime, Fast External for TA |
-| **Exposure time** | Integration time per frame | 0.1 s (realtime), 0.002 s (TA chopper_2x2) |
-| **VS speed** | Vertical shift speed (row transfer rate) | Index 0 (4.68 us) for 500 Hz operation |
+| **Exposure time** | Integration time per frame | 0.1 s (realtime), 0.4 ms (TA chopper_2x2) |
+| **VS speed** | Vertical shift speed (row transfer rate) | Index 0 (4.9 us) for 500 Hz operation |
 | **HS speed** | Horizontal readout speed | 3 MHz (fastest), 50 kHz (lowest noise) |
 | **EM gain** | Electron-multiplying gain (1-1000) | Only for EM amplifier mode |
 | **Pre-amp gain** | Pre-amplifier gain | x1, x2, or x4 |
@@ -87,18 +91,35 @@ The Realtime window provides continuous live acquisition for alignment and setup
 4. Click **Start** to begin continuous acquisition
 5. Click **Stop** to halt
 
-The spectrum plot updates in real time. Use this mode to:
-- Align the optical path
-- Check signal levels
-- Verify spectrograph wavelength calibration
+Use this mode to align the optical path, check signal levels, and verify spectrograph wavelength calibration.
 
-## 5. Transient Absorption (TA) Scans
+## 5. Transient Absorption (TA)
 
 ### 5.1 Overview
 
 A TA scan measures the change in optical density (Delta-OD) as a function of pump-probe time delay. The delay stage position is scanned while acquiring pump-on/pump-off spectrum pairs at each position.
 
-### 5.2 Configuring the Delay Scan
+The TA panel has two main modes:
+
+- **Scan mode**: Automated scan through a list of delay stage positions
+- **Monitor mode**: Continuous acquisition at the current position for signal optimization
+
+### 5.2 Monitor Mode
+
+Monitor mode runs continuous acquisition cycles at the current stage position. Use this to optimize signal before running a full scan.
+
+1. Set camera settings (trigger mode, exposure, VS/HS speed)
+2. Set the number of averages per cycle
+3. Click **Monitor** to start continuous acquisition
+4. The live display shows: raw pump/ref spectra, delta-I/I0, and kinetic trace
+5. Use the jog buttons to move the delay stage while monitoring
+6. Click **Stop** to halt
+
+**Dark frame**: Click **Acquire Dark** to take a dark frame (block the probe beam first). This is automatically subtracted from all subsequent acquisitions. Click **Clear Dark** to remove.
+
+**External trigger**: Check "External trigger (SDG)" when the SDG provides the 500 Hz camera trigger directly. This prevents the NI DAQ counter from being started (which would conflict with the Camera Fire signal on PFI13).
+
+### 5.3 Configuring the Delay Scan
 
 The TA panel has three tabs for specifying delay stage positions. All positions are entered in **micrometres (um)**.
 
@@ -112,21 +133,17 @@ Specify a uniform scan range:
 | **End position** | Last stage position in um | -55800 |
 | **Step size** | Distance between points in um | 3 |
 
-The equivalent time delay in picoseconds is shown below the fields.
-
 A 3 um step corresponds to approximately 20 fs of optical delay.
 
 #### Log Tab
 
-Specify logarithmically spaced positions. Useful for covering a wide time range efficiently:
+Specify logarithmically spaced positions (in the time domain):
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Start position** | First stage position in um (must give positive ps) | 15 |
+| **Start position** | First stage position in um | 15 |
 | **End position** | Last stage position in um | 15000 |
 | **Points/decade** | Number of points per decade | 5 |
-
-**Note:** Log spacing is applied in the time (ps) domain. Both start and end must correspond to positive delay values.
 
 #### Manual Tab
 
@@ -145,64 +162,70 @@ range(-56000, -50000, 10)
 # Comments starting with # are ignored
 ```
 
-Multiple `range()` expressions can be combined on separate lines. This is the most flexible way to define a custom scan pattern with different step sizes in different regions.
-
-### 5.3 Scan Parameters
+### 5.4 Scan Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | **ESP302 axis** | Which axis on the Newport ESP302 controller | 2 |
 | **Averages per point** | Number of pump-on/pump-off pairs per delay | 100 |
 | **Number of scans** | How many complete scan repetitions | 1 |
-| **Acquisition mode** | boxcar, shot_to_shot, or chopper_2x2 | chopper_2x2 |
+| **Acquisition mode** | boxcar, shot_to_shot, chopper_2x2, or static_onoff | chopper_2x2 |
 | **Scan direction** | Forward only, or alternating (forward/reverse) | forward |
-| **Sample name** | Name tag saved in the data file | — |
+| **Sample name** | Name tag saved in the data file | -- |
 
-### 5.4 Acquisition Modes
+### 5.5 Acquisition Modes
 
 #### chopper_2x2 (Recommended)
 
-This is the primary acquisition mode for pump-probe measurements.
+Hardware-synchronized pump-probe acquisition using NI DAQ phase tagging.
 
 **How it works:**
-- The Coherent Astrella SDG generates a 500 Hz camera trigger (hardware divide-by-2 of the 1 kHz laser rep rate)
-- Each camera frame integrates 2 laser shots
-- The NI DAQ reads the chopper phase from P0.0 for each laser shot
+- The SDG generates a 500 Hz camera trigger (divide-by-2 of the 1 kHz laser)
+- Each camera frame integrates 2 laser shots (`shots_per_frame=2`)
+- The NI DAQ reads the chopper phase from P0.0 for each laser shot (clocked by PFI0 at 1 kHz)
 - Frames where both shots have the same chopper state are kept: [1,1] = pump-on, [0,0] = pump-off
 - Frames at chopper transitions ([1,0] or [0,1]) are discarded
 - Pump-on and pump-off frames are paired to compute Delta-I/I0
 
-**Camera settings for chopper_2x2** (auto-configured when mode is selected):
-- Trigger mode: Fast External
-- Exposure time: 2 ms
-- VS speed: Index 0 (4.68 us) — required for 500 Hz frame rate
+**Tag-to-frame synchronization:** The phase reader uses the Camera Fire output (PFI13) as its NI DAQ start trigger. The reader arms but does not sample P0.0 until the camera actually starts exposing, guaranteeing that tag[0] corresponds to frame[0]. This makes the pump-ON/OFF assignment deterministic across camera restarts.
 
-**External trigger checkbox:** Check this when the SDG provides the 500 Hz trigger directly. The NI DAQ counter is not started — only the phase reader (P0.0) is used.
+**Camera settings** (auto-configured when mode is selected):
+- Trigger mode: Fast External
+- Exposure time: 0.4 ms
+- VS speed: Index 0 (4.9 us) — required for 500 Hz frame rate
+- HS speed: Index 0 (3 MHz)
+- Overlap mode: enabled (required for 500 Hz)
+
+**External trigger checkbox:** Check this when the SDG provides the 500 Hz trigger directly to the camera. The NI DAQ counter is not started — only the phase reader (P0.0) is used.
+
+#### static_onoff
+
+Two-pass acquisition for situations where a mechanical chopper is not available:
+
+1. **Pass 1 (Pump ON):** Scan all delay positions with pump beam unblocked
+2. **User prompt:** Block the pump beam manually
+3. **Pass 2 (Pump OFF):** Repeat all delay positions with pump blocked
+4. Delta-OD = -log10(pump_spectrum / ref_spectrum)
+
+Also available as single-phase buttons in monitor mode (Acquire Pump ON / Acquire Pump OFF).
 
 #### boxcar
 
 Software alternation: first frame = pump-on, second = pump-off. No hardware phase tagging. Less robust than chopper_2x2 but does not require NI DAQ.
 
-### 5.5 Running a Scan
+#### shot_to_shot
+
+1 kHz single-shot acquisition using isolated crop mode for sub-millisecond readout. Each frame gets one P0.0 tag. Requires crop mode compatible camera settings.
+
+### 5.6 Running a Scan
 
 1. Configure delay range, averages, and acquisition mode
 2. (Optional) Set a sample name and enable HDF5 saving
 3. Click **Start Scan**
-4. The status bar shows progress: current delay point, matched pairs, and discard rate
-5. Live plots update: Delta-OD spectrum, kinetic trace at the probe wavelength, and heatmap
+4. The status bar shows progress: current delay point, matched pairs, ETA, and discard rate
+5. Live plots update: Delta-OD spectrum, kinetic trace, and heatmap
 6. Click **Abort Scan** to stop early
-
-### 5.6 Interpreting the Status Bar
-
-During acquisition, the status bar shows:
-
-```
-Scan 1/1 -- pt 15/401  [ACQUIRING]  -379.98 ps  pairs: 85/100  discarded: 0  (100% valid)
-```
-
-- **pairs: 85/100** — 85 of 100 required pump-on/pump-off pairs collected so far
-- **discarded: 0** — frames at chopper transitions that were thrown away
-- **100% valid** — fraction of acquired frames that contributed to pairs (100% = no discards)
+7. Click **Pause** / **Resume** to temporarily halt
 
 ### 5.7 Data Output
 
@@ -215,36 +238,68 @@ Enable "Save HDF5 data file" and select a directory. The file contains:
 
 #### Individual Spectra
 
-Enable "Save individual spectra" to write a text file per delay point (2-column: wavelength, Delta-OD).
+Enable "Save individual spectra" to write text files per delay point:
+- `scan000_pos+1234.5um.txt` — Delta-OD spectrum (wavelength, value)
+- `scan000_pos+1234.5um_pump.txt` — Mean pump-on spectrum
+- `scan000_pos+1234.5um_ref.txt` — Mean pump-off spectrum
+- `scan000_pos+1234.5um_pump_std.txt` — Pump standard deviation
+- `scan000_pos+1234.5um_ref_std.txt` — Ref standard deviation
 
 ## 6. Hardware Wiring (BNC-2110)
 
-The NI PCIe-6353 DAQ is connected via a BNC-2110 breakout box. The following connections are required for chopper_2x2 mode:
+The NI PCIe-6353 DAQ is connected via a BNC-2110 breakout box.
+
+### 6.1 Required Connections
 
 | BNC-2110 Connector | NI Terminal | Direction | Signal |
 |---------------------|-------------|-----------|--------|
-| PFI0 (dedicated BNC) | PFI0 | INPUT | 1 kHz laser sync clock |
-| PFI12 (dedicated BNC) | PFI12 (pin 2) | INPUT | 500 Hz SDG output (camera trigger) |
-| User 2 BNC | P0.0 (port0/line0) | INPUT | Chopper controller phase output |
+| (dedicated BNC) | PFI0 | INPUT | 1 kHz laser sync (phase reader sample clock) |
+| (dedicated BNC) | PFI12 (pin 2) | INPUT | SDG 500 Hz (camera trigger + chopper REF IN) |
+| User 1 BNC | PFI13 (pin 40) | INPUT | Camera Fire output (phase reader start trigger) |
+| User 2 BNC | P0.0 (port0/line0) | INPUT | Chopper REF OUT (pump phase tags) |
 
-The **SDG** (Coherent Astrella Synchronization and Delay Generator) divides the 1 kHz laser rep rate by 2 to produce a 500 Hz camera trigger. This signal goes to:
-- PFI12 on the NI DAQ (for phase reading clock reference)
-- Camera Ext Trigger SMB input (to trigger each frame)
+### 6.2 Camera Connections
 
-**P0.0** receives the chopper controller output: HIGH (1) when the chopper is open (pump-on), LOW (0) when closed (pump-off). This is sampled at 1 kHz (clocked by PFI0).
+| Camera Connector | Destination | Signal |
+|-----------------|-------------|--------|
+| Ext Trigger SMB | SDG 500 Hz (direct BNC) | External trigger input |
+| Fire output (I/O connector) | BNC-2110 User 1 BNC | TTL HIGH during exposure |
 
-### 6.1 Thorlabs MC2000B Chopper Controller
+### 6.3 Signal Chain
 
-The chopper is a Thorlabs MC2000B optical chopper operating at 250 Hz (1 kHz laser / 4).
+```
+Laser 1 kHz  -->  PFI0 (phase reader clock)
+             -->  SDG (external reference)
 
-**REF OUT signal:** HIGH when the blade is **open** (beam passes = pump-on), LOW when **blocked** (pump-off). This output connects to User 2 BNC (P0.0) on the BNC-2110.
+SDG 500 Hz   -->  Camera Ext Trigger SMB (direct BNC)
+             -->  PFI12 (NI DAQ input)
+             -->  Chopper REF IN (chopper locks to SDG, runs at 250 Hz)
 
-**MC2000B settings:**
-- Frequency: 250 Hz (internal or external reference)
-- REF OUT: connected to BNC-2110 User 2 (P0.0)
-- Phase: adjustable on the front panel (see Section 6.2)
+Camera Fire  -->  PFI13 (User 1 BNC) -- phase reader start trigger
 
-### 6.2 Chopper Phase Adjustment
+Chopper REF OUT (250 Hz)  -->  P0.0 (User 2 BNC) -- pump phase tags
+```
+
+### 6.4 Why Camera Fire on PFI13?
+
+The phase reader samples P0.0 at 1 kHz (clocked by PFI0) to determine the chopper state for each laser shot. Without the Fire trigger, the phase reader and camera start independently, creating a random offset between tags and frames that causes the pump-ON/OFF assignment to flip ~50% of the time on restart.
+
+With the Camera Fire output as the phase reader's NI DAQ start trigger, the reader waits until the camera actually begins its first exposure before sampling. This guarantees tag[0] = chopper state during frame[0], making the assignment deterministic (tested 20/20 stable across restarts).
+
+**CRITICAL:** The counter output CTR1 is hardwired to PFI13 on PCIe-6353. If the NI DAQ counter trigger generator is used (NIDAQChopper500Hz), it would conflict with the Camera Fire input. Always check "External trigger (SDG)" when using the Fire trigger approach.
+
+### 6.5 Thorlabs MC2000B Chopper Controller
+
+| Setting | Value |
+|---------|-------|
+| **Blade** | MC1F10HP (10-slot high precision) |
+| **REF IN** | External, from SDG 500 Hz |
+| **Harmonic** | N=1, D=2 (divides SDG by 2 = 250 Hz chopper) |
+| **REF OUT** | INNER -- tracks actual blade position of inner slots |
+
+**P0.0 = HIGH when blade is open** (beam passes through). The polarity is fixed by hardware and does not change between sessions.
+
+### 6.6 Chopper Phase Adjustment
 
 The chopper phase must be set so that transitions do not coincide with the SDG trigger edges. If you see a high discard rate (>10%):
 
@@ -252,20 +307,34 @@ The chopper phase must be set so that transitions do not coincide with the SDG t
 2. Shift by 90 degrees (1 ms = 1/4 of the 4 ms chopper period)
 3. A correctly phased chopper yields ~0% discards
 
-**Why this matters:** The SDG fires at 500 Hz. Each frame integrates 2 laser shots. If the chopper transitions during a frame, the two shots have different pump states ([1,0] or [0,1]) and the frame is discarded. Shifting the phase by 90 degrees places transitions midway between SDG edges, so both shots in every frame have the same pump state.
-
 ## 7. Troubleshooting
 
-### Camera Error 20992 (DRV_ACQUIRING)
+### Camera Error 20992 (DRV_NOT_AVAILABLE)
 
-The camera was not properly shut down (e.g., the program was killed during acquisition). **Fix:** Close all Python processes and restart the program.
+Another program is holding the camera. Close all Python processes and restart:
 
-### "chopper_2x2: N frames acquired without completing M pairs"
+```bash
+powershell.exe -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"
+sleep 3
+uv run python -m andor_qt
+```
 
-The acquisition loop hit its safety limit without collecting enough pairs. Causes:
-- Chopper not running or not connected to P0.0
-- Chopper phase aligned with SDG edges (all frames are transitions) — adjust phase by 90 degrees
-- SDG 500 Hz trigger not connected to the camera Ext Trigger input
+### "chopper_2x2: no frames in cycle"
+
+- Check that SDG 500 Hz is connected to camera Ext Trigger SMB
+- Check that PFI0 (1 kHz laser sync) is connected
+- Verify the chopper is running and P0.0 shows alternating signal
+
+### High Discard Rate (>10%)
+
+- Adjust chopper phase by 90 degrees (see Section 6.6)
+- Check that `shots_per_frame` matches your trigger rate (2 for 500 Hz camera / 250 Hz chopper)
+
+### Pump ON/OFF Assignment Flips
+
+- Verify Camera Fire output is wired to User 1 BNC (PFI13)
+- Ensure "External trigger (SDG)" is checked in the UI
+- If Fire output is not available, the assignment may flip on each monitor restart (50/50)
 
 ### Camera Won't Cool
 
@@ -276,10 +345,10 @@ The acquisition loop hit its safety limit without collecting enough pairs. Cause
 ### Stage Not Moving
 
 - Verify the ESP302 is powered on and the correct axis is selected (default: axis 2)
-- Check that the stage has been homed since power-on (`xxOR1` command)
+- Check that the stage has been homed since power-on
 - Verify serial connection (RS-232, `rtscts=True`)
 
 ### Program Hangs on Startup
 
 - Another instance may be holding the camera. Kill all Python processes first.
-- The camera DLL is single-instance — only one program can control it at a time.
+- The camera DLL is single-instance -- only one program can control it at a time.
