@@ -13,6 +13,15 @@ Rules:
 - **Agent subprocesses are fine** — they manage their own lifecycle
 - If a foreground command takes >2 minutes, increase the timeout instead of backgrounding it
 
+**Killing Python processes (MUST do before relaunching the app):**
+```bash
+# Use PowerShell — most reliable on this machine
+powershell.exe -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"
+# Wait for camera SDK to release
+sleep 3
+```
+**ALWAYS kill before relaunch.** The Andor camera SDK locks exclusively — if a previous python.exe holds it, the new instance gets DRV_NOT_AVAILABLE (20992).
+
 ## CRITICAL: Development Workflow
 
 **STOP AND PLAN BEFORE CODING.** This project requires strict TDD with atomic commits.
