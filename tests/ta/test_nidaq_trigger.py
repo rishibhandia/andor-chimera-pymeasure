@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -108,155 +108,111 @@ class TestNIDAQChopper500HzImport:
 
 # ---------------------------------------------------------------------------
 # NIDAQChopper500Hz — task configuration (mocked nidaqmx)
+#
+# Current implementation uses a SINGLE counter task:
+#   - 500 Hz from 20 MHz timebase, retriggered by sync_source (PFI12)
+#   - Output on counter (default ctr1 → PFI13)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def mock_nidaqmx(monkeypatch):
-    """Inject a mock nidaqmx module with two separate task objects.
-
-    start() creates two nidaqmx.Task() instances in order:
-      1. divider_task  — CTR2, divides PFI0 by 4 → 250 Hz
-      2. camera_task   — CTR1, 500 Hz retriggered on Ctr2InternalOutput
-    """
+    """Inject a mock nidaqmx module with a single task object."""
     mod = MagicMock()
-    divider_task = MagicMock()
-    camera_task = MagicMock()
-    mod.Task.side_effect = [divider_task, camera_task]
+    task = MagicMock()
+    mod.Task.return_value = task
     monkeypatch.setitem(sys.modules, "nidaqmx", mod)
     monkeypatch.setitem(sys.modules, "nidaqmx.constants", mod.constants)
-    return mod, divider_task, camera_task
+    return mod, task
 
 
 class TestNIDAQChopper500HzTask:
-    def test_start_creates_two_tasks(self, mock_nidaqmx):
-        """Two nidaqmx.Task() calls: one for the divider, one for the camera trigger."""
-        mod, divider_task, camera_task = mock_nidaqmx
+    def test_start_creates_one_task(self, mock_nidaqmx):
+        """Single nidaqmx.Task() call for the retriggered 500 Hz counter."""
+        mod, task = mock_nidaqmx
         t = NIDAQChopper500Hz()
         t.start()
-        assert mod.Task.call_count == 2
+        assert mod.Task.call_count == 1
 
     # ------------------------------------------------------------------
-    # Divider task (CTR2): divides PFI0 by 4 → 250 Hz locked to laser
+    # Counter configuration: 500 Hz from 20 MHz timebase
     # ------------------------------------------------------------------
 
-    def test_divider_uses_pfi0_as_source(self, mock_nidaqmx):
-        """CTR2 must count PFI0 edges so the 250 Hz output is laser-locked."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz(device="Dev1", clock_source="/Dev1/PFI0")
-        t.start()
-        args, kwargs = divider_task.co_channels.add_co_pulse_chan_ticks.call_args
-        assert kwargs["source_terminal"] == "/Dev1/PFI0"
-
-    def test_divider_counter_channel(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz(device="Dev1", divider_counter="ctr2")
-        t.start()
-        args, _ = divider_task.co_channels.add_co_pulse_chan_ticks.call_args
-        assert args[0] == "Dev1/ctr2"
-
-    def test_divider_ticks_divide_by_4(self, mock_nidaqmx):
-        """low=2, high=2 → 4 PFI0 edges per cycle → 1000/4 = 250 Hz."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz()
-        t.start()
-        _, kwargs = divider_task.co_channels.add_co_pulse_chan_ticks.call_args
-        assert kwargs["low_ticks"] == 2
-        assert kwargs["high_ticks"] == 2
-
-    def test_divider_armed_on_pfi0_rising(self, mock_nidaqmx):
-        """CTR2 arms on the first PFI0 rising edge for deterministic phase."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz(clock_source="/Dev1/PFI0")
-        t.start()
-        _, kwargs = divider_task.triggers.start_trigger.cfg_dig_edge_start_trig.call_args
-        assert kwargs["trigger_source"] == "/Dev1/PFI0"
-        assert kwargs["trigger_edge"] == mod.constants.Edge.RISING
-
-    def test_divider_not_retriggerable(self, mock_nidaqmx):
-        """CTR2 arms once only — retriggerable must NOT be set True on the divider."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz()
-        t.start()
-        assert divider_task.triggers.start_trigger.retriggerable is not True
-
-    # ------------------------------------------------------------------
-    # Camera trigger task (CTR1): 500 Hz from 20 MHz, locked to CTR2
-    # ------------------------------------------------------------------
-
-    def test_camera_uses_20mhz_timebase(self, mock_nidaqmx):
-        """CTR1 source must be the 20 MHz internal timebase, not PFI0."""
-        mod, divider_task, camera_task = mock_nidaqmx
+    def test_uses_20mhz_timebase(self, mock_nidaqmx):
+        """Source must be the 20 MHz internal timebase."""
+        mod, task = mock_nidaqmx
         t = NIDAQChopper500Hz(device="Dev1")
         t.start()
-        _, kwargs = camera_task.co_channels.add_co_pulse_chan_ticks.call_args
+        _, kwargs = task.co_channels.add_co_pulse_chan_ticks.call_args
         assert kwargs["source_terminal"] == "/Dev1/20MHzTimebase"
 
-    def test_camera_tick_calculation_gives_500hz(self, mock_nidaqmx):
-        """period=40000, high=4000, low=36000 → 20 MHz / 40000 = 500 Hz."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz()
-        t.start()
-        _, kwargs = camera_task.co_channels.add_co_pulse_chan_ticks.call_args
-        high = kwargs["high_ticks"]
-        low  = kwargs["low_ticks"]
-        assert high + low == 40_000
-        assert high == 4_000
-        assert low  == 36_000
-
-    def test_camera_ticks_above_hardware_minimum(self, mock_nidaqmx):
-        """NI DAQ requires high_ticks >= 2 and low_ticks >= 2."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz()
-        t.start()
-        _, kwargs = camera_task.co_channels.add_co_pulse_chan_ticks.call_args
-        assert kwargs["high_ticks"] >= 2
-        assert kwargs["low_ticks"]  >= 2
-
-    def test_camera_idle_state_is_low(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz()
-        t.start()
-        _, kwargs = camera_task.co_channels.add_co_pulse_chan_ticks.call_args
-        assert kwargs["idle_state"] == mod.constants.Level.LOW
-
-    def test_camera_retriggers_on_ctr2_internal_output(self, mock_nidaqmx):
-        """CTR1 must retrigger on Ctr2InternalOutput, not PFI12."""
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz(device="Dev1", divider_counter="ctr2")
-        t.start()
-        _, kwargs = camera_task.triggers.start_trigger.cfg_dig_edge_start_trig.call_args
-        assert kwargs["trigger_source"] == "/Dev1/Ctr2InternalOutput"
-        assert kwargs["trigger_edge"] == mod.constants.Edge.RISING
-
-    def test_camera_is_retriggerable(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
-        t = NIDAQChopper500Hz()
-        t.start()
-        assert camera_task.triggers.start_trigger.retriggerable is True
-
-    def test_camera_counter_channel(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
+    def test_counter_channel(self, mock_nidaqmx):
+        mod, task = mock_nidaqmx
         t = NIDAQChopper500Hz(device="Dev1", counter="ctr1")
         t.start()
-        args, _ = camera_task.co_channels.add_co_pulse_chan_ticks.call_args
+        args, _ = task.co_channels.add_co_pulse_chan_ticks.call_args
         assert args[0] == "Dev1/ctr1"
+
+    def test_tick_calculation_gives_500hz(self, mock_nidaqmx):
+        """period=40000, high=4000, low=36000 → 20 MHz / 40000 = 500 Hz."""
+        mod, task = mock_nidaqmx
+        t = NIDAQChopper500Hz()
+        t.start()
+        _, kwargs = task.co_channels.add_co_pulse_chan_ticks.call_args
+        high = kwargs["high_ticks"]
+        low = kwargs["low_ticks"]
+        assert high + low == 40_000
+        assert high == 4_000
+        assert low == 36_000
+
+    def test_ticks_above_hardware_minimum(self, mock_nidaqmx):
+        """NI DAQ requires high_ticks >= 2 and low_ticks >= 2."""
+        mod, task = mock_nidaqmx
+        t = NIDAQChopper500Hz()
+        t.start()
+        _, kwargs = task.co_channels.add_co_pulse_chan_ticks.call_args
+        assert kwargs["high_ticks"] >= 2
+        assert kwargs["low_ticks"] >= 2
+
+    def test_idle_state_is_low(self, mock_nidaqmx):
+        mod, task = mock_nidaqmx
+        t = NIDAQChopper500Hz()
+        t.start()
+        _, kwargs = task.co_channels.add_co_pulse_chan_ticks.call_args
+        assert kwargs["idle_state"] == mod.constants.Level.LOW
+
+    # ------------------------------------------------------------------
+    # Retrigger: sync_source (PFI12) rising edge
+    # ------------------------------------------------------------------
+
+    def test_retriggers_on_sync_source(self, mock_nidaqmx):
+        """Counter must retrigger on sync_source (default PFI12)."""
+        mod, task = mock_nidaqmx
+        t = NIDAQChopper500Hz(device="Dev1", sync_source="/Dev1/PFI12")
+        t.start()
+        _, kwargs = task.triggers.start_trigger.cfg_dig_edge_start_trig.call_args
+        assert kwargs["trigger_source"] == "/Dev1/PFI12"
+        assert kwargs["trigger_edge"] == mod.constants.Edge.RISING
+
+    def test_is_retriggerable(self, mock_nidaqmx):
+        mod, task = mock_nidaqmx
+        t = NIDAQChopper500Hz()
+        t.start()
+        assert task.triggers.start_trigger.retriggerable is True
 
     # ------------------------------------------------------------------
     # Stop / cleanup
     # ------------------------------------------------------------------
 
-    def test_stop_closes_both_tasks(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
+    def test_stop_closes_task(self, mock_nidaqmx):
+        mod, task = mock_nidaqmx
         t = NIDAQChopper500Hz()
         t.start()
         t.stop()
-        divider_task.stop.assert_called_once()
-        divider_task.close.assert_called_once()
-        camera_task.stop.assert_called_once()
-        camera_task.close.assert_called_once()
+        task.stop.assert_called_once()
+        task.close.assert_called_once()
 
     def test_stop_clears_task_references(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
+        mod, task = mock_nidaqmx
         t = NIDAQChopper500Hz()
         t.start()
         t.stop()
@@ -264,8 +220,8 @@ class TestNIDAQChopper500HzTask:
         assert t._divider_task is None
 
     def test_context_manager_starts_and_stops(self, mock_nidaqmx):
-        mod, divider_task, camera_task = mock_nidaqmx
+        mod, task = mock_nidaqmx
         t = NIDAQChopper500Hz()
         with t:
-            camera_task.start.assert_called_once()
-        camera_task.stop.assert_called_once()
+            task.start.assert_called_once()
+        task.stop.assert_called_once()
