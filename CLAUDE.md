@@ -453,17 +453,11 @@ camera.abort_acquisition()  # stops ONCE after the loop
 
 `get_buffered_frames()` uses `GetNumberNewImages()` which returns only frames accumulated since the last read — safe for continuous operation. The circular buffer holds ~12000 frames (~24 seconds at 500 Hz).
 
-**Phase sync on startup:** Before starting the camera, a hardware counter edge detection on PFI13 waits for the chopper blade rising edge. This ensures the first frame aligns with pump-ON:
-```python
-# Hardware edge detect — blocks until PFI13 rising edge
-with nidaqmx.Task() as sync_task:
-    sync_task.ci_channels.add_ci_count_edges_chan(f"{device}/ctr0", edge=Edge.RISING)
-    sync_task.ci_channels[0].ci_count_edges_term = f"/{device}/PFI13"
-    sync_task.start()
-    sync_task.read(timeout=5.0)  # blocks at hardware level
-# Camera starts immediately after edge — microsecond precision
-camera.start_run_till_abort()
-```
+**Phase sync on startup:** A hardware counter edge detection on PFI13 waits for the chopper blade rising edge before starting the camera. However, testing confirmed this does NOT deterministically set the tag-to-frame alignment — the initial phase is still random (50/50). **Continuous mode is what actually prevents flipping** — the phase is set once on first read and stays stable for the entire session.
+
+**Tag-to-frame alignment:** The offset detection in `_process_chopper_frames` tries offsets 0 through `shots_per_frame-1` and picks the one with the most matched tag groups. This offset is re-detected each read cycle, but in continuous mode it stays consistent because the camera never restarts.
+
+**P0.0 polarity (MC2000B):** The photo-interrupter polarity is fixed by hardware and does NOT change between sessions. From testing with the MC1F10HP blade with INNER REF OUT: P0.0=0 typically means beam passes (slot open), P0.0=1 means beam blocked. But the actual assignment depends on the tag-to-frame alignment offset, which varies per camera start. The ΔI/I₀ sign is determined by which tag group has higher intensity — this is consistent within a session.
 
 **`_ensure_idle()` prevents DRV_ACQUIRING (20072).** Called at the top of `start_run_till_abort()` and `start_run_till_abort_crop()` — checks `GetStatus()` and aborts if still acquiring.
 
@@ -513,8 +507,13 @@ Frame assignment: P0.0=1 → pump-ON, P0.0=0 → pump-OFF. **No intensity-based 
 - **Exposure time:** 0.4 ms (must be ≤ 0.5 ms for 500 Hz without overlap)
 - **VS speed:** index 0 (4.9 µs/row) — fastest, required for high frame rates
 - **HS speed:** index 0 (3 MHz) — fastest
-- **Overlap:** ENABLED (required for 500 Hz frame rate)
+- **Overlap:** ENABLED (required for 500 Hz frame rate — DO NOT DISABLE)
 - **shots_per_frame:** 2 (500 Hz camera / 250 Hz chopper) or 4 (250 Hz camera / 125 Hz chopper)
+- **CRITICAL: `apply_camera_settings` key names must match exactly:**
+  - `vs_speed_index` (not `vs_speed`) — without this, VS speed is never set and readout is too slow
+  - `hs_speed_index` (not `hs_speed`) — same issue
+  - `amplifier_type`, `preamp_gain_index`, `em_gain` — all use `_index` suffix
+  - Wrong key names are silently ignored, causing subtle timing failures
 
 ### TAScanConfig — NI DAQ Fields
 
