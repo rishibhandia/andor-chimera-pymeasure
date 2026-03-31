@@ -412,10 +412,13 @@ class AndorCamera:
             self._sdk.SetReadMode(self._codes.Read_Mode.FULL_VERTICAL_BINNING)
             self._sdk.SetAcquisitionMode(5)  # RUN_TILL_ABORT
 
-            # Enable overlap mode: readout of frame N overlaps with exposure of frame N+1
-            ret = self._sdk.SetOverlapMode(1)
+            # Disable overlap mode — it causes erratic FIRE timing in external
+            # trigger mode on DU970P. Without overlap, the camera completes
+            # readout before accepting the next trigger, limiting the max rate
+            # to ~500 Hz at VS=0/HS=0 but producing reliable frame timing.
+            ret = self._sdk.SetOverlapMode(0)
             if ret != self._errors.Error_Codes.DRV_SUCCESS:
-                log.warning(f"SetOverlapMode(1) returned: {ret}")
+                log.warning(f"SetOverlapMode(0) returned: {ret}")
 
             if hbin > 1:
                 ret = self._sdk.SetFVBHBin(hbin)
