@@ -375,6 +375,7 @@ Pump-probe transient absorption measurement system. Key files:
 | `TAWindowPanel` | `windows/ta_panel.py` | Composite widget: config + live display |
 | `TAScanConfigWidget` | `widgets/ta/scan_config_widget.py` | UI for configuring scans |
 | `TALiveDisplayWidget` | `widgets/ta/live_display.py` | Real-time ΔOD plots |
+| `AcquisitionSession` | `ta/acquisition.py` | Context manager: camera lifecycle across scan/monitor cycles |
 | `NIDAQChopper500Hz` | `ta/nidaq_trigger.py` | Generates 500 Hz camera trigger via NI DAQ Counter 1 |
 | `NIDAQPhaseReader` | `ta/nidaq_phase.py` | Reads chopper phase tags from P0.0 |
 
@@ -493,11 +494,21 @@ phase_reader = NIDAQPhaseReader(
 
 #### chopper_2x2 Acquisition Logic
 
-The acquisition uses two functions:
-- `_acquire_chopper_2x2()` — starts/stops camera (used by scan engine)
-- `_process_chopper_frames()` — processes pre-read frames (used by continuous monitor)
+**`AcquisitionSession`** (context manager in `acquisition.py`) owns the camera lifecycle across multiple acquisitions. Both scan and monitor engines use it:
 
-Tag alignment: tries offsets 0 through `shots_per_frame-1` and picks the offset with the most matched groups (all tags in a group identical).
+```python
+with AcquisitionSession(hw, config, camera_settings, phase_reader) as session:
+    for delay_ps in delays:
+        axis.position_ps = delay_ps
+        delta = session.acquire_one_cycle(dark=dark, raw_callback=cb)
+```
+
+- `__enter__`: applies camera settings, starts camera (`start_run_till_abort`), starts phase reader, drains tags
+- `acquire_one_cycle()`: sleeps for frame accumulation, reads buffered frames + tags, calls `_process_chopper_frames()`
+- `__exit__`: stops camera (`abort_acquisition`)
+- For non-chopper modes (`boxcar`, `shot_to_shot`): delegates to existing mode-specific functions
+
+**`_process_chopper_frames()`** is the single source of truth for tag alignment and frame separation. It tries offsets 0 through `shots_per_frame-1` and picks the offset with the most matched groups (all tags in a group identical).
 
 Frame assignment: P0.0=1 → pump-ON, P0.0=0 → pump-OFF. **No intensity-based auto-swap** — trust the chopper controller output directly.
 
