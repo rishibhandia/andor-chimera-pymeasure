@@ -63,15 +63,18 @@ def _make_hw_software(shot_values):
 
 class TestAcquisitionSessionChopper2x2:
 
-    def test_enter_starts_camera(self):
+    def test_enter_starts_camera_and_phase_reader(self):
         from andor_qt.ta.acquisition import AcquisitionSession
 
         hw = _make_hw_chopper(1200, 1000, n_pairs=5)
-        reader = MockNIDAQChopper2x2Reader()
+        reader = MagicMock()
+        reader.read_tags.return_value = np.array([1, 1, 0, 0] * 5, dtype=np.int8)
         config = _make_config("chopper_2x2")
 
         with AcquisitionSession(hw, config, phase_reader=reader):
             hw.camera.start_run_till_abort.assert_called_once()
+            reader.start.assert_called_once()
+            reader.drain.assert_called_once()
 
     def test_exit_stops_camera(self):
         from andor_qt.ta.acquisition import AcquisitionSession

@@ -40,7 +40,11 @@ from PySide6.QtCore import QObject, Signal
 
 from andor_qt.ta.engine_base import _EngineBase
 
-from andor_qt.ta.acquisition import acquire_delta_signal_at_delay, acquire_static_at_delay
+from andor_qt.ta.acquisition import (
+    AcquisitionSession,
+    acquire_delta_signal_at_delay,
+    acquire_static_at_delay,
+)
 from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS
 
 log = logging.getLogger(__name__)
@@ -230,11 +234,8 @@ class _ScanWorker(QObject):
             self._run_static_scan(config, hw, writer, spectra_folder, axis)
             return
 
-        # Apply trigger mode once before the scan, restore on exit
+        # Move stage to the first delay point before starting acquisition
         trigger_mode = (self._camera_settings or {}).get("trigger_mode", "internal")
-        _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
-        if callable(_apply) and self._camera_settings:
-            _apply(self._camera_settings)
         if config.delay_list:
             first_delay = config.ordered_delays(0)[0]
             if axis is not None:
@@ -253,138 +254,152 @@ class _ScanWorker(QObject):
         # Start NI DAQ hardware tasks
         if trigger_gen is not None:
             trigger_gen.start()
-        if phase_reader is not None:
+
+        # For non-chopper modes, start phase reader before session (session
+        # only starts the phase reader for chopper_2x2 via drain()).
+        is_chopper = config.acquisition_mode == "chopper_2x2" and phase_reader is not None
+        if not is_chopper and phase_reader is not None:
             phase_reader.start()
 
+        # AcquisitionSession owns the camera lifecycle:
+        # - chopper_2x2: camera starts once in __enter__, stops in __exit__
+        # - other modes: session delegates to mode-specific functions
+        session = AcquisitionSession(
+            hw, config,
+            camera_settings=self._camera_settings,
+            phase_reader=phase_reader,
+        )
+
         try:
-            for scan_idx in range(config.n_scans):
-                if self._abort_event.is_set():
-                    self.aborted.emit()
-                    return
-
-                self.scan_started.emit(scan_idx)
-
-                if writer is not None:
-                    writer.begin_scan(scan_idx)
-
-                ordered = config.ordered_delays(scan_idx)
-                n_pts = len(ordered)
-                n_scans = config.n_scans
-
-                import time as _time
-                _scan_t0 = _time.perf_counter()
-                _pts_completed = 0
-                _est_per_pt = _estimate_point_time_s(
-                    self._camera_settings or {}, config.n_averages
-                )
-
-                for pt_idx, delay_ps in enumerate(ordered):
-                    # Check abort
+            with session:
+                for scan_idx in range(config.n_scans):
                     if self._abort_event.is_set():
                         self.aborted.emit()
                         return
 
-                    # Wait if paused
-                    while not self._pause_event.is_set():
+                    self.scan_started.emit(scan_idx)
+
+                    if writer is not None:
+                        writer.begin_scan(scan_idx)
+
+                    ordered = config.ordered_delays(scan_idx)
+                    n_pts = len(ordered)
+                    n_scans = config.n_scans
+
+                    import time as _time
+                    _scan_t0 = _time.perf_counter()
+                    _pts_completed = 0
+                    _est_per_pt = _estimate_point_time_s(
+                        self._camera_settings or {}, config.n_averages
+                    )
+
+                    for pt_idx, delay_ps in enumerate(ordered):
+                        # Check abort
                         if self._abort_event.is_set():
                             self.aborted.emit()
                             return
-                        self._pause_event.wait(timeout=0.1)
 
-                    self.point_started.emit(scan_idx, delay_ps)
+                        # Wait if paused
+                        while not self._pause_event.is_set():
+                            if self._abort_event.is_set():
+                                self.aborted.emit()
+                                return
+                            self._pause_event.wait(timeout=0.1)
 
-                    eta_str = _format_eta(
-                        _time.perf_counter() - _scan_t0, _pts_completed, n_pts - pt_idx,
-                        est_per_pt_s=_est_per_pt,
-                    )
+                        self.point_started.emit(scan_idx, delay_ps)
 
-                    target_mm = (
-                        getattr(axis, "t0_offset_mm", 0.0) + (delay_ps * SPEED_OF_LIGHT_MM_PS) / 2
-                        if axis is not None else float("nan")
-                    )
-                    log.info(
-                        f"Scan {scan_idx+1}/{n_scans} pt {pt_idx+1}/{n_pts}: "
-                        f"moving to {delay_ps:.2f} ps ({target_mm:.3f} mm)  ETA: {eta_str}"
-                    )
-
-                    def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames,
-                                _si=scan_idx, _pi=pt_idx, _ns=n_scans, _np=n_pts,
-                                _d=delay_ps, _eta=eta_str):
-                        self.raw_pair_updated.emit(pumped, ref, n_matched, n_discarded, n_frames)
-                        valid_pct = 100.0 * (2 * n_matched) / n_frames if n_frames > 0 else 0.0
-                        self.status_updated.emit(
-                            f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
-                            f"pairs: {n_matched}  discarded: {n_discarded}  "
-                            f"({valid_pct:.0f}% valid)  ETA: {_eta}"
+                        eta_str = _format_eta(
+                            _time.perf_counter() - _scan_t0, _pts_completed, n_pts - pt_idx,
+                            est_per_pt_s=_est_per_pt,
                         )
 
-                    # Skip-on-error: if one point fails, log and continue
-                    try:
-                        delta_signal = acquire_delta_signal_at_delay(
-                            delay_ps, hw, config, dark=self._dark,
-                            camera_settings=self._camera_settings,
-                            phase_reader=phase_reader,
-                            raw_callback=_raw_cb,
+                        # Move stage to target delay
+                        if axis is not None:
+                            axis.position_ps = delay_ps
+
+                        target_mm = (
+                            getattr(axis, "t0_offset_mm", 0.0) + (delay_ps * SPEED_OF_LIGHT_MM_PS) / 2
+                            if axis is not None else float("nan")
                         )
-                    except Exception as exc:
-                        log.warning(f"Point {pt_idx+1}/{n_pts} failed: {exc} — skipping")
-                        self.status_updated.emit(
-                            f"pt {pt_idx+1}/{n_pts} SKIPPED: {exc}"
+                        log.info(
+                            f"Scan {scan_idx+1}/{n_scans} pt {pt_idx+1}/{n_pts}: "
+                            f"moving to {delay_ps:.2f} ps ({target_mm:.3f} mm)  ETA: {eta_str}"
                         )
+
+                        def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames,
+                                    _si=scan_idx, _pi=pt_idx, _ns=n_scans, _np=n_pts,
+                                    _d=delay_ps, _eta=eta_str):
+                            self.raw_pair_updated.emit(pumped, ref, n_matched, n_discarded, n_frames)
+                            valid_pct = 100.0 * (2 * n_matched) / n_frames if n_frames > 0 else 0.0
+                            self.status_updated.emit(
+                                f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
+                                f"pairs: {n_matched}  discarded: {n_discarded}  "
+                                f"({valid_pct:.0f}% valid)  ETA: {_eta}"
+                            )
+
+                        # Skip-on-error: if one point fails, log and continue
+                        try:
+                            delta_signal = session.acquire_one_cycle(
+                                dark=self._dark, raw_callback=_raw_cb,
+                            )
+                        except Exception as exc:
+                            log.warning(f"Point {pt_idx+1}/{n_pts} failed: {exc} — skipping")
+                            self.status_updated.emit(
+                                f"pt {pt_idx+1}/{n_pts} SKIPPED: {exc}"
+                            )
+                            _pts_completed += 1
+                            self.point_completed.emit(scan_idx, delay_ps)
+                            continue
+
+                        # Auto-save: write to HDF5 after each point
+                        if writer is not None:
+                            stage_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                            writer.write_point(scan_idx, delay_ps, delta_signal,
+                                               stage_position_um=stage_um)
+
+                        self.signal_updated.emit(delay_ps, self._wavelengths, delta_signal)
+
+                        if spectra_folder is not None:
+                            try:
+                                _save_spectrum_file(
+                                    spectra_folder, scan_idx, delay_ps,
+                                    self._wavelengths, delta_signal,
+                                )
+                                from andor_qt.ta.acquisition import last_acquisition_stats
+                                stats = last_acquisition_stats
+                                if stats:
+                                    position_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                                    from pathlib import Path as _P
+                                    for suffix, data in [
+                                        ("pump", stats.get("pump_mean")),
+                                        ("ref", stats.get("ref_mean")),
+                                        ("pump_std", stats.get("pump_std")),
+                                        ("ref_std", stats.get("ref_std")),
+                                    ]:
+                                        if data is not None and len(self._wavelengths) == len(data):
+                                            fn = f"scan{scan_idx:03d}_pos{position_um:+.1f}um_{suffix}.txt"
+                                            lines = [f"# scan={scan_idx}", f"# delay_ps={delay_ps:.6f}",
+                                                     f"# type={suffix}", f"# n_on={stats.get('n_on', 0)}",
+                                                     f"# n_off={stats.get('n_off', 0)}"]
+                                            for wl, d in zip(self._wavelengths, data):
+                                                lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
+                                            _P(spectra_folder / fn).write_text("\n".join(lines), encoding="utf-8")
+                            except Exception as exc:
+                                log.warning(f"Failed to save spectrum file: {exc}")
+
+                        # Update 2-D map
+                        all_delays.append(delay_ps)
+                        all_signals.append(delta_signal)
+                        if len(all_signals) > 0:
+                            signal_matrix = np.array(all_signals)
+                            self.map_updated.emit(
+                                np.array(all_delays), self._wavelengths, signal_matrix
+                            )
+
                         _pts_completed += 1
                         self.point_completed.emit(scan_idx, delay_ps)
-                        continue
 
-                    # Auto-save: write to HDF5 after each point
-                    if writer is not None:
-                        stage_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
-                        writer.write_point(scan_idx, delay_ps, delta_signal,
-                                           stage_position_um=stage_um)
-
-                    self.signal_updated.emit(delay_ps, self._wavelengths, delta_signal)
-
-                    if spectra_folder is not None:
-                        try:
-                            _save_spectrum_file(
-                                spectra_folder, scan_idx, delay_ps,
-                                self._wavelengths, delta_signal,
-                            )
-                            # Save pump/ref/std separately
-                            from andor_qt.ta.acquisition import last_acquisition_stats
-                            stats = last_acquisition_stats
-                            if stats:
-                                position_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
-                                from pathlib import Path as _P
-                                for suffix, data in [
-                                    ("pump", stats.get("pump_mean")),
-                                    ("ref", stats.get("ref_mean")),
-                                    ("pump_std", stats.get("pump_std")),
-                                    ("ref_std", stats.get("ref_std")),
-                                ]:
-                                    if data is not None and len(self._wavelengths) == len(data):
-                                        fn = f"scan{scan_idx:03d}_pos{position_um:+.1f}um_{suffix}.txt"
-                                        lines = [f"# scan={scan_idx}", f"# delay_ps={delay_ps:.6f}",
-                                                 f"# type={suffix}", f"# n_on={stats.get('n_on', 0)}",
-                                                 f"# n_off={stats.get('n_off', 0)}"]
-                                        for wl, d in zip(self._wavelengths, data):
-                                            lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
-                                        _P(spectra_folder / fn).write_text("\n".join(lines), encoding="utf-8")
-                        except Exception as exc:
-                            log.warning(f"Failed to save spectrum file: {exc}")
-
-                    # Update 2-D map
-                    all_delays.append(delay_ps)
-                    all_signals.append(delta_signal)
-                    if len(all_signals) > 0:
-                        signal_matrix = np.array(all_signals)
-                        self.map_updated.emit(
-                            np.array(all_delays), self._wavelengths, signal_matrix
-                        )
-
-                    _pts_completed += 1
-                    self.point_completed.emit(scan_idx, delay_ps)
-
-            self.scan_completed.emit()
+                self.scan_completed.emit()
 
         except Exception as exc:
             log.exception("TA engine error")
@@ -403,6 +418,7 @@ class _ScanWorker(QObject):
                 except Exception:
                     pass
             # Always restore to internal trigger after scan ends or aborts
+            _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
             if trigger_mode in ("external", "fast_external") and callable(_apply):
                 try:
                     _apply({"trigger_mode": "internal"})

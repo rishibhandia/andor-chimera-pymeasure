@@ -765,6 +765,7 @@ class AcquisitionSession:
         if self._is_chopper:
             self._hw.camera.start_run_till_abort()
             self._camera_running = True
+            self._phase_reader.start()
             self._phase_reader.drain()
 
         return self
