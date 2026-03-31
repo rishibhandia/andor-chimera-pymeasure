@@ -235,7 +235,7 @@ def make_config_2x2(n_averages=1):
 def make_hw_2x2(on_val, off_val, n_pairs):
     """Camera alternates ON frame / OFF frame for n_pairs pairs.
 
-    Mocks batch-read methods for ``_acquire_chopper_2x2``.
+    Mocks batch-read methods for chopper_2x2 acquisition.
     """
     hw = MagicMock()
     hw.motion.get_axis.return_value = MagicMock()

@@ -87,12 +87,17 @@ def acquire_delta_signal_at_delay(
     if config.acquisition_mode == "shot_to_shot" and phase_reader is not None:
         return _acquire_shot_to_shot(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
     if config.acquisition_mode == "chopper_2x2" and phase_reader is not None:
-        return _acquire_chopper_2x2(hw_manager, config, dark, phase_reader, raw_callback=raw_callback)
+        # Single-use session: camera starts, acquires one cycle, stops.
+        # For multi-point scans, use AcquisitionSession directly to avoid
+        # restarting the camera per point (which breaks phase stability).
+        with AcquisitionSession(hw_manager, config, camera_settings=camera_settings,
+                                phase_reader=phase_reader) as session:
+            return session.acquire_one_cycle(dark=dark, raw_callback=raw_callback)
     return _acquire_software(hw_manager, config, dark, raw_callback=raw_callback)
 
 
 # ---------------------------------------------------------------------------
-# Chopper frame processing (used by both _acquire_chopper_2x2 and monitor)
+# Chopper frame processing (used by AcquisitionSession and monitor)
 # ---------------------------------------------------------------------------
 
 def _process_chopper_frames(
@@ -195,152 +200,6 @@ def _process_chopper_frames(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _acquire_chopper_2x2(
-    hw_manager: Any,
-    config: TAScanConfig,
-    dark: Optional[np.ndarray],
-    phase_reader: Any,
-    raw_callback: Optional[Callable[[np.ndarray, np.ndarray, int, int, int], None]] = None,
-) -> np.ndarray:
-    """Acquire using chopper_2x2 mode — batch read via Run Till Abort.
-
-    The camera is started in Run Till Abort mode (continuous acquisition on
-    each external trigger).  Frames accumulate in the circular buffer while
-    the phase reader collects PFI0-clocked tags.  After enough frames have
-    arrived, all frames and tags are bulk-read and processed in numpy.
-
-    Tag alignment: 0 or 1 pre-trigger PFI0 samples may arrive between
-    ``drain()`` and the first SDG trigger.  We read ``2*N + 1`` tags and
-    try both offsets (0 and 1); the offset with more matched pairs wins.
-    """
-    camera = hw_manager.camera
-    spf = getattr(config, "shots_per_frame", 2)  # laser shots per camera frame
-    # Need ~2 frames per pair (1 ON + 1 OFF), plus ~10% margin for discards
-    n_target = int(config.n_averages * 2.2) + 10
-    # Use 80% of circular buffer to avoid overflow
-    buf_size = getattr(camera, "get_circular_buffer_size", lambda: 12000)()
-    max_chunk = max(1000, int(buf_size * 0.8))
-
-    # Frame period: spf laser shots at 1 kHz = spf ms per frame
-    frame_period_ms = spf  # 2 ms for 500 Hz, 4 ms for 250 Hz
-
-    all_frames_list = []
-    all_tags_list = []
-    remaining = n_target
-
-    # Start camera once — keep it running for the entire acquisition.
-    # This preserves the phase relationship between the counter output
-    # and the camera frames, preventing random ON/OFF flipping.
-    camera.start_run_till_abort()
-    phase_reader.drain()
-
-    try:
-        while remaining > 0:
-            chunk = min(remaining, max_chunk)
-
-            wait_s = (chunk * frame_period_ms) / 1000.0 + 0.05
-            time.sleep(wait_s)
-            chunk_frames, n_chunk = camera.get_buffered_frames()
-
-            if n_chunk == 0:
-                break
-
-            # Read spf tags per frame + 1 for alignment detection
-            chunk_tags = phase_reader.read_tags(n_chunk * spf + 1)
-
-            # Auto-detect alignment offset for this chunk
-            best_offset = 0
-            best_matched = -1
-            for offset in range(spf):
-                usable = (len(chunk_tags) - offset) // spf
-                if usable < 1:
-                    continue
-                tag_groups = chunk_tags[offset:offset + usable * spf].reshape(usable, spf)
-                # A frame is "matched" if all tags in the group are the same
-                n_matched = int((tag_groups == tag_groups[:, :1]).all(axis=1).sum())
-                if n_matched > best_matched:
-                    best_matched = n_matched
-                    best_offset = offset
-
-            usable = min(n_chunk, (len(chunk_tags) - best_offset) // spf)
-            tag_groups = chunk_tags[best_offset:best_offset + usable * spf].reshape(usable, spf)
-            all_frames_list.append(chunk_frames[:usable])
-            all_tags_list.append(tag_groups)
-            remaining -= usable
-    finally:
-        camera.abort_acquisition()
-
-    if not all_frames_list:
-        raise RuntimeError("chopper_2x2: no frames acquired — check trigger")
-
-    frames = np.concatenate(all_frames_list)
-    tag_groups = np.concatenate(all_tags_list)
-    n_read = len(frames)
-
-    # A frame is "matched" if all spf tags in its group are the same value
-    matched_mask = (tag_groups == tag_groups[:, :1]).all(axis=1)
-    n_discarded = int(n_read - matched_mask.sum())
-    matched_frames = frames[matched_mask]
-    matched_tags = tag_groups[matched_mask, 0]  # use first tag as the label
-
-    # P0.0=1 means pump chopper open (pump-ON), P0.0=0 means closed (pump-OFF).
-    # The camera runs continuously (no restart between cycles), so the phase
-    # relationship with P0.0 is stable throughout the acquisition.
-    on_frames = matched_frames[matched_tags == 1]
-    off_frames = matched_frames[matched_tags == 0]
-
-    n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
-
-    log.info(
-        f"chopper_2x2 tag stats: {n_read} frames, {n_discarded} discarded, "
-        f"{len(on_frames)} ON, {len(off_frames)} OFF, {n_pairs} pairs  |  "
-        f"ON mean={on_frames.mean():.1f}, OFF mean={off_frames.mean():.1f}"
-        if len(on_frames) > 0 and len(off_frames) > 0 else
-        f"chopper_2x2 tag stats: {n_read} frames, {n_discarded} discarded, "
-        f"{len(on_frames)} ON, {len(off_frames)} OFF"
-    )
-
-    if n_pairs == 0:
-        raise RuntimeError(
-            f"chopper_2x2: {n_read} frames, {n_discarded} discarded, "
-            f"0 valid pairs — check chopper phase sync"
-        )
-
-    # Compute ΔI/I₀ (vectorized)
-    pumped = on_frames[:n_pairs]
-    ref = off_frames[:n_pairs]
-
-    if dark is not None:
-        pumped = pumped - dark[np.newaxis, :]
-        ref = ref - dark[np.newaxis, :]
-
-    # Per-pair delta signal, then average
-    ref_safe = np.where(ref == 0, 1.0, ref)
-    delta = (pumped - ref) / ref_safe
-    mean = delta.mean(axis=0)
-
-    # Store statistics for external access
-    last_acquisition_stats.update({
-        "pump_mean": on_frames.mean(axis=0),
-        "pump_std": on_frames.std(axis=0),
-        "ref_mean": off_frames.mean(axis=0),
-        "ref_std": off_frames.std(axis=0),
-        "delta_std": delta.std(axis=0),
-        "n_on": len(on_frames),
-        "n_off": len(off_frames),
-    })
-
-    if raw_callback is not None:
-        raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0), n_pairs, n_discarded, n_read)
-
-    log.info(
-        f"chopper_2x2: collected {n_pairs} pairs, "
-        f"{n_discarded} discarded, {n_read} total frames "
-        f"({wait_s:.2f}s accumulation, offset={best_offset})"
-    )
-    return mean
 
 
 def _acquire_shot_to_shot(
