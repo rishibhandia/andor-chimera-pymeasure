@@ -35,14 +35,20 @@ def main():
     print("Quick Chopper_2x2 Test")
     print("=" * 60)
 
-    # --- Init camera (same as hardware_manager._init_real_hardware) ---
+    # --- Init camera + spectrograph (same as hardware_manager._init_real_hardware) ---
     from andor_pymeasure.instruments.andor_camera import AndorCamera
+    from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
 
     sdk_path = r"C:\Program Files\Andor SDK"
     print(f"Initializing camera (SDK: {sdk_path})...")
     camera = AndorCamera(sdk_path=sdk_path)
     camera.initialize()
     print(f"  Camera: {camera._info.xpixels}x{camera._info.ypixels}")
+
+    print("Initializing spectrograph...")
+    spectrograph = AndorSpectrograph(device_index=0, sdk_path=sdk_path)
+    spectrograph.initialize()
+    print(f"  Spectrograph: grating={spectrograph.grating}, wavelength={spectrograph.wavelength}nm")
 
     # --- Init phase reader (same as _make_daq_hardware) ---
     from andor_qt.ta.nidaq_phase import NIDAQPhaseReader
@@ -132,6 +138,7 @@ def main():
     print("\nStopping...")
     camera.abort_acquisition()
     phase_reader.stop()
+    spectrograph.shutdown()
     camera.shutdown()
 
     # --- Summary ---
