@@ -135,20 +135,25 @@ class _MonitorWorker(QObject):
 
             # Wait for chopper rising edge before starting camera so the
             # first frame aligns with pump-ON (P0.0=1 = blade open).
-            # Read P0.0 via the phase reader until we see 0→1 transition.
-            phase_reader.start()
+            # Use a separate one-shot DI read to avoid conflicting with
+            # the phase reader's NI DAQ task.
             self.status_updated.emit("Waiting for chopper phase sync...")
             log.info("Waiting for chopper rising edge (P0.0: 0 -> 1)...")
-            # Wait for P0.0 = 0 (blade closed)
-            for _ in range(10000):
-                if phase_reader.read_one() == 0:
-                    break
-            # Wait for P0.0 = 1 (blade opens — rising edge)
-            for _ in range(10000):
-                if phase_reader.read_one() == 1:
-                    break
-            log.info("Chopper rising edge detected — starting camera")
-            phase_reader.stop()
+            try:
+                import nidaqmx
+                di_chan = config.nidaq_di_channel
+                device = config.nidaq_device
+                prev = 0
+                with nidaqmx.Task("chopper_sync") as sync_task:
+                    sync_task.di_channels.add_di_chan(f"{device}/{di_chan}")
+                    for _ in range(50000):  # timeout ~50k reads
+                        val = sync_task.read()
+                        if prev == 0 and val == 1:
+                            break  # rising edge detected
+                        prev = val
+                log.info("Chopper rising edge detected -- starting camera")
+            except Exception as exc:
+                log.warning(f"Chopper sync failed ({exc}) -- starting without sync")
 
             camera.start_run_till_abort()
             phase_reader.start()
