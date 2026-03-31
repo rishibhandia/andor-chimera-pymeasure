@@ -395,7 +395,7 @@ Pump-probe transient absorption measurement system. Key files:
 
 | BNC-2110 Connector | NI PCIe-6353 Terminal | Direction | Signal |
 |-------------------|----------------------|-----------|--------|
-| User 1 BNC | PFI13 (P2.5, pin 40) | **INPUT** | Chopper REF OUT (INNER) — for phase sync |
+| User 1 BNC | PFI13 (P2.5, pin 40) | **INPUT** | Camera Fire output — phase reader start trigger |
 | User 2 BNC | P0.0 (port0/line0) | **INPUT** | Chopper REF OUT (INNER) — phase tags |
 | (dedicated BNC) | PFI0 | **INPUT** | 1 kHz laser sync clock |
 | (dedicated BNC) | PFI12 (pin 2) | **INPUT** | SDG 500 Hz output (also chopper reference) |
@@ -414,8 +414,9 @@ SDG 500 Hz  → Camera Ext Trigger SMB (direct)
             → PFI12 (for NIDAQChopper500Hz retrigger, if used)
             → Chopper REF IN (chopper locks to SDG, runs at 250 Hz with ÷2)
 
+Camera Fire output → PFI13 (User 1 BNC) — phase reader start trigger
+
 Chopper REF OUT (INNER, 250 Hz) → P0.0 (User 2 BNC) — phase tags
-                                → PFI13 (User 1 BNC) — hardware phase sync
 ```
 
 #### Chopper Controller (Thorlabs MC2000B)
@@ -454,9 +455,11 @@ camera.abort_acquisition()  # stops ONCE after the loop
 
 `get_buffered_frames()` uses `GetNumberNewImages()` which returns only frames accumulated since the last read — safe for continuous operation. The circular buffer holds ~12000 frames (~24 seconds at 500 Hz).
 
-**Phase sync on startup:** A hardware counter edge detection on PFI13 waits for the chopper blade rising edge before starting the camera. However, testing confirmed this does NOT deterministically set the tag-to-frame alignment — the initial phase is still random (50/50). **Continuous mode is what actually prevents flipping** — the phase is set once on first read and stays stable for the entire session.
+**Phase sync on startup — Camera Fire trigger:** The phase reader uses the Camera Fire output (PFI13) as its NI DAQ start trigger. The reader arms but does not sample P0.0 until the camera actually begins its first exposure. This guarantees tag[0] corresponds to frame[0] deterministically. Tested 20/20 stable across camera restarts (vs 50/50 random without Fire trigger).
 
-**Tag-to-frame alignment:** The offset detection in `_process_chopper_frames` tries offsets 0 through `shots_per_frame-1` and picks the one with the most matched tag groups (all tags identical within a group). This works purely from the P0.0 tag pattern — it does NOT need intensity data or a chopped probe. The tag pattern `[1,1,0,0,1,1,0,0...]` determines the correct offset regardless of what the camera sees. In continuous mode, the offset stays consistent because the camera never restarts.
+Previous approach (chopper REF on PFI13 as edge-detect sync) was confirmed NOT to work — the tag-to-frame alignment was still random because the camera and phase reader started on independent clocks.
+
+**Tag-to-frame alignment:** The offset detection in `_process_chopper_frames` tries offsets 0 through `shots_per_frame-1` and picks the one with the most matched tag groups (all tags identical within a group). This works purely from the P0.0 tag pattern — it does NOT need intensity data or a chopped probe. With the Fire trigger, the offset is deterministic (always the same value across restarts).
 
 **P0.0 polarity (MC2000B):** The photo-interrupter polarity is fixed by hardware and does NOT change between sessions. The MC2000B INNER REF OUT always outputs the same logic level for blade-open vs blade-closed. This means tag=1 always maps to the same physical state (pump-ON or pump-OFF) — no auto-detection needed for real experiments.
 
