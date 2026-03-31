@@ -427,16 +427,16 @@ Chopper REF OUT (INNER, 250 Hz) → P0.0 (User 2 BNC) — phase tags
 
 #### Camera Readout — Critical Lessons Learned
 
-**Overlap mode does NOT work with fast_external trigger on DU970P.** The camera fires in bursts instead of on every trigger when overlap is enabled. Code now explicitly disables overlap:
+**Overlap mode is REQUIRED for 500 Hz with fast_external trigger.** Without overlap, the camera can only sustain ~260 Hz (exposure + readout > 2 ms frame period). With overlap enabled, readout happens during the next exposure, allowing 500 Hz. The camera may fire in bursts (not every trigger), but the frames that do fire are properly timed:
 ```python
-self._sdk.SetOverlapMode(0)  # in start_run_till_abort()
+self._sdk.SetOverlapMode(1)  # in start_run_till_abort()
 ```
 
 **Without overlap, max frame rate is limited by exposure + readout:**
 - VS=0, HS=0, hbin=1: readout ≈ 1.5 ms
 - 0.4 ms exposure + 1.5 ms readout = 1.9 ms → max ~517 Hz
 - 2.0 ms exposure + 1.5 ms readout = 3.5 ms → max ~285 Hz (too slow for 500 Hz)
-- **Use exposure ≤ 0.5 ms for 500 Hz trigger rate without overlap**
+- With overlap enabled, camera can sustain 500 Hz even with longer exposures
 
 **Camera MUST NOT restart between acquisition cycles.** Restarting (`abort_acquisition` → `start_run_till_abort`) randomizes the phase relationship between camera frames and chopper blade, causing pump-ON/OFF assignment to flip randomly. The monitor engine now starts the camera once and keeps it running:
 ```python
@@ -513,7 +513,7 @@ Frame assignment: P0.0=1 → pump-ON, P0.0=0 → pump-OFF. **No intensity-based 
 - **Exposure time:** 0.4 ms (must be ≤ 0.5 ms for 500 Hz without overlap)
 - **VS speed:** index 0 (4.9 µs/row) — fastest, required for high frame rates
 - **HS speed:** index 0 (3 MHz) — fastest
-- **Overlap:** DISABLED (causes erratic FIRE timing on DU970P)
+- **Overlap:** ENABLED (required for 500 Hz frame rate)
 - **shots_per_frame:** 2 (500 Hz camera / 250 Hz chopper) or 4 (250 Hz camera / 125 Hz chopper)
 
 ### TAScanConfig — NI DAQ Fields
