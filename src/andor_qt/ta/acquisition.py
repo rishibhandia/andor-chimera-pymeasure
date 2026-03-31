@@ -92,6 +92,107 @@ def acquire_delta_signal_at_delay(
 
 
 # ---------------------------------------------------------------------------
+# Chopper frame processing (used by both _acquire_chopper_2x2 and monitor)
+# ---------------------------------------------------------------------------
+
+def _process_chopper_frames(
+    frames: np.ndarray,
+    tags: np.ndarray,
+    config: TAScanConfig,
+    dark: Optional[np.ndarray] = None,
+    raw_callback: Optional[Callable] = None,
+) -> np.ndarray:
+    """Process pre-read frames and tags into a delta-I/I0 spectrum.
+
+    This is the core computation shared by both the chopper_2x2 acquisition
+    (which starts/stops the camera) and the continuous monitor mode (which
+    keeps the camera running).
+
+    Args:
+        frames: 2-D array of shape (n_frames, n_pixels).
+        tags: 1-D array of phase tags (one per laser shot).
+        config: Scan config with shots_per_frame, n_averages.
+        dark: Optional dark spectrum to subtract.
+        raw_callback: Optional callback for raw pump/ref display.
+
+    Returns:
+        Averaged delta-I/I0 spectrum (1-D array).
+    """
+    spf = getattr(config, "shots_per_frame", 2)
+    n_frames = len(frames)
+
+    # Group tags by shots_per_frame and detect alignment offset
+    best_offset = 0
+    best_matched = -1
+    for offset in range(spf):
+        usable = (len(tags) - offset) // spf
+        if usable < 1:
+            continue
+        grp = tags[offset:offset + usable * spf].reshape(usable, spf)
+        n_matched = int((grp == grp[:, :1]).all(axis=1).sum())
+        if n_matched > best_matched:
+            best_matched = n_matched
+            best_offset = offset
+
+    usable = min(n_frames, (len(tags) - best_offset) // spf)
+    tag_groups = tags[best_offset:best_offset + usable * spf].reshape(usable, spf)
+    frames = frames[:usable]
+    n_read = len(frames)
+
+    # Separate matched frames by pump state
+    matched_mask = (tag_groups == tag_groups[:, :1]).all(axis=1)
+    n_discarded = int(n_read - matched_mask.sum())
+    matched_frames = frames[matched_mask]
+    matched_tags = tag_groups[matched_mask, 0]
+
+    on_frames = matched_frames[matched_tags == 1]
+    off_frames = matched_frames[matched_tags == 0]
+    n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
+
+    log.info(
+        f"chopper_2x2 tag stats: {n_read} frames, {n_discarded} discarded, "
+        f"{len(on_frames)} ON, {len(off_frames)} OFF, {n_pairs} pairs  |  "
+        f"ON mean={on_frames.mean():.1f}, OFF mean={off_frames.mean():.1f}"
+        if len(on_frames) > 0 and len(off_frames) > 0 else
+        f"chopper_2x2 tag stats: {n_read} frames, {n_discarded} discarded, "
+        f"{len(on_frames)} ON, {len(off_frames)} OFF"
+    )
+
+    if n_pairs == 0:
+        raise RuntimeError(
+            f"chopper_2x2: {n_read} frames, {n_discarded} discarded, "
+            f"0 valid pairs -- check chopper phase sync"
+        )
+
+    pumped = on_frames[:n_pairs]
+    ref = off_frames[:n_pairs]
+
+    if dark is not None:
+        pumped = pumped - dark[np.newaxis, :]
+        ref = ref - dark[np.newaxis, :]
+
+    ref_safe = np.where(ref == 0, 1.0, ref)
+    delta = (pumped - ref) / ref_safe
+    mean = delta.mean(axis=0)
+
+    last_acquisition_stats.update({
+        "pump_mean": on_frames.mean(axis=0),
+        "pump_std": on_frames.std(axis=0),
+        "ref_mean": off_frames.mean(axis=0),
+        "ref_std": off_frames.std(axis=0),
+        "delta_std": delta.std(axis=0),
+        "n_on": len(on_frames),
+        "n_off": len(off_frames),
+    })
+
+    if raw_callback is not None:
+        raw_callback(on_frames.mean(axis=0), off_frames.mean(axis=0),
+                     n_pairs, n_discarded, n_read)
+
+    return mean
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

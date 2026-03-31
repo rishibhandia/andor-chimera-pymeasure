@@ -149,10 +149,21 @@ class _MonitorWorker(QObject):
                     )
 
                 if is_chopper:
-                    # Camera is already running — just read frames
-                    from andor_qt.ta.acquisition import _read_chopper_frames
-                    delta = _read_chopper_frames(
-                        hw, config, self._dark, phase_reader, raw_callback=_raw_cb,
+                    # Camera is already running — just read accumulated frames
+                    from andor_qt.ta.acquisition import _process_chopper_frames
+                    spf = getattr(config, "shots_per_frame", 2)
+                    frame_period_ms = spf
+                    n_target = int(config.n_averages * 2.2) + 10
+                    wait_s = (n_target * frame_period_ms) / 1000.0 + 0.05
+                    import time as _t
+                    _t.sleep(wait_s)
+                    chunk_frames, n_chunk = camera.get_buffered_frames()
+                    if n_chunk == 0:
+                        continue
+                    chunk_tags = phase_reader.read_tags(n_chunk * spf + 1)
+                    delta = _process_chopper_frames(
+                        chunk_frames, chunk_tags, config, self._dark,
+                        raw_callback=_raw_cb,
                     )
                 else:
                     delta = acquire_delta_signal_at_delay(
