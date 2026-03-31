@@ -160,7 +160,9 @@ class _MonitorWorker(QObject):
                     chunk_frames, n_chunk = camera.get_buffered_frames()
                     if n_chunk == 0:
                         continue
-                    chunk_tags = phase_reader.read_tags(n_chunk * spf + 1)
+                    # Read exactly n_chunk * spf tags — no extra +1 that
+                    # would shift the phase reader and flip ON/OFF
+                    chunk_tags = phase_reader.read_tags(n_chunk * spf)
                     delta = _process_chopper_frames(
                         chunk_frames, chunk_tags, config, self._dark,
                         raw_callback=_raw_cb,
