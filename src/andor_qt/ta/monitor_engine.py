@@ -124,6 +124,7 @@ class _MonitorWorker(QObject):
 
         # For chopper_2x2, start camera once and keep it running to
         # preserve the phase relationship with the chopper tags.
+        log.info(f"=== MONITOR STARTED === mode={config.acquisition_mode}")
         is_chopper = config.acquisition_mode == "chopper_2x2" and phase_reader is not None
         camera = hw.camera
         if is_chopper:
@@ -220,6 +221,7 @@ class _MonitorWorker(QObject):
             log.exception("Monitor error")
             self.error.emit(str(exc))
         finally:
+            log.info("=== MONITOR STOPPED ===")
             if is_chopper:
                 camera.abort_acquisition()
             if trigger_gen is not None:
