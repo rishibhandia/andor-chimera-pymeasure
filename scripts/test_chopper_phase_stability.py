@@ -127,31 +127,32 @@ def main():
     camera.apply_camera_settings({
         "trigger_mode": "fast_external",
         "exposure_time": 0.0004,
-        "vs_speed": 0,
-        "hs_speed": 0,
+        "vs_speed_index": 0,
+        "hs_speed_index": 0,
+        "amplifier_type": 1,
+        "preamp_gain_index": 0,
+        "hbin": 1,
+        "vbin": 1,
     })
 
     phase_reader = create_phase_reader()
 
     results = []
 
+    # Test A: restart camera each trial (old behavior)
+    print("\n=== TEST A: Restart camera each trial ===")
     for trial in range(N_CYCLES):
         print(f"\n--- Trial {trial + 1}/{N_CYCLES} ---")
 
-        # Sync to chopper rising edge
         print("  Syncing to chopper...")
-        if not sync_to_chopper():
-            print("  WARNING: sync failed, starting anyway")
+        sync_to_chopper()
 
-        # Start camera and phase reader
         camera.start_run_till_abort()
         phase_reader.start()
         phase_reader.drain()
 
-        # Read one cycle
         on_mean, off_mean, n_on, n_off = run_one_cycle(camera, phase_reader)
 
-        # Stop
         camera.abort_acquisition()
         phase_reader.stop()
 
@@ -160,37 +161,58 @@ def main():
             results.append(None)
             continue
 
-        # Determine which is brighter
         on_is_bright = on_mean > off_mean
         label = "ON=bright" if on_is_bright else "ON=dark (FLIPPED)"
-
         print(f"  ON mean: {on_mean:.1f}  OFF mean: {off_mean:.1f}  "
               f"n_on={n_on}  n_off={n_off}  -> {label}")
-
         results.append(on_is_bright)
+
+    # Test B: continuous camera (new behavior — matches app)
+    print("\n=== TEST B: Continuous camera (no restart) ===")
+    results_b = []
+
+    print("  Syncing to chopper...")
+    sync_to_chopper()
+
+    camera.start_run_till_abort()
+    phase_reader.start()
+    phase_reader.drain()
+
+    for trial in range(N_CYCLES):
+        print(f"\n--- Trial {trial + 1}/{N_CYCLES} ---")
+
+        on_mean, off_mean, n_on, n_off = run_one_cycle(camera, phase_reader)
+
+        if on_mean is None:
+            print("  FAILED: no frames")
+            results_b.append(None)
+            continue
+
+        on_is_bright = on_mean > off_mean
+        label = "ON=bright" if on_is_bright else "ON=dark (FLIPPED)"
+        print(f"  ON mean: {on_mean:.1f}  OFF mean: {off_mean:.1f}  "
+              f"n_on={n_on}  n_off={n_off}  -> {label}")
+        results_b.append(on_is_bright)
+
+    camera.abort_acquisition()
+    phase_reader.stop()
 
     # Summary
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
 
-    valid = [r for r in results if r is not None]
-    if not valid:
-        print("  No valid results!")
-    else:
+    for label, res in [("Test A (restart)", results), ("Test B (continuous)", results_b)]:
+        valid = [r for r in res if r is not None]
+        if not valid:
+            print(f"  {label}: No valid results!")
+            continue
         n_bright = sum(valid)
         n_dark = len(valid) - n_bright
-        print(f"  ON=bright: {n_bright}/{len(valid)}")
-        print(f"  ON=dark (flipped): {n_dark}/{len(valid)}")
-
-        if n_dark == 0:
-            print("  RESULT: PASS -- phase is stable, no flipping")
-        elif n_bright == 0:
-            print("  RESULT: PASS -- phase is consistently inverted (but stable)")
-            print("  (P0.0 polarity may be inverted -- check chopper controller)")
+        if n_dark == 0 or n_bright == 0:
+            print(f"  {label}: PASS -- stable ({n_bright} bright, {n_dark} flipped)")
         else:
-            print(f"  RESULT: FAIL -- phase flipped {n_dark} out of {len(valid)} times")
-            print("  The chopper sync is not deterministic")
+            print(f"  {label}: FAIL -- {n_dark}/{len(valid)} flipped")
 
     # Cleanup
     print("\nShutting down...")
