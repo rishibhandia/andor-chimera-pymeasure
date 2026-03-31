@@ -44,6 +44,9 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 # Ensure widgets are cleaned up between tests to prevent Qt memory leaks
 qt_qapp_cls = "PySide6.QtWidgets.QApplication"
+markers = [
+    "hardware: requires real hardware (camera, NI DAQ, etc.) — skipped unless --hardware is passed",
+]
 
 [tool.ruff]
 line-length = 100
