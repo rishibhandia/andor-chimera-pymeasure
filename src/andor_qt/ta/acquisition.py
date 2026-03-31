@@ -184,23 +184,11 @@ def _acquire_chopper_2x2(
     matched_frames = frames[matched_mask]
     matched_tags = tag_groups[matched_mask, 0]  # use first tag as the label
 
-    tag1_frames = matched_frames[matched_tags == 1]
-    tag0_frames = matched_frames[matched_tags == 0]
-
-    # Auto-detect phase: assign "ON" to whichever tag group has higher mean
-    # intensity. This handles the random counter startup phase that can swap
-    # the tag-to-chopper mapping between acquisition cycles.
-    # In a real pump-probe experiment (chopping the pump), pump-ON always has
-    # higher signal (pump+probe > probe-only). When chopping the probe for
-    # testing, the signal difference is even larger.
-    if len(tag1_frames) > 0 and len(tag0_frames) > 0:
-        if tag1_frames.mean() >= tag0_frames.mean():
-            on_frames, off_frames = tag1_frames, tag0_frames
-        else:
-            on_frames, off_frames = tag0_frames, tag1_frames
-            log.info("chopper_2x2: phase auto-corrected (tag 0 = pump-ON)")
-    else:
-        on_frames, off_frames = tag1_frames, tag0_frames
+    # P0.0=1 means pump chopper open (pump-ON), P0.0=0 means closed (pump-OFF).
+    # The camera runs continuously (no restart between cycles), so the phase
+    # relationship with P0.0 is stable throughout the acquisition.
+    on_frames = matched_frames[matched_tags == 1]
+    off_frames = matched_frames[matched_tags == 0]
 
     n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
 
