@@ -174,7 +174,8 @@ class TestChopper2x2Panel:
         panel.engine.abort()
         panel.deleteLater()
         assert isinstance(captured.get("trigger_gen"), MockNIDAQChopper500Hz)
-        assert isinstance(captured.get("phase_reader"), MockNIDAQChopper2x2Reader)
+        from andor_qt.ta.nidaq_phase import MockNIDAQPhaseReader
+        assert isinstance(captured.get("phase_reader"), MockNIDAQPhaseReader)
 
 
 class TestShotToShotPanel:
