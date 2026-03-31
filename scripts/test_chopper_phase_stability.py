@@ -34,25 +34,32 @@ SHOTS_PER_FRAME = 2
 
 def init_camera():
     """Initialize camera and return it."""
-    from andor_qt.core.hardware_manager import HardwareManager
-    hw = HardwareManager.instance()
-    hw.initialize()
-    return hw
+    from andor_pymeasure.instruments.andor_camera import AndorCamera
+    sdk_path = r"C:\Program Files\Andor SDK"
+    print(f"  SDK path: {sdk_path}")
+    camera = AndorCamera(sdk_path=sdk_path)
+    camera.initialize()
+    print(f"  Camera initialized: {camera._info.xpixels}x{camera._info.ypixels}")
+    return camera
 
 
 def sync_to_chopper():
-    """Wait for chopper rising edge on PFI13 (P2.5)."""
+    """Wait for chopper rising edge on PFI13 using hardware counter."""
     import nidaqmx
-    sync_line = f"{DEVICE}/port2/line5"
-    prev = 0
-    with nidaqmx.Task("chopper_sync") as task:
-        task.di_channels.add_di_chan(sync_line)
-        for _ in range(50000):
-            val = task.read()
-            if prev == 0 and val == 1:
-                return True
-            prev = val
-    return False
+    from nidaqmx.constants import Edge
+    try:
+        with nidaqmx.Task("chopper_sync") as task:
+            task.ci_channels.add_ci_count_edges_chan(
+                f"{DEVICE}/ctr0",
+                edge=Edge.RISING,
+            )
+            task.ci_channels[0].ci_count_edges_term = f"/{DEVICE}/PFI13"
+            task.start()
+            task.read(timeout=5.0)  # blocks until rising edge
+        return True
+    except Exception as exc:
+        print(f"  Sync failed: {exc}")
+        return False
 
 
 def create_phase_reader():
@@ -113,9 +120,8 @@ def main():
     print("=" * 60)
 
     # Init hardware
-    print("\nInitializing hardware...")
-    hw = init_camera()
-    camera = hw.camera
+    print("\nInitializing camera...")
+    camera = init_camera()
 
     # Apply camera settings
     camera.apply_camera_settings({
@@ -188,8 +194,7 @@ def main():
 
     # Cleanup
     print("\nShutting down...")
-    hw.camera.set_cooler(False)
-    time.sleep(1)
+    camera.shutdown()
 
     return 0 if all(r == valid[0] for r in valid) else 1
 

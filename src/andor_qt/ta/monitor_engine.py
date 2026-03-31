@@ -132,26 +132,25 @@ class _MonitorWorker(QObject):
             if callable(_apply) and self._camera_settings:
                 _apply(self._camera_settings)
 
-            # Wait for chopper rising edge before starting camera so the
-            # first frame aligns with pump-ON (P0.0=1 = blade open).
-            # Use a separate one-shot DI read to avoid conflicting with
-            # the phase reader's NI DAQ task.
+            # Wait for chopper rising edge on PFI13 (User 1 BNC) before
+            # starting camera, so the first frame aligns with pump-ON.
+            # Uses a hardware counter edge detection — blocks at the NI DAQ
+            # level until the rising edge arrives, then returns immediately.
+            # This gives microsecond-level sync, not millisecond polling.
             self.status_updated.emit("Waiting for chopper phase sync...")
-            log.info("Waiting for chopper rising edge (P0.0: 0 -> 1)...")
+            log.info("Waiting for chopper rising edge on PFI13 (hardware)...")
             try:
                 import nidaqmx
+                from nidaqmx.constants import Edge
                 device = config.nidaq_device
-                # Read chopper REF OUT on PFI13 (User 1 BNC) — separate
-                # from the phase reader's P0.0 to avoid resource conflicts.
-                sync_line = f"{device}/port2/line5"  # PFI13 = P2.5
-                prev = 0
                 with nidaqmx.Task("chopper_sync") as sync_task:
-                    sync_task.di_channels.add_di_chan(sync_line)
-                    for _ in range(50000):  # timeout ~50k reads
-                        val = sync_task.read()
-                        if prev == 0 and val == 1:
-                            break  # rising edge detected
-                        prev = val
+                    sync_task.ci_channels.add_ci_count_edges_chan(
+                        f"{device}/ctr0",
+                        edge=Edge.RISING,
+                    )
+                    sync_task.ci_channels[0].ci_count_edges_term = f"/{device}/PFI13"
+                    sync_task.start()
+                    sync_task.read(timeout=5.0)  # blocks until rising edge
                 log.info("Chopper rising edge detected on PFI13 -- starting camera")
             except Exception as exc:
                 log.warning(f"Chopper sync failed ({exc}) -- starting without sync")
