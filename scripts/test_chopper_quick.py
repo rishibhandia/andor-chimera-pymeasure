@@ -17,9 +17,11 @@ import numpy as np
 # Camera settings — match your GUI settings exactly
 CAMERA_SETTINGS = {
     "trigger_mode": "fast_external",
-    "exposure_time": 0.0004,  # 0.4 ms
-    "vs_speed": 0,            # 4.88 us (fastest)
-    "hs_speed": 0,            # 3 MHz (fastest)
+    "exposure_time": 0.0004,    # 0.4 ms
+    "vs_speed_index": 0,        # 4.88 us (fastest)
+    "hs_speed_index": 0,        # 3 MHz (fastest)
+    "amplifier_type": 1,        # conventional CCD
+    "preamp_gain_index": 0,     # x1
     "hbin": 1,
     "vbin": 1,
 }
@@ -106,6 +108,12 @@ def main():
     n_target = int(N_AVERAGES * 2.2) + 10
     wait_s = (n_target * spf) / 1000.0 + 0.05
 
+    # Discard first read — camera may need a few frames to stabilize
+    time.sleep(wait_s)
+    camera.get_buffered_frames()
+    phase_reader.read_tags(300)  # drain accumulated tags
+    print("  First read discarded (stabilization)")
+
     results = []
     for cycle in range(N_CYCLES):
         time.sleep(wait_s)
@@ -115,6 +123,13 @@ def main():
             continue
 
         tags = phase_reader.read_tags(n_chunk * spf)
+
+        # Debug: show raw tag pattern and frame means
+        frame_means = frames.mean(axis=1)
+        print(f"    frames: {n_chunk}, tags: {len(tags)}")
+        print(f"    first 20 tags: {tags[:20].tolist()}")
+        print(f"    first 10 frame means: {[f'{m:.0f}' for m in frame_means[:10]]}")
+        print(f"    frame mean range: {frame_means.min():.0f} - {frame_means.max():.0f}")
 
         try:
             delta = _process_chopper_frames(frames, tags, config)
