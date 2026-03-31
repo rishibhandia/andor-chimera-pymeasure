@@ -132,7 +132,26 @@ class _MonitorWorker(QObject):
             _apply = getattr(camera, "apply_camera_settings", None)
             if callable(_apply) and self._camera_settings:
                 _apply(self._camera_settings)
+
+            # Wait for chopper rising edge before starting camera so the
+            # first frame aligns with pump-ON (P0.0=1 = blade open).
+            # Read P0.0 via the phase reader until we see 0→1 transition.
+            phase_reader.start()
+            self.status_updated.emit("Waiting for chopper phase sync...")
+            log.info("Waiting for chopper rising edge (P0.0: 0 -> 1)...")
+            # Wait for P0.0 = 0 (blade closed)
+            for _ in range(10000):
+                if phase_reader.read_one() == 0:
+                    break
+            # Wait for P0.0 = 1 (blade opens — rising edge)
+            for _ in range(10000):
+                if phase_reader.read_one() == 1:
+                    break
+            log.info("Chopper rising edge detected — starting camera")
+            phase_reader.stop()
+
             camera.start_run_till_abort()
+            phase_reader.start()
             phase_reader.drain()
 
         try:
