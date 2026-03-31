@@ -110,8 +110,6 @@ class _MonitorWorker(QObject):
         """Standard monitor: continuous cycles at current position."""
         if trigger_gen is not None:
             trigger_gen.start()
-        if phase_reader is not None:
-            phase_reader.start()
 
         from andor_qt.ta.engine import _estimate_point_time_s, _format_time
         is_static = config.acquisition_mode == "static_onoff"
@@ -160,6 +158,10 @@ class _MonitorWorker(QObject):
             camera.start_run_till_abort()
             phase_reader.start()
             phase_reader.drain()
+        else:
+            # Non-chopper modes: start phase reader normally
+            if phase_reader is not None:
+                phase_reader.start()
 
         try:
             while not self._abort.is_set():
