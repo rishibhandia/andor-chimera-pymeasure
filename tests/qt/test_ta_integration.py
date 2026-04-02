@@ -379,3 +379,112 @@ class TestMainWindowTATab:
         window.deleteLater()
 
         assert ta_tab_found, "No TA tab found in main window"
+
+
+class TestHbinWavelengthAlignment:
+    """Wavelength arrays must match hbin-reduced pixel count."""
+
+    def test_hdf5_writer_gets_hbin_adjusted_wavelengths(self, qt_app, mock_hw_manager, tmp_path):
+        """HDF5 writer wavelength array should have xpixels/hbin points."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
+
+        # Mock get_wavelengths to return different lengths based on hbin
+        def _mock_get_wl(hbin=1):
+            n_pixels = 1600 // hbin
+            return np.linspace(400, 800, n_pixels)
+        mock_hw_manager.get_wavelengths.side_effect = _mock_get_wl
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="test",
+            save_hdf5_dir=str(tmp_path),
+        )
+
+        # Set hbin=8 in camera settings
+        panel._config_widget._camera_settings.hbin_combo.setCurrentIndex(3)  # 8x
+        captured = {}
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+
+        # Verify get_wavelengths was called with hbin=8
+        mock_hw_manager.get_wavelengths.assert_called_with(hbin=8)
+
+        # Verify the writer was created with 200 wavelength points
+        writer = panel._writer
+        if writer is not None:
+            assert len(writer._wavelengths) == 200, (
+                f"Expected 200 wavelengths (1600/8), got {len(writer._wavelengths)}"
+            )
+            writer.finalize()
+        panel.deleteLater()
+
+    def test_scan_engine_gets_hbin_adjusted_wavelengths(self, qt_app, mock_hw_manager):
+        """Scan engine should pass hbin to get_wavelengths via ta_panel."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_qt.ta.scan_config import TAScanConfig
+
+        def _mock_get_wl(hbin=1):
+            return np.linspace(400, 800, 1600 // hbin)
+        mock_hw_manager.get_wavelengths.side_effect = _mock_get_wl
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        # Set hbin=4 in camera settings
+        panel._config_widget._camera_settings.hbin_combo.setCurrentIndex(2)  # 4x
+
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1, n_scans=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="test",
+        )
+        captured = {}
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(panel._engine, "start_scan", side_effect=_capture):
+            panel.config_widget.scan_requested.emit(config)
+
+        panel.engine.abort()
+        panel.deleteLater()
+        # camera_settings should have hbin=4
+        cs = captured.get("camera_settings", {})
+        assert cs.get("hbin") == 4
+
+    def test_monitor_engine_gets_hbin_adjusted_wavelengths(self, qt_app, mock_hw_manager):
+        """Monitor pre_set_wavelengths should pass hbin to get_wavelengths."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        def _mock_get_wl(hbin=1):
+            return np.linspace(400, 800, 1600 // hbin)
+        mock_hw_manager.get_wavelengths.side_effect = _mock_get_wl
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        panel._pre_set_wavelengths({"hbin": 4})
+
+        mock_hw_manager.get_wavelengths.assert_called_with(hbin=4)
+        assert len(panel._live_display._wavelengths) == 400
+        panel.deleteLater()
+
+    def test_pre_set_wavelengths_passes_hbin(self, qt_app, mock_hw_manager):
+        """_pre_set_wavelengths should pass hbin from camera_settings."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        def _mock_get_wl(hbin=1):
+            return np.linspace(400, 800, 1600 // hbin)
+        mock_hw_manager.get_wavelengths.side_effect = _mock_get_wl
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        panel._pre_set_wavelengths({"hbin": 8})
+
+        mock_hw_manager.get_wavelengths.assert_called_with(hbin=8)
+        assert len(panel._live_display._wavelengths) == 200
+        panel.deleteLater()
