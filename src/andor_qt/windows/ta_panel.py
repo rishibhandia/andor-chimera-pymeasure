@@ -340,7 +340,7 @@ class TAWindowPanel(QWidget):
                 self._trigger_test_running = True
                 self._trigger_test_btn.setText("Stop Trigger Test")
                 self._status_label.setText(
-                    f"Trigger test RUNNING — probe CTR1OUT (PFI13) on oscilloscope"
+                    "Trigger test RUNNING — probe CTR1OUT (PFI13) on oscilloscope"
                 )
                 log.info("Trigger test started")
             except Exception as exc:

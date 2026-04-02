@@ -7,7 +7,6 @@ This module provides procedures for acquiring spectra (FVB mode) and
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -15,13 +14,11 @@ from pymeasure.experiment import (
     BooleanParameter,
     FloatParameter,
     IntegerParameter,
-    ListParameter,
     Procedure,
 )
 
 if TYPE_CHECKING:
-    from andor_pymeasure.instruments.andor_camera import AndorCamera
-    from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+    pass
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -281,7 +278,7 @@ class ImageProcedure(Procedure):
 
         # Emit results (flatten 2D to individual data points)
         log.info("Emitting image data...")
-        total_points = image.shape[0] * image.shape[1]
+        image.shape[0] * image.shape[1]
         points_emitted = 0
 
         for y_idx in range(image.shape[0]):

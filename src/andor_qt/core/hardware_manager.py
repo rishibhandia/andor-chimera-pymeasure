@@ -18,6 +18,8 @@ from andor_qt.core.event_bus import get_event_bus
 from andor_qt.core.signals import get_hardware_signals
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from andor_pymeasure.instruments.andor_camera import AndorCamera
     from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
     from pymeasure.experiment import Procedure

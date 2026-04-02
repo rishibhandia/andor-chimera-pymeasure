@@ -16,7 +16,6 @@ from typing import Dict, Type
 
 from pymeasure.display.Qt import QtCore, QtWidgets
 from pymeasure.display.windows import ManagedWindow
-from pymeasure.experiment import Procedure
 
 from andor_pymeasure.procedures.pump_probe import (
     PumpProbeImageProcedure,

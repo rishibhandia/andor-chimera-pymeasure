@@ -19,7 +19,7 @@ import logging
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QPointF, Qt, Signal, Slot
+from PySide6.QtCore import QPointF, Qt, Slot
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGroupBox,

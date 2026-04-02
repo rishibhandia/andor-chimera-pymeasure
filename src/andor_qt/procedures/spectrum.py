@@ -322,7 +322,7 @@ class ImageProcedure(SharedHardwareMixin, Procedure):
 
         # Emit results (flatten 2D to individual data points)
         log.info("Emitting image data...")
-        total_points = image.shape[0] * image.shape[1]
+        image.shape[0] * image.shape[1]
         points_emitted = 0
 
         for y_idx in range(image.shape[0]):

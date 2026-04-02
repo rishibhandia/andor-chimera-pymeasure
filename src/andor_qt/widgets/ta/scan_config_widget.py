@@ -14,7 +14,6 @@ Save/load config via YAML using ``TAScanConfig.to_yaml`` / ``from_yaml``.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import List
 
 from PySide6.QtCore import QSettings, Signal
@@ -39,7 +38,6 @@ from PySide6.QtWidgets import (
 )
 
 from andor_qt.ta.scan_config import (
-    SPEED_OF_LIGHT_MM_PS,
     TAScanConfig,
     linear_delays_um,
     log_delays_um,
@@ -504,13 +502,11 @@ class TAScanConfigWidget(QGroupBox):
         delays = self._get_delay_list()
         # Derive stage fields from delay list for engine/HDF5 metadata
         if delays:
-            stage_start = ps_to_um(delays[0])
-            stage_step = ps_to_um(delays[1]) - ps_to_um(delays[0]) if len(delays) > 1 else 0.0
-            stage_n = len(delays)
+            ps_to_um(delays[0])
+            ps_to_um(delays[1]) - ps_to_um(delays[0]) if len(delays) > 1 else 0.0
+            len(delays)
         else:
-            stage_start = 0.0
-            stage_step = 0.0
-            stage_n = 0
+            pass
         return TAScanConfig(
             delay_list=delays,
             n_averages=self._n_averages_spin.value(),

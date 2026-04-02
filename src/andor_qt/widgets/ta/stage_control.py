@@ -8,16 +8,15 @@ at the axis boundaries.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import List
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 log = logging.getLogger(__name__)

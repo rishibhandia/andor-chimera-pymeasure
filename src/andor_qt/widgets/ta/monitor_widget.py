@@ -6,8 +6,12 @@ Provides position control, jog buttons, full camera settings, and start/stop.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSettings, Qt, Signal
+
+if TYPE_CHECKING:
+    import numpy as np
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from andor_qt.ta.scan_config import TAScanConfig, um_to_ps, ps_to_um
+from andor_qt.ta.scan_config import TAScanConfig
 from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
 
 log = logging.getLogger(__name__)
@@ -558,13 +562,12 @@ class TAMonitorWidget(QGroupBox):
     def _on_save_spectrum(self, spec_type: str) -> None:
         """Save the last acquired spectrum to a text file in the output directory."""
         from pathlib import Path
-        from datetime import datetime
         import numpy as _np
 
         pump = getattr(self, "_last_pump", None)
         ref = getattr(self, "_last_ref", None)
-        n_on = getattr(self, "_last_n_on", 0)
-        n_off = getattr(self, "_last_n_off", 0)
+        getattr(self, "_last_n_on", 0)
+        getattr(self, "_last_n_off", 0)
 
         if pump is None or ref is None:
             log.warning("No acquisition data to save — run monitor first")

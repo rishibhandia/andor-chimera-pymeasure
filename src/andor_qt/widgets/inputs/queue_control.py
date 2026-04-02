@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from pymeasure.experiment import Procedure
+    pass
 
 log = logging.getLogger(__name__)
 

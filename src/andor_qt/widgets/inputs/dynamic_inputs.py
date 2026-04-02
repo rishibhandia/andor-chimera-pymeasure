@@ -7,7 +7,7 @@ based on the selected read mode (FVB vs Image).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Type
+from typing import TYPE_CHECKING, Dict
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (

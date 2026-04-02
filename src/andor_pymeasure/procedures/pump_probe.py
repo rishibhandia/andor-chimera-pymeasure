@@ -14,14 +14,11 @@ from pymeasure.experiment import (
     BooleanParameter,
     FloatParameter,
     IntegerParameter,
-    ListParameter,
     Procedure,
 )
 
 if TYPE_CHECKING:
-    from andor_pymeasure.instruments.andor_camera import AndorCamera
-    from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
-    from andor_pymeasure.instruments.delay_stage import DelayStage
+    pass
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

@@ -14,7 +14,7 @@ from pymeasure.display.widgets.sequencer_widget import SequencerWidget
 from pymeasure.experiment.sequencer import SequenceEvaluationError
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QWidget
+    pass
 
 log = logging.getLogger(__name__)
 

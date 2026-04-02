@@ -10,7 +10,7 @@ Delay generator functions are pure (no side effects) and return ``list[float]``.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, fields as dc_fields
+from dataclasses import dataclass, fields as dc_fields
 from pathlib import Path
 from typing import List, Optional
 

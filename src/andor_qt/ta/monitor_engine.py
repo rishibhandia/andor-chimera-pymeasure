@@ -20,7 +20,6 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from andor_qt.ta.engine_base import _EngineBase
 
-from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 from andor_qt.ta.scan_config import TAScanConfig
 
 log = logging.getLogger(__name__)
@@ -197,7 +196,6 @@ class _MonitorWorker(QObject):
 
     def _run_static(self, config: TAScanConfig, hw: object, phase_reader: object, trigger_gen: object) -> None:
         """Static ON/OFF: two long acquisitions with user prompt between."""
-        camera = hw.camera
 
         try:
             from andor_qt.ta.engine import _estimate_point_time_s, _format_time

@@ -18,8 +18,7 @@ from pymeasure.experiment import (
 )
 
 if TYPE_CHECKING:
-    from andor_pymeasure.instruments.andor_camera import AndorCamera
-    from andor_pymeasure.instruments.andor_spectrograph import AndorSpectrograph
+    pass
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -297,7 +296,7 @@ class WavelengthImageScanProcedure(Procedure):
 
         # Calculate effective dimensions
         eff_xpixels = self.camera.xpixels // self.hbin
-        eff_ypixels = self.camera.ypixels // self.vbin
+        self.camera.ypixels // self.vbin
 
         # Set exposure
         self.camera.set_exposure(self.exposure_time)

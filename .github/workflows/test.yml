@@ -9,6 +9,7 @@ on:
 env:
   ANDOR_MOCK: "1"
   QT_QPA_PLATFORM: offscreen
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:

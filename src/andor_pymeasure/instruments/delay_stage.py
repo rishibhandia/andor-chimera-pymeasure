@@ -278,7 +278,7 @@ class NewportDelayStage(DelayStage):
             try:
                 pos_str = response.split("TP")[1]
                 return float(pos_str)
-            except (IndexError, ValueError) as e:
+            except (IndexError, ValueError):
                 log.error(f"Failed to parse position: {response}")
                 return 0.0
 

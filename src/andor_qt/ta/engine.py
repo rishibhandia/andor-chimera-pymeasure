@@ -30,7 +30,6 @@ map_updated(object, object, object)
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import Optional
@@ -42,7 +41,6 @@ from andor_qt.ta.engine_base import _EngineBase
 
 from andor_qt.ta.acquisition import (
     AcquisitionSession,
-    acquire_delta_signal_at_delay,
     acquire_static_at_delay,
 )
 from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS

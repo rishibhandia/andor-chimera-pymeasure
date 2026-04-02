@@ -30,7 +30,6 @@ generating a strict 1-0-1-0 alternating pattern suitable for tests.
 
 from __future__ import annotations
 
-from typing import Optional
 
 import numpy as np
 
@@ -243,6 +242,7 @@ class MockNIDAQPhaseReader:
 
 
 # Backward-compatible alias
-MockNIDAQChopper2x2Reader = lambda initial_phase=1, **kw: MockNIDAQPhaseReader(
+def MockNIDAQChopper2x2Reader(initial_phase=1, **kw):
+    return MockNIDAQPhaseReader(
     initial_phase=initial_phase, shots_per_frame=2, **kw
 )

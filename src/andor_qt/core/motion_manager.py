@@ -8,7 +8,7 @@ types and provides unified access to all axes across controllers.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Type, TYPE_CHECKING
+from typing import Dict, Optional, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from andor_pymeasure.instruments.motion_controller import Axis, MotionController
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # Import controller classes
-from andor_pymeasure.instruments.motion_controller import MockMotionController
+from andor_pymeasure.instruments.motion_controller import MockMotionController  # noqa: E402
 
 # New hardware controller imports (lazy try/except to avoid hard dependency failures)
 try:
