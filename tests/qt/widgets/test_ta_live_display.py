@@ -171,6 +171,50 @@ class TestMonitorModeKinetic:
         assert x[0] == 1  # reset to 1
 
 
+class TestKineticFFTHorizontalLayout:
+    """Kinetic trace and FFT plots should be arranged side-by-side horizontally."""
+
+    def test_kinetic_and_fft_in_horizontal_splitter(self, widget):
+        """Kinetic plot and FFT plot should be children of a horizontal QSplitter."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QSplitter
+
+        kinetic_plot = widget._kinetic_plot
+        fft_plot = widget._fft_plot
+
+        # Walk up from kinetic_plot to find the QSplitter parent
+        kinetic_splitter = kinetic_plot.parent()
+        while kinetic_splitter is not None and not isinstance(kinetic_splitter, QSplitter):
+            kinetic_splitter = kinetic_splitter.parent()
+
+        fft_splitter = fft_plot.parent()
+        while fft_splitter is not None and not isinstance(fft_splitter, QSplitter):
+            fft_splitter = fft_splitter.parent()
+
+        # Both should share the same horizontal splitter
+        assert kinetic_splitter is not None, "Kinetic plot must be inside a QSplitter"
+        assert fft_splitter is not None, "FFT plot must be inside a QSplitter"
+        assert kinetic_splitter is fft_splitter, (
+            "Kinetic and FFT plots must share the same QSplitter"
+        )
+        assert kinetic_splitter.orientation() == Qt.Orientation.Horizontal
+
+    def test_probe_selector_above_both_plots(self, widget):
+        """Probe wavelength selector row should be above (not beside) the plots."""
+        from PySide6.QtWidgets import QSplitter
+
+        # The probe spin box should NOT be inside the horizontal splitter
+        spin_parent = widget._probe_wl_spin.parent()
+        while spin_parent is not None:
+            if isinstance(spin_parent, QSplitter):
+                if spin_parent.orientation() == 1:  # Qt.Horizontal
+                    pytest.fail(
+                        "Probe wavelength selector should be above the "
+                        "horizontal splitter, not inside it"
+                    )
+            spin_parent = spin_parent.parent()
+
+
 class TestWavelengthSelector:
     def test_selector_range_set_from_first_signal(self, widget):
         wavelengths = np.linspace(500.0, 750.0, 64)
