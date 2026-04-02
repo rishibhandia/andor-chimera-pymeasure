@@ -241,6 +241,35 @@ class TestTAScanConfigWidgetStageTab:
         assert "ps" in text
 
 
+class TestScanParameterSummaryFontSizes:
+    """Verify that scan parameter summary labels use larger, more readable fonts."""
+
+    def test_preview_label_is_bold_14pt(self, widget):
+        ss = widget._preview_label.styleSheet()
+        assert "font-size: 14pt" in ss
+        assert "font-weight: bold" in ss
+
+    def test_stg_info_label_is_12pt_dark_gray(self, widget):
+        ss = widget._stg_info_label.styleSheet()
+        assert "font-size: 12pt" in ss
+        assert "#555" in ss
+
+    def test_lin_equiv_label_is_12pt_dark_gray(self, widget):
+        ss = widget._lin_equiv_label.styleSheet()
+        assert "font-size: 12pt" in ss
+        assert "#555" in ss
+
+    def test_log_equiv_label_is_12pt_dark_gray(self, widget):
+        ss = widget._log_equiv_label.styleSheet()
+        assert "font-size: 12pt" in ss
+        assert "#555" in ss
+
+    def test_manual_equiv_label_is_12pt_dark_gray(self, widget):
+        ss = widget._manual_equiv_label.styleSheet()
+        assert "font-size: 12pt" in ss
+        assert "#555" in ss
+
+
 class TestTAScanConfigWidgetYAML:
     def test_save_load_roundtrip(self, widget, tmp_path):
         widget.n_averages_spin.setValue(7)

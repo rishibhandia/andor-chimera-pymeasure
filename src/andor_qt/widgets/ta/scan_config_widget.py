@@ -217,6 +217,7 @@ class TAScanConfigWidget(QGroupBox):
 
         # --- Preview label ---
         self._preview_label = QLabel("0 delay points")
+        self._preview_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
         root.addWidget(self._preview_label)
 
         # --- Action buttons ---
@@ -266,7 +267,7 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Number of steps:", self._stg_n_steps)
 
         self._stg_info_label = QLabel()
-        self._stg_info_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._stg_info_label.setStyleSheet("color: #555; font-size: 12pt;")
         self._stg_info_label.setWordWrap(True)
         form.addRow("", self._stg_info_label)
 
@@ -326,7 +327,7 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Step size:", self._lin_step)
 
         self._lin_equiv_label = QLabel()
-        self._lin_equiv_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._lin_equiv_label.setStyleSheet("color: #555; font-size: 12pt;")
         form.addRow("", self._lin_equiv_label)
 
         for spin in (self._lin_start, self._lin_end, self._lin_step):
@@ -360,7 +361,7 @@ class TAScanConfigWidget(QGroupBox):
         form.addRow("Points/decade:", self._log_ppd)
 
         self._log_equiv_label = QLabel()
-        self._log_equiv_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._log_equiv_label.setStyleSheet("color: #555; font-size: 12pt;")
         form.addRow("", self._log_equiv_label)
 
         self._log_warn_label = QLabel()
@@ -391,7 +392,7 @@ class TAScanConfigWidget(QGroupBox):
         self._manual_text.textChanged.connect(self._update_preview)
         layout.addWidget(self._manual_text)
         self._manual_equiv_label = QLabel()
-        self._manual_equiv_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._manual_equiv_label.setStyleSheet("color: #555; font-size: 12pt;")
         layout.addWidget(self._manual_equiv_label)
         return w
 
