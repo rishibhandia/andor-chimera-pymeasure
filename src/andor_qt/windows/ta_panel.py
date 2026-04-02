@@ -221,8 +221,11 @@ class TAWindowPanel(QWidget):
         writer: Optional[TADataWriter] = None
         if config.save_hdf5_dir:
             try:
+                hbin = camera_settings.get("hbin", 1)
+                if isinstance(hbin, str):
+                    hbin = int(hbin.replace("x", ""))
                 get_wl = getattr(self._hw_manager, "get_wavelengths", None)
-                wavelengths = np.asarray(get_wl()) if callable(get_wl) else np.array([])
+                wavelengths = np.asarray(get_wl(hbin=hbin)) if callable(get_wl) else np.array([])
                 h5_path = auto_filename(
                     config.sample_name or "ta_scan", config.save_hdf5_dir
                 )
