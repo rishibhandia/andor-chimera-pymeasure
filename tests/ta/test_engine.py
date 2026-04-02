@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from andor_qt.ta.scan_config import TAScanConfig
-from andor_qt.ta.engine import TransientAbsorptionEngine
+from andor_qt.ta.engine import TransientAbsorptionEngine, _save_spectrum_file
 from andor_qt.ta.acquisition import acquire_delta_signal_at_delay
 
 
@@ -59,6 +59,46 @@ def make_config(n_delays: int = 3, n_averages: int = 1, n_scans: int = 1):
         scan_direction="forward",
         sample_name="test",
     )
+
+
+# ---------------------------------------------------------------------------
+# _save_spectrum_file — no headers
+# ---------------------------------------------------------------------------
+
+
+class TestSaveSpectrumFileNoHeaders:
+    """Verify _save_spectrum_file writes data only, no comment lines."""
+
+    def test_no_comment_lines(self, tmp_path):
+        wl = np.linspace(400, 800, 8)
+        sig = np.random.randn(8) * 1e-3
+        _save_spectrum_file(tmp_path, scan_idx=0, delay_ps=1.5,
+                            wavelengths=wl, delta_signal=sig)
+        files = list(tmp_path.glob("*.txt"))
+        assert len(files) == 1
+        for line in files[0].read_text().splitlines():
+            assert not line.startswith("#"), f"Comment found: {line!r}"
+
+    def test_two_tab_columns(self, tmp_path):
+        wl = np.linspace(400, 800, 4)
+        sig = np.ones(4) * 0.001
+        _save_spectrum_file(tmp_path, scan_idx=0, delay_ps=0.0,
+                            wavelengths=wl, delta_signal=sig)
+        files = list(tmp_path.glob("*.txt"))
+        lines = files[0].read_text().splitlines()
+        assert len(lines) == 4
+        for line in lines:
+            cols = line.split("\t")
+            assert len(cols) == 2
+
+    def test_line_count_matches_pixels(self, tmp_path):
+        wl = np.linspace(400, 800, 16)
+        sig = np.zeros(16)
+        _save_spectrum_file(tmp_path, scan_idx=1, delay_ps=5.0,
+                            wavelengths=wl, delta_signal=sig)
+        files = list(tmp_path.glob("*.txt"))
+        lines = files[0].read_text().splitlines()
+        assert len(lines) == 16
 
 
 # ---------------------------------------------------------------------------
@@ -260,10 +300,25 @@ class TestEngineSaveSpectra:
         # Pick the main delta spectrum file (scan000_pos*.txt)
         files = sorted(subdirs[0].glob("scan*.txt"))
         assert len(files) >= 1
-        lines = [ln for ln in files[0].read_text().splitlines() if not ln.startswith("#")]
-        assert len(lines) == 4  # 4 pixels
+        lines = files[0].read_text().splitlines()
+        assert len(lines) == 4  # 4 pixels, no headers
         cols = lines[0].split("\t")
         assert len(cols) == 2
+
+    def test_spectrum_files_have_no_comment_lines(self, qt_app, tmp_path):
+        """All saved spectrum files must contain only data, no # comment lines."""
+        hw = make_mock_hw(n_pixels=4)
+        hw.get_wavelengths.return_value = np.linspace(400, 800, 4)
+        config = self._make_config(n_delays=2, save_spectra_dir=str(tmp_path))
+        engine = TransientAbsorptionEngine()
+        self._run_engine(engine, config, hw)
+        subdirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+        assert len(subdirs) == 1
+        for f in subdirs[0].glob("*.txt"):
+            for line in f.read_text().splitlines():
+                assert not line.startswith("#"), (
+                    f"Comment line found in {f.name}: {line!r}"
+                )
 
     def test_no_files_when_save_dir_none(self, qt_app, tmp_path):
         hw = make_mock_hw(n_pixels=4)
