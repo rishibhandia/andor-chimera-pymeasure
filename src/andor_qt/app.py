@@ -6,8 +6,10 @@ This module provides the main entry point for running the application.
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -62,6 +64,54 @@ def setup_logging(level: int = logging.INFO) -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def setup_file_logging(
+    log_directory: str,
+    max_bytes: int = 10 * 1024 * 1024,
+    backup_count: int = 5,
+) -> logging.handlers.RotatingFileHandler:
+    """Add a RotatingFileHandler that writes session logs to a file.
+
+    Creates the log directory if it does not exist. The log filename
+    is timestamped as ``YYYYMMDD_HHMMSS_andor.log``.
+
+    Args:
+        log_directory: Directory where log files are written.
+        max_bytes: Maximum size per log file in bytes (default 10 MB).
+        backup_count: Number of rotated backup files to keep (default 5).
+
+    Returns:
+        The RotatingFileHandler that was added to the root logger.
+    """
+    log_dir = Path(log_directory)
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f"{timestamp}_andor.log"
+    log_path = log_dir / log_filename
+
+    handler = logging.handlers.RotatingFileHandler(
+        str(log_path),
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    # Ensure the root logger level allows INFO messages to reach the file
+    # handler.  The root logger defaults to WARNING (30); lower it to INFO (20)
+    # so that INFO-level messages propagate through.
+    if root_logger.level > logging.INFO:
+        root_logger.setLevel(logging.INFO)
+    return handler
 
 
 def create_argument_parser():
@@ -122,6 +172,18 @@ def main() -> int:
     setup_logging(log_level)
 
     log = logging.getLogger(__name__)
+
+    # Set up file logging from persisted QSettings directory
+    try:
+        from PySide6.QtCore import QSettings
+
+        settings = QSettings("AndorSpectrometer", "Logging")
+        log_dir = settings.value("log_directory", str(Path.home() / "andor_logs"))
+        setup_file_logging(str(log_dir))
+    except Exception as e:
+        # File logging is best-effort — don't prevent app startup
+        logging.getLogger(__name__).warning(f"Could not set up file logging: {e}")
+
     log.info("Starting Andor Spectrometer Qt GUI")
 
     # Load configuration
