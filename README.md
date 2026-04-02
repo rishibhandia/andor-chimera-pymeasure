@@ -91,6 +91,26 @@ uv run pytest tests/integration/ --hardware -v
 
 The test suite includes 1100+ tests covering widgets, procedures, acquisition logic, and hardware integration.
 
+## Continuous Integration
+
+GitHub Actions runs the test suite automatically on every push and pull request to `master`. The workflow is defined in `.github/workflows/test.yml`.
+
+### What CI does
+
+1. **Lint** — Runs `ruff check src/` (non-blocking; warnings only)
+2. **Test** — Runs `pytest` on all non-hardware tests (`tests/integration/` is excluded)
+3. **Matrix** — Tests against Python 3.11 and 3.13
+
+### How it works without hardware
+
+The CI environment has no Andor SDK, NI DAQ, or camera hardware. Tests run with `ANDOR_MOCK=1` which activates mock implementations for all hardware (see `tests/conftest.py`). The local Andor SDK Python packages (`pyandorsdk2`, `pyandorspectrograph`) are `file://` dependencies that don't exist in CI, so the workflow installs dependencies individually and installs the project with `--no-deps`.
+
+PySide6 requires system libraries on headless Linux. The workflow installs `libegl1`, `libopengl0`, and `libxkbcommon0`, and sets `QT_QPA_PLATFORM=offscreen` to run Qt without a display server.
+
+### Local ruff hook
+
+A post-edit hook in `.claude/settings.json` runs `ruff check --fix` automatically after every Python file edit in Claude Code, keeping the codebase lint-clean as changes are made.
+
 ## Project Structure
 
 ```
