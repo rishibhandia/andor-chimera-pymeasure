@@ -36,6 +36,7 @@ from andor_qt.widgets.display import ImagePlotWidget, ResultsTableWidget, Spectr
 from andor_qt.widgets.hardware import (
     DataSettingsWidget,
     DelayStageControlWidget,
+    LogSettingsWidget,
     SpectrographControlWidget,
     TemperatureControlWidget,
 )
@@ -197,6 +198,9 @@ class AndorSpectrometerWindow(QMainWindow):
 
         self._data_settings = DataSettingsWidget()
         col2.addWidget(self._data_settings)
+
+        self._log_settings = LogSettingsWidget()
+        col2.addWidget(self._log_settings)
 
         col2.addStretch()
 
