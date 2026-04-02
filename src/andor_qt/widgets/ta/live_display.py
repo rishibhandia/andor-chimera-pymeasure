@@ -19,7 +19,7 @@ import logging
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QPointF, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGroupBox,
@@ -121,6 +121,41 @@ class TALiveDisplayWidget(QGroupBox):
         self._signal_plot.setLabel("bottom", "Wavelength (nm)")
         self._signal_plot.setMinimumHeight(100)
         self._signal_curve = self._signal_plot.plot(pen="y")
+
+        # Crosshair lines (thin, semi-transparent, hidden until mouse enters)
+        self._crosshair_v = pg.InfiniteLine(
+            angle=90, movable=False,
+            pen=pg.mkPen("w", width=0.8, style=Qt.PenStyle.DashLine),
+        )
+        self._crosshair_h = pg.InfiniteLine(
+            angle=0, movable=False,
+            pen=pg.mkPen("w", width=0.8, style=Qt.PenStyle.DashLine),
+        )
+        self._crosshair_v.setVisible(False)
+        self._crosshair_h.setVisible(False)
+        self._signal_plot.addItem(self._crosshair_v, ignoreBounds=True)
+        self._signal_plot.addItem(self._crosshair_h, ignoreBounds=True)
+
+        # Probe wavelength indicator line (cyan dashed, hidden until data loaded)
+        self._probe_indicator = pg.InfiniteLine(
+            pos=600.0, angle=90, movable=False,
+            pen=pg.mkPen("c", width=1.5, style=Qt.PenStyle.DashDotLine),
+        )
+        self._probe_indicator.setVisible(False)
+        self._signal_plot.addItem(self._probe_indicator, ignoreBounds=True)
+
+        # Hover coordinate label (overlaid on plot via ViewBox)
+        self._hover_label = pg.TextItem(
+            text="", anchor=(0, 1),
+            color="w", fill=pg.mkBrush(0, 0, 0, 160),
+        )
+        self._hover_label.setVisible(False)
+        self._signal_plot.addItem(self._hover_label, ignoreBounds=True)
+
+        # Mouse tracking on the signal plot
+        self._signal_plot.scene().sigMouseMoved.connect(self._on_signal_mouse_moved)
+        self._signal_plot.scene().sigMouseClicked.connect(self._on_signal_mouse_clicked)
+
         splitter.addWidget(self._signal_plot)
 
         # --- 3. Kinetic trace + FFT (side-by-side) ---
@@ -141,6 +176,7 @@ class TALiveDisplayWidget(QGroupBox):
         self._probe_wl_spin.setSuffix(" nm")
         self._probe_wl_spin.setFixedWidth(100)
         self._probe_wl_spin.valueChanged.connect(self._update_kinetic_curve)
+        self._probe_wl_spin.valueChanged.connect(self._update_probe_indicator)
         selector_row.addWidget(self._probe_wl_spin)
         selector_row.addStretch()
         kinetic_layout.addLayout(selector_row)
@@ -283,6 +319,8 @@ class TALiveDisplayWidget(QGroupBox):
             self._wavelengths = wl
             self._probe_wl_spin.setRange(float(wl[0]), float(wl[-1]))
             self._probe_wl_spin.setValue(float(wl[len(wl) // 2]))
+            self._probe_indicator.setValue(float(wl[len(wl) // 2]))
+            self._probe_indicator.setVisible(True)
 
         if self._monitor_mode:
             self._monitor_cycle += 1
@@ -320,6 +358,57 @@ class TALiveDisplayWidget(QGroupBox):
         self._colorbar.setLevels((-vmax, vmax))
 
     # -- internal ----------------------------------------------------------
+
+    def _update_probe_indicator(self, value: float) -> None:
+        """Move the probe indicator line to the given wavelength."""
+        self._probe_indicator.setValue(value)
+
+    def _on_signal_plot_clicked(self, wavelength_nm: float) -> None:
+        """Update probe wavelength spinbox to the given wavelength.
+
+        Args:
+            wavelength_nm: Wavelength in nm to select as probe.
+        """
+        self._probe_wl_spin.setValue(wavelength_nm)
+
+    def _on_signal_mouse_moved(self, pos: QPointF) -> None:
+        """Update crosshair and coordinate label on mouse move over signal plot.
+
+        Args:
+            pos: Mouse position in scene coordinates.
+        """
+        vb = self._signal_plot.getPlotItem().getViewBox()
+        if not vb.sceneBoundingRect().contains(pos):
+            self._crosshair_v.setVisible(False)
+            self._crosshair_h.setVisible(False)
+            self._hover_label.setVisible(False)
+            return
+
+        mouse_point = vb.mapSceneToView(pos)
+        x = mouse_point.x()
+        y = mouse_point.y()
+        self._crosshair_v.setPos(x)
+        self._crosshair_h.setPos(y)
+        self._crosshair_v.setVisible(True)
+        self._crosshair_h.setVisible(True)
+        self._hover_label.setText(f"\u03bb={x:.1f} nm\n\u0394I/I\u2080={y:.4e}")
+        self._hover_label.setPos(x, y)
+        self._hover_label.setVisible(True)
+
+    def _on_signal_mouse_clicked(self, event) -> None:
+        """Handle click on signal plot to select probe wavelength.
+
+        Args:
+            event: pyqtgraph mouse click event.
+        """
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        vb = self._signal_plot.getPlotItem().getViewBox()
+        scene_pos = event.scenePos()
+        if not vb.sceneBoundingRect().contains(scene_pos):
+            return
+        mouse_point = vb.mapSceneToView(scene_pos)
+        self._on_signal_plot_clicked(mouse_point.x())
 
     def _update_kinetic_curve(self) -> None:
         """Recompute kinetic trace at current probe wavelength and redraw."""
@@ -386,3 +475,8 @@ class TALiveDisplayWidget(QGroupBox):
         self._signal_plot.setTitle("\u0394I/I\u2080 Spectrum")
         self._kinetic_plot.setTitle("Kinetic Trace")
         self._fft_plot.setTitle("FFT")
+        # Hide crosshairs and hover label
+        self._crosshair_v.setVisible(False)
+        self._crosshair_h.setVisible(False)
+        self._hover_label.setVisible(False)
+        self._probe_indicator.setVisible(False)

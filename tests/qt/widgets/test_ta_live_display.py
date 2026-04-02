@@ -251,3 +251,113 @@ class TestWavelengthSelector:
     def test_probe_wavelength_property(self, widget):
         widget.probe_wavelength = 632.8
         assert widget.probe_wavelength == pytest.approx(632.8, abs=0.1)
+
+
+class TestSpectrumPlotHoverAndClick:
+    """Mouse hover display and click-to-select on the ΔI/I₀ spectrum plot."""
+
+    def test_hover_label_exists(self, widget):
+        """A coordinate label should be overlaid on the signal plot."""
+        assert hasattr(widget, "_hover_label")
+        assert widget._hover_label is not None
+
+    def test_hover_label_initially_hidden(self, widget):
+        """Hover label should be hidden until the mouse enters the plot."""
+        assert not widget._hover_label.isVisible()
+
+    def test_crosshair_vline_exists(self, widget):
+        """A vertical crosshair line should exist on the signal plot."""
+        assert hasattr(widget, "_crosshair_v")
+        assert widget._crosshair_v is not None
+
+    def test_crosshair_hline_exists(self, widget):
+        """A horizontal crosshair line should exist on the signal plot."""
+        assert hasattr(widget, "_crosshair_h")
+        assert widget._crosshair_h is not None
+
+    def test_crosshairs_initially_hidden(self, widget):
+        """Crosshair lines should be hidden until mouse enters."""
+        assert not widget._crosshair_v.isVisible()
+        assert not widget._crosshair_h.isVisible()
+
+    def test_probe_indicator_line_exists(self, widget):
+        """A vertical dashed line indicating the selected probe wavelength."""
+        assert hasattr(widget, "_probe_indicator")
+        assert widget._probe_indicator is not None
+
+    def test_probe_indicator_at_initial_wavelength(self, widget):
+        """The probe indicator should be at the current probe wavelength."""
+        widget.probe_wavelength = 600.0
+        QApplication.instance().processEvents()
+        assert widget._probe_indicator.value() == pytest.approx(600.0, abs=0.1)
+
+    def test_probe_indicator_updates_on_spin_change(self, widget):
+        """Changing the spinbox should move the probe indicator line."""
+        wavelengths = np.linspace(400.0, 800.0, 64)
+        widget.on_signal_updated(0.0, wavelengths, np.zeros(64))
+        widget.probe_wavelength = 550.0
+        QApplication.instance().processEvents()
+        assert widget._probe_indicator.value() == pytest.approx(550.0, abs=0.1)
+
+    def test_click_on_signal_plot_updates_spinbox(self, widget):
+        """Clicking on the ΔI/I₀ plot should update the probe wavelength."""
+        wavelengths = np.linspace(400.0, 800.0, 64)
+        widget.on_signal_updated(0.0, wavelengths, np.zeros(64))
+        QApplication.instance().processEvents()
+
+        # Simulate click by calling the handler directly with a known wavelength
+        widget._on_signal_plot_clicked(650.0)
+        QApplication.instance().processEvents()
+        assert widget.probe_wavelength == pytest.approx(650.0, abs=0.2)
+
+    def test_click_clamps_to_wavelength_range(self, widget):
+        """Click outside the wavelength range should clamp to min/max."""
+        wavelengths = np.linspace(400.0, 800.0, 64)
+        widget.on_signal_updated(0.0, wavelengths, np.zeros(64))
+        QApplication.instance().processEvents()
+
+        # Click below the range - spinbox range is [400, 800]
+        widget._on_signal_plot_clicked(300.0)
+        QApplication.instance().processEvents()
+        assert widget.probe_wavelength >= 400.0
+
+    def test_click_updates_kinetic_trace(self, widget):
+        """Clicking a new wavelength should update the kinetic curve data."""
+        wavelengths = np.linspace(400.0, 800.0, 32)
+        # Feed a few delay points with different spectra
+        for i in range(3):
+            sig = np.zeros(32)
+            sig[16] = 0.01 * (i + 1)  # peak at pixel 16 = 600 nm
+            widget.on_signal_updated(float(i), wavelengths, sig)
+        QApplication.instance().processEvents()
+
+        # Click on 600 nm (pixel 16)
+        widget._on_signal_plot_clicked(600.0)
+        QApplication.instance().processEvents()
+
+        x, y = widget._kinetic_curve.getData()
+        assert x is not None and len(x) == 3
+
+    def test_hover_update_method_exists(self, widget):
+        """The widget should have the mouse-move handler method."""
+        assert hasattr(widget, "_on_signal_mouse_moved")
+        assert callable(widget._on_signal_mouse_moved)
+
+    def test_clear_hides_crosshairs(self, widget):
+        """Clearing the display should hide crosshair lines."""
+        # Make crosshairs visible first
+        widget._crosshair_v.setVisible(True)
+        widget._crosshair_h.setVisible(True)
+        widget._hover_label.setVisible(True)
+        widget.clear()
+        QApplication.instance().processEvents()
+        assert not widget._crosshair_v.isVisible()
+        assert not widget._crosshair_h.isVisible()
+        assert not widget._hover_label.isVisible()
+
+    def test_probe_indicator_visible_after_data(self, widget):
+        """Probe indicator should be visible once data has been loaded."""
+        wavelengths = np.linspace(400.0, 800.0, 64)
+        widget.on_signal_updated(0.0, wavelengths, np.zeros(64))
+        QApplication.instance().processEvents()
+        assert widget._probe_indicator.isVisible()
