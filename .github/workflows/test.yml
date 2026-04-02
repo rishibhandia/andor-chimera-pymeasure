@@ -51,11 +51,11 @@ jobs:
           uv pip install --no-deps -e .
 
       - name: Lint
-        run: uv run ruff check src/
+        run: .venv/bin/ruff check src/
 
       - name: Run tests
         run: |
-          uv run pytest tests/ \
+          .venv/bin/pytest tests/ \
             --ignore=tests/integration \
             -x -q \
             --tb=short
