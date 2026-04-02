@@ -67,6 +67,7 @@ class TAScanConfigWidget(QGroupBox):
         super().__init__("TA Scan Configuration", parent)
         self._build_ui()
         self._restore_settings()
+        self._connect_autosave()
         self._update_preview()
 
     def _build_ui(self) -> None:
@@ -488,6 +489,7 @@ class TAScanConfigWidget(QGroupBox):
             )
         elif self._tabs.currentIndex() == 3:
             self._manual_equiv_label.setText("")
+        self._save_settings()
 
     def _build_config(self) -> TAScanConfig:
         save_hdf5_dir = None
@@ -667,6 +669,21 @@ class TAScanConfigWidget(QGroupBox):
         self._camera_settings.setEnabled(not running)
 
     # -- Persistent settings (QSettings) -----------------------------------
+
+    def _connect_autosave(self) -> None:
+        """Auto-save settings whenever any non-preview control changes."""
+        self._n_averages_spin.valueChanged.connect(self._save_settings)
+        self._n_scans_spin.valueChanged.connect(self._save_settings)
+        self._acq_mode_combo.currentIndexChanged.connect(self._save_settings)
+        self._shots_per_frame_spin.valueChanged.connect(self._save_settings)
+        self._external_trigger_check.toggled.connect(self._save_settings)
+        self._scan_dir_combo.currentIndexChanged.connect(self._save_settings)
+        self._sample_name_edit.textChanged.connect(self._save_settings)
+        self._stage_axis_spin.valueChanged.connect(self._save_settings)
+        self._save_hdf5_check.toggled.connect(self._save_settings)
+        self._save_hdf5_dir_edit.textChanged.connect(self._save_settings)
+        self._save_spectra_check.toggled.connect(self._save_settings)
+        self._save_spectra_dir_edit.textChanged.connect(self._save_settings)
 
     _SETTINGS_KEY = "TAScanConfig"
 

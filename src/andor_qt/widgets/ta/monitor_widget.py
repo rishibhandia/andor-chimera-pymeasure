@@ -52,6 +52,17 @@ class TAMonitorWidget(QGroupBox):
         self._jog_buttons = []
         self._build_ui()
         self._load_settings()
+        self._connect_autosave()
+
+    def _connect_autosave(self) -> None:
+        """Auto-save settings whenever any control changes."""
+        self._acq_combo.currentIndexChanged.connect(self._save_settings)
+        self._shots_per_frame_spin.valueChanged.connect(self._save_settings)
+        self._avg_mode_combo.currentIndexChanged.connect(self._save_settings)
+        self._n_avg_spin.valueChanged.connect(self._save_settings)
+        self._avg_time_spin.valueChanged.connect(self._save_settings)
+        self._save_dir_edit.textChanged.connect(self._save_settings)
+        self._save_prefix_edit.textChanged.connect(self._save_settings)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)

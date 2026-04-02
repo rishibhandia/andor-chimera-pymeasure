@@ -4,11 +4,14 @@ single track and crop mode controls."""
 from __future__ import annotations
 
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox
 
 
 @pytest.fixture
 def widget(qt_app):
+    # Clear persisted settings so tests start from known defaults
+    QSettings("AndorSpectrometer", "CameraSettings").clear()
     from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
     w = CameraSettingsWidget()
     w.show()

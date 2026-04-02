@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -73,6 +73,7 @@ class CameraSettingsWidget(QGroupBox):
         self._connect_signals()
         self._on_amplifier_changed(1)       # apply initial enable/disable (default: Conventional)
         self._on_read_area_changed(0)        # show/hide initial groups
+        self._load_settings()
         self._update_readout_label()         # initialise readout time display
 
     # ------------------------------------------------------------------
@@ -272,6 +273,8 @@ class CameraSettingsWidget(QGroupBox):
             spinbox.valueChanged.connect(self.settings_changed)
 
         self.settings_changed.connect(self._update_readout_label)
+        self.settings_changed.connect(self._save_settings)
+        self.baseline_clamp_check.toggled.connect(self._save_settings)
 
     # ------------------------------------------------------------------
     # Slots
@@ -496,3 +499,115 @@ class CameraSettingsWidget(QGroupBox):
             settings["crop_width"] = self._crop_width_spin.value()
 
         return settings
+
+    # ------------------------------------------------------------------
+    # Persistent settings (QSettings)
+    # ------------------------------------------------------------------
+
+    def _save_settings(self) -> None:
+        """Persist current widget values to QSettings."""
+        s = QSettings("AndorSpectrometer", "CameraSettings")
+        s.setValue("amplifier_type", self.amplifier_combo.currentIndex())
+        s.setValue("vs_speed", self.vs_speed_combo.currentIndex())
+        s.setValue("hs_speed", self.hs_speed_combo.currentIndex())
+        s.setValue("em_gain", self.em_gain_spin.value())
+        s.setValue("preamp_gain", self.preamp_gain_combo.currentIndex())
+        s.setValue("read_area_mode", self.read_area_combo.currentIndex())
+        s.setValue("st_centre", self._st_centre_spin.value())
+        s.setValue("st_height", self._st_height_spin.value())
+        s.setValue("crop_height", self._crop_height_spin.value())
+        s.setValue("crop_width", self._crop_width_spin.value())
+        s.setValue("hbin", self.hbin_combo.currentIndex())
+        s.setValue("vbin", self.vbin_spin.value())
+        s.setValue("trigger_mode", self.trigger_mode_combo.currentIndex())
+        s.setValue("exposure_time", self.exposure_spin.value())
+        s.setValue("baseline_clamp", self.baseline_clamp_check.isChecked())
+
+    def _load_settings(self) -> None:
+        """Restore widget values from QSettings (if any).
+
+        Blocks signals during restore to avoid spurious settings_changed
+        emissions and unnecessary QSettings writes.
+        """
+        s = QSettings("AndorSpectrometer", "CameraSettings")
+        if not s.contains("exposure_time"):
+            return  # no saved settings yet
+
+        self.blockSignals(True)
+        widgets = [
+            self.amplifier_combo, self.vs_speed_combo, self.hs_speed_combo,
+            self.em_gain_spin, self.preamp_gain_combo, self.read_area_combo,
+            self._st_centre_spin, self._st_height_spin,
+            self._crop_height_spin, self._crop_width_spin,
+            self.hbin_combo, self.vbin_spin,
+            self.trigger_mode_combo, self.exposure_spin,
+            self.baseline_clamp_check,
+        ]
+        for w in widgets:
+            w.blockSignals(True)
+
+        amp = s.value("amplifier_type")
+        if amp is not None and 0 <= int(amp) < self.amplifier_combo.count():
+            self.amplifier_combo.setCurrentIndex(int(amp))
+
+        vs = s.value("vs_speed")
+        if vs is not None and 0 <= int(vs) < self.vs_speed_combo.count():
+            self.vs_speed_combo.setCurrentIndex(int(vs))
+
+        hs = s.value("hs_speed")
+        if hs is not None and 0 <= int(hs) < self.hs_speed_combo.count():
+            self.hs_speed_combo.setCurrentIndex(int(hs))
+
+        em = s.value("em_gain")
+        if em is not None:
+            self.em_gain_spin.setValue(int(em))
+
+        pa = s.value("preamp_gain")
+        if pa is not None and 0 <= int(pa) < self.preamp_gain_combo.count():
+            self.preamp_gain_combo.setCurrentIndex(int(pa))
+
+        ra = s.value("read_area_mode")
+        if ra is not None and 0 <= int(ra) < self.read_area_combo.count():
+            self.read_area_combo.setCurrentIndex(int(ra))
+
+        st_c = s.value("st_centre")
+        if st_c is not None:
+            self._st_centre_spin.setValue(int(st_c))
+        st_h = s.value("st_height")
+        if st_h is not None:
+            self._st_height_spin.setValue(int(st_h))
+
+        cr_h = s.value("crop_height")
+        if cr_h is not None:
+            self._crop_height_spin.setValue(int(cr_h))
+        cr_w = s.value("crop_width")
+        if cr_w is not None:
+            self._crop_width_spin.setValue(int(cr_w))
+
+        hb = s.value("hbin")
+        if hb is not None and 0 <= int(hb) < self.hbin_combo.count():
+            self.hbin_combo.setCurrentIndex(int(hb))
+
+        vb = s.value("vbin")
+        if vb is not None:
+            self.vbin_spin.setValue(int(vb))
+
+        trig = s.value("trigger_mode")
+        if trig is not None and 0 <= int(trig) < self.trigger_mode_combo.count():
+            self.trigger_mode_combo.setCurrentIndex(int(trig))
+
+        exp = s.value("exposure_time")
+        if exp is not None:
+            self.exposure_spin.setValue(float(exp))
+
+        bc = s.value("baseline_clamp")
+        if bc is not None:
+            self.baseline_clamp_check.setChecked(str(bc).lower() == "true")
+
+        for w in widgets:
+            w.blockSignals(False)
+        self.blockSignals(False)
+
+        # Apply side effects after restore
+        self._on_amplifier_changed(self.amplifier_combo.currentIndex())
+        self._on_read_area_changed(self.read_area_combo.currentIndex())
