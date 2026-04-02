@@ -123,13 +123,13 @@ class TALiveDisplayWidget(QGroupBox):
         self._signal_curve = self._signal_plot.plot(pen="y")
         splitter.addWidget(self._signal_plot)
 
-        # --- 3. Kinetic trace + FFT ---
+        # --- 3. Kinetic trace + FFT (side-by-side) ---
         kinetic_widget = QWidget()
         kinetic_layout = QVBoxLayout(kinetic_widget)
         kinetic_layout.setContentsMargins(0, 0, 0, 0)
         kinetic_layout.setSpacing(2)
 
-        # Probe wavelength selector (compact)
+        # Probe wavelength selector (compact) — above both plots
         selector_row = QHBoxLayout()
         selector_row.setContentsMargins(4, 0, 4, 0)
         selector_row.addWidget(QLabel("Probe \u03bb:"))
@@ -145,6 +145,9 @@ class TALiveDisplayWidget(QGroupBox):
         selector_row.addStretch()
         kinetic_layout.addLayout(selector_row)
 
+        # Horizontal splitter for kinetic trace (left) and FFT (right)
+        kinetic_fft_splitter = QSplitter(Qt.Orientation.Horizontal)
+
         ps_top_axis = _PsToUmAxis(orientation="top")
         ps_top_axis.setLabel("Delay (ps)")
         self._kinetic_plot = pg.PlotWidget(axisItems={"top": ps_top_axis})
@@ -153,7 +156,7 @@ class TALiveDisplayWidget(QGroupBox):
         self._kinetic_plot.showAxis("top")
         self._kinetic_plot.setMinimumHeight(120)
         self._kinetic_curve = self._kinetic_plot.plot(pen="c", symbol="o", symbolSize=3)
-        kinetic_layout.addWidget(self._kinetic_plot)
+        kinetic_fft_splitter.addWidget(self._kinetic_plot)
 
         self._fft_plot = pg.PlotWidget()
         self._fft_plot.setLabel("left", "Amplitude")
@@ -161,7 +164,10 @@ class TALiveDisplayWidget(QGroupBox):
         self._fft_plot.setMinimumHeight(80)
         self._fft_plot.showGrid(x=True, y=True, alpha=0.3)
         self._fft_curve = self._fft_plot.plot(pen="c")
-        kinetic_layout.addWidget(self._fft_plot)
+        kinetic_fft_splitter.addWidget(self._fft_plot)
+
+        kinetic_fft_splitter.setSizes([500, 300])
+        kinetic_layout.addWidget(kinetic_fft_splitter)
 
         splitter.addWidget(kinetic_widget)
 
