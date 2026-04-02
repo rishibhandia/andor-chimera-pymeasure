@@ -642,6 +642,8 @@ class AcquisitionSession:
         self,
         dark: Optional[np.ndarray] = None,
         raw_callback: Optional[Callable] = None,
+        progress_callback: Optional[Callable[[int, int, float], None]] = None,
+        abort_check: Optional[Callable[[], bool]] = None,
     ) -> np.ndarray:
         """Acquire one delta-signal measurement at the current position.
 
@@ -652,6 +654,10 @@ class AcquisitionSession:
             dark: Optional dark spectrum to subtract.
             raw_callback: Optional ``(pumped, ref, n_matched, n_discarded,
                 n_frames)`` callback for live display.
+            progress_callback: Optional ``(n_accumulated, n_target, elapsed_s)``
+                callback for progress updates during frame accumulation.
+            abort_check: Optional callable returning True if acquisition
+                should be aborted early.
 
         Returns:
             Averaged ΔI/I₀ spectrum (1-D numpy array).
@@ -659,7 +665,9 @@ class AcquisitionSession:
         config = self._config
 
         if self._is_chopper:
-            return self._acquire_chopper_cycle(dark, raw_callback)
+            return self._acquire_chopper_cycle(
+                dark, raw_callback, progress_callback, abort_check,
+            )
         if config.acquisition_mode == "shot_to_shot" and self._phase_reader is not None:
             return _acquire_shot_to_shot(
                 self._hw, config, dark, self._phase_reader,
@@ -671,24 +679,173 @@ class AcquisitionSession:
         self,
         dark: Optional[np.ndarray],
         raw_callback: Optional[Callable],
+        progress_callback: Optional[Callable[[int, int, float], None]] = None,
+        abort_check: Optional[Callable[[], bool]] = None,
     ) -> np.ndarray:
-        """Read one cycle of frames from the already-running camera."""
+        """Read one cycle of frames using incremental accumulation.
+
+        Instead of sleeping for the full acquisition time and reading all
+        frames at once (which overflows the circular buffer for large
+        n_averages), this method reads frames in ~1-second chunks and
+        maintains running ON/OFF sums.
+
+        Reports progress via ``progress_callback(n_pairs, n_target, elapsed_s)``
+        every second.
+        """
         camera = self._hw.camera
         config = self._config
         spf = getattr(config, "shots_per_frame", 2)
-        n_target = int(config.n_averages * 2.2) + 10
+        n_target = config.n_averages
 
-        frame_period_ms = spf  # 2 ms for 500 Hz, 4 ms for 250 Hz
-        wait_s = (n_target * frame_period_ms) / 1000.0 + 0.05
-        time.sleep(wait_s)
+        # Drain stale frames AND their matching tags together to stay in sync.
+        # Reading frames first, then exactly n_frames * spf tags ensures the
+        # drain doesn't desync the tag-to-frame alignment.
+        drain_frames, n_drain = camera.get_buffered_frames()
+        if n_drain > 0:
+            try:
+                self._phase_reader.read_tags(n_drain * spf)
+            except Exception:
+                self._phase_reader.drain()  # fallback if exact read fails
 
-        frames, n_chunk = camera.get_buffered_frames()
-        if n_chunk == 0:
+        # Running accumulators
+        sum_on: Optional[np.ndarray] = None
+        sum_off: Optional[np.ndarray] = None
+        n_on = 0
+        n_off = 0
+        n_discarded_total = 0
+        n_frames_total = 0
+        best_offset = 0
+        offset_detected = False
+
+        t0 = time.perf_counter()
+        empty_reads = 0
+        max_empty_reads = 10  # give up after 10 consecutive empty reads (~10s)
+
+        while min(n_on, n_off) < n_target:
+            if abort_check is not None and abort_check():
+                raise RuntimeError("chopper_2x2: acquisition aborted")
+
+            # Try reading available frames first; sleep only if buffer is empty
+            frames, n_chunk = camera.get_buffered_frames()
+            if n_chunk == 0:
+                empty_reads += 1
+                if empty_reads >= max_empty_reads:
+                    raise RuntimeError(
+                        f"chopper_2x2: no frames after {max_empty_reads} reads "
+                        f"({n_frames_total} total, {n_on} ON, {n_off} OFF) — "
+                        f"check trigger"
+                    )
+                time.sleep(1.0)
+                continue
+            empty_reads = 0
+
+            tags = self._phase_reader.read_tags(n_chunk * spf)
+            n_frames_total += n_chunk
+
+            # Detect tag-to-frame alignment offset on first chunk
+            if not offset_detected and len(tags) >= spf:
+                best_matched = -1
+                for offset in range(spf):
+                    usable = (len(tags) - offset) // spf
+                    if usable < 1:
+                        continue
+                    grp = tags[offset:offset + usable * spf].reshape(usable, spf)
+                    matched = int((grp == grp[:, :1]).all(axis=1).sum())
+                    if matched > best_matched:
+                        best_matched = matched
+                        best_offset = offset
+                offset_detected = True
+
+            # Group tags and classify frames
+            usable = min(n_chunk, (len(tags) - best_offset) // spf)
+            if usable < 1:
+                continue
+
+            tag_groups = tags[best_offset:best_offset + usable * spf].reshape(
+                usable, spf
+            )
+            chunk_frames = frames[:usable]
+
+            matched_mask = (tag_groups == tag_groups[:, :1]).all(axis=1)
+            n_discarded_total += int(usable - matched_mask.sum())
+            matched_frames = chunk_frames[matched_mask]
+            matched_tags = tag_groups[matched_mask, 0]
+
+            on_frames = matched_frames[matched_tags == 1]
+            off_frames = matched_frames[matched_tags == 0]
+
+            # Accumulate running sums
+            if len(on_frames) > 0:
+                if sum_on is None:
+                    sum_on = on_frames.sum(axis=0).astype(np.float64)
+                else:
+                    sum_on += on_frames.sum(axis=0)
+                n_on += len(on_frames)
+
+            if len(off_frames) > 0:
+                if sum_off is None:
+                    sum_off = off_frames.sum(axis=0).astype(np.float64)
+                else:
+                    sum_off += off_frames.sum(axis=0)
+                n_off += len(off_frames)
+
+            # Safety: bail if we've read enough frames but have no valid pairs.
+            # In ideal conditions we need ~2*n_target frames, so if we've read
+            # 3x that with 0 pairs, the tags are clearly broken.
+            min_check = max(n_target * 3, 100)
+            if n_frames_total >= min_check and min(n_on, n_off) == 0:
+                raise RuntimeError(
+                    f"chopper_2x2: {n_frames_total} frames read, "
+                    f"{n_discarded_total} discarded, {n_on} ON, {n_off} OFF — "
+                    f"no valid pairs (check chopper phase sync)"
+                )
+
+            if progress_callback is not None:
+                elapsed = time.perf_counter() - t0
+                progress_callback(min(n_on, n_off), n_target, elapsed)
+
+            # Brief pause before next read to avoid tight-looping on real hardware.
+            # Real cameras need time to accumulate frames; mocks return instantly
+            # and exit the loop quickly via the safety check above.
+            if min(n_on, n_off) < n_target:
+                time.sleep(0.5)
+
+        # Compute final result from running sums
+        if n_on == 0 or n_off == 0 or sum_on is None or sum_off is None:
             raise RuntimeError(
-                "chopper_2x2: no frames in cycle — check trigger"
+                f"chopper_2x2: {n_frames_total} frames, "
+                f"{n_on} ON, {n_off} OFF — no valid pairs"
             )
 
-        tags = self._phase_reader.read_tags(n_chunk * spf)
-        return _process_chopper_frames(
-            frames, tags, config, dark, raw_callback,
+        mean_on = sum_on / n_on
+        mean_off = sum_off / n_off
+
+        if dark is not None:
+            mean_on = mean_on - dark
+            mean_off = mean_off - dark
+
+        ref_safe = np.where(mean_off == 0, 1.0, mean_off)
+        delta = (mean_on - mean_off) / ref_safe
+
+        n_pairs = min(n_on, n_off)
+        log.info(
+            f"chopper_2x2 incremental: {n_frames_total} frames total, "
+            f"{n_discarded_total} discarded, {n_on} ON, {n_off} OFF, "
+            f"{n_pairs} pairs  |  "
+            f"ON mean={mean_on.mean():.1f}, OFF mean={mean_off.mean():.1f}"
         )
+
+        last_acquisition_stats.update({
+            "pump_mean": mean_on,
+            "pump_std": np.zeros_like(mean_on),  # not tracked incrementally
+            "ref_mean": mean_off,
+            "ref_std": np.zeros_like(mean_off),
+            "delta_std": np.zeros_like(delta),
+            "n_on": n_on,
+            "n_off": n_off,
+        })
+
+        if raw_callback is not None:
+            raw_callback(mean_on, mean_off, n_pairs, n_discarded_total, n_frames_total)
+
+        return delta

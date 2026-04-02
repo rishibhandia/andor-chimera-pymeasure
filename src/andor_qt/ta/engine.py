@@ -337,10 +337,21 @@ class _ScanWorker(QObject):
                                 f"({valid_pct:.0f}% valid)  ETA: {_eta}"
                             )
 
+                        def _progress_cb(n_acc, n_tgt, elapsed,
+                                         _pi=pt_idx, _np=n_pts, _d=delay_ps, _eta=eta_str):
+                            pct = 100.0 * n_acc / n_tgt if n_tgt > 0 else 0.0
+                            self.status_updated.emit(
+                                f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
+                                f"pairs: {n_acc}/{n_tgt} ({pct:.0f}%)  "
+                                f"elapsed: {elapsed:.0f}s  ETA: {_eta}"
+                            )
+
                         # Skip-on-error: if one point fails, log and continue
                         try:
                             delta_signal = session.acquire_one_cycle(
                                 dark=self._dark, raw_callback=_raw_cb,
+                                progress_callback=_progress_cb,
+                                abort_check=self._abort_event.is_set,
                             )
                         except Exception as exc:
                             log.warning(f"Point {pt_idx+1}/{n_pts} failed: {exc} — skipping")

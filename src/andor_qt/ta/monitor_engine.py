@@ -153,9 +153,19 @@ class _MonitorWorker(QObject):
                             pumped, ref, n_matched, n_discarded, n_frames
                         )
 
+                    def _progress_cb(n_acc, n_tgt, elapsed, _c=cycle):
+                        pct = 100.0 * n_acc / n_tgt if n_tgt > 0 else 0.0
+                        self.status_updated.emit(
+                            f"Monitor cycle {_c + 1}  |  "
+                            f"pairs: {n_acc}/{n_tgt} ({pct:.0f}%)  "
+                            f"elapsed: {elapsed:.0f}s"
+                        )
+
                     try:
                         delta = session.acquire_one_cycle(
                             dark=self._dark, raw_callback=_raw_cb,
+                            progress_callback=_progress_cb,
+                            abort_check=self._abort.is_set,
                         )
                     except RuntimeError:
                         # Zero frames in cycle — retry

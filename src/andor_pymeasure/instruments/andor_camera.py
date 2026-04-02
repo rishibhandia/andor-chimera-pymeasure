@@ -531,7 +531,10 @@ class AndorCamera:
                 raise RuntimeError(f"GetImages16 failed with code: {ret}")
 
         n_valid = validlast - validfirst + 1
-        frames = np.array(arr, dtype=np.float64).reshape(n_valid, eff_pixels)
+        arr_np = np.array(arr, dtype=np.float64)
+        # SDK may return more data than n_valid frames — slice to valid range
+        valid_pixels = n_valid * eff_pixels
+        frames = arr_np[:valid_pixels].reshape(n_valid, eff_pixels)
         return frames, n_valid
 
     def _ensure_idle(self) -> None:

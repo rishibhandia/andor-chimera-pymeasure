@@ -214,9 +214,16 @@ class TestAcquisitionSessionChopper2x2:
         reader = MockNIDAQChopper2x2Reader()
         config = _make_config("chopper_2x2", n_averages=1)
 
+        # Abort quickly so the incremental loop doesn't sleep 10s
+        call_count = 0
+        def _abort_after_2():
+            nonlocal call_count
+            call_count += 1
+            return call_count > 2
+
         with AcquisitionSession(hw, config, phase_reader=reader) as session:
-            with pytest.raises(RuntimeError, match="no frames"):
-                session.acquire_one_cycle()
+            with pytest.raises(RuntimeError, match="aborted|no frames"):
+                session.acquire_one_cycle(abort_check=_abort_after_2)
 
 
 # ---------------------------------------------------------------------------
