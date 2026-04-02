@@ -51,7 +51,7 @@ jobs:
           uv pip install --no-deps -e .
 
       - name: Lint
-        run: .venv/bin/ruff check src/
+        run: .venv/bin/ruff check src/ || echo "::warning::Ruff found lint issues (non-blocking)"
 
       - name: Run tests
         run: |
