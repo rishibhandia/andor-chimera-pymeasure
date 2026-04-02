@@ -618,19 +618,11 @@ class TAMonitorWidget(QGroupBox):
                 return
             filepath = Path(filepath)
 
-        collected_at = getattr(self, "_last_timestamp", "unknown")
-        lines = [
-            f"# type={label}",
-            f"# collected_at={collected_at}",
-            f"# n_on={n_on}",
-            f"# n_off={n_off}",
-        ]
+        lines = []
         if wavelengths is not None and len(wavelengths) == len(data):
-            lines.append("# columns: wavelength_nm\tvalue")
             for wl, d in zip(wavelengths, data):
                 lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
         else:
-            lines.append("# columns: pixel\tvalue")
             for i, d in enumerate(data):
                 lines.append(f"{i}\t{float(d):.8e}")
 
@@ -638,6 +630,7 @@ class TAMonitorWidget(QGroupBox):
         log.info(f"Saved {label} spectrum to {filepath}")
 
         # Show confirmation to user
+        collected_at = getattr(self, "_last_timestamp", "unknown")
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(
             self, "Spectrum Saved",

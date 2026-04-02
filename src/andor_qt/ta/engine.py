@@ -141,8 +141,7 @@ def _save_spectrum_file(
     filename = f"scan{scan_idx:03d}_pos{position_um:+.1f}um.txt"
     filepath = Path(save_dir) / filename
 
-    lines = [f"# scan_index={scan_idx}", f"# delay_ps={delay_ps:.6f}",
-             f"# position_um={position_um:.1f}"]
+    lines = []
     if len(wavelengths) == len(delta_signal):
         for wl, ds in zip(wavelengths, delta_signal):
             lines.append(f"{float(wl):.4f}\t{float(ds):.8e}")
@@ -389,9 +388,7 @@ class _ScanWorker(QObject):
                                     ]:
                                         if data is not None and len(self._wavelengths) == len(data):
                                             fn = f"scan{scan_idx:03d}_pos{position_um:+.1f}um_{suffix}.txt"
-                                            lines = [f"# scan={scan_idx}", f"# delay_ps={delay_ps:.6f}",
-                                                     f"# type={suffix}", f"# n_on={stats.get('n_on', 0)}",
-                                                     f"# n_off={stats.get('n_off', 0)}"]
+                                            lines = []
                                             for wl, d in zip(self._wavelengths, data):
                                                 lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
                                             _P(spectra_folder / fn).write_text("\n".join(lines), encoding="utf-8")
@@ -580,8 +577,7 @@ class _ScanWorker(QObject):
                         from pathlib import Path as _P
                         for suffix, data in [("pump", pump_avg), ("ref", ref_avg), ("deltaOD", delta_od)]:
                             fn = f"pos{position_um:+.1f}um_{suffix}.txt"
-                            lines = [f"# delay_ps={delay_ps:.6f}", f"# position_um={position_um:.1f}",
-                                     f"# type={suffix}", f"# n_frames={pump_n if suffix=='pump' else ref_n}"]
+                            lines = []
                             if len(self._wavelengths) == len(data):
                                 for wl, d in zip(self._wavelengths, data):
                                     lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
