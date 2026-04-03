@@ -592,23 +592,73 @@ Both use `SharedHardwareMixin` from `procedures/base.py` to share hardware with 
 
 ## Testing
 
+### Philosophy: Functional Tests Over Crash Tests
+
+**Every test must verify that a function produces the correct output**, not
+just that it runs without crashing. "No exception raised" is not a passing
+test — assert the actual computed values.
+
+**Good test — verifies behaviour:**
+```python
+def test_process_chopper_frames_correct_delta(self):
+    """ON=1200, OFF=1000 → ΔI/I₀ = (1200-1000)/1000 = 0.2"""
+    frames = np.array([[1200]*5, [1000]*5, [1200]*5, [1000]*5], dtype=float)
+    tags = np.array([1, 1, 0, 0, 1, 1, 0, 0], dtype=np.int8)
+    result = _process_chopper_frames(frames, tags, config)
+    np.testing.assert_allclose(result, 0.2, atol=1e-10)
+```
+
+**Bad test — only checks for no crash:**
+```python
+def test_process_chopper_frames(self):
+    result = _process_chopper_frames(frames, tags, config)
+    assert result is not None  # ← proves nothing about correctness
+```
+
+### What To Test For Each Function
+
+| Function type | Assert | Example |
+|---------------|--------|---------|
+| **Math/computation** | Exact numerical output matches hand-calculated expected value | `assert_allclose(delta, 0.2)` |
+| **Data pipeline** | Output shape, dtype, and values match known input→output mapping | `assert result.shape == (200,)` |
+| **Signal emission** | Signal payload contains correct data (not just that it fired) | `assert payload[0] == expected_wavelengths` |
+| **File I/O** | Written file contents match expected format and values | Read file back, check each field |
+| **State machine** | State transitions produce expected side effects | After pause→resume, verify scan continues |
+| **Error paths** | Correct exception type AND message for invalid input | `pytest.raises(RuntimeError, match="no valid pairs")` |
+| **Edge cases** | Boundary values, empty inputs, division by zero | `_process_chopper_frames(empty_frames, ...)` raises |
+
 ### Test Structure
 ```
 tests/
 ├── conftest.py          # Global fixtures, mock SDK setup
+├── ta/
+│   ├── test_process_chopper_frames.py  # Core frame processing math
+│   ├── test_acquisition_session.py     # AcquisitionSession lifecycle + incremental
+│   ├── test_acquisition_hardware.py    # acquire_delta_signal_at_delay all modes
+│   ├── test_engine.py                  # Scan engine signals, status, chopper, static
+│   ├── test_engine_helpers.py          # Pure helpers: _format_eta, _make_scan_folder
+│   ├── test_monitor_engine.py          # Monitor continuous, static, single-phase
+│   ├── test_hdf5_writer.py            # HDF5 I/O, metadata, CSV export
+│   └── test_scan_config.py            # Delay generators, unit conversions
 ├── qt/
 │   ├── conftest.py      # Qt fixtures (qt_app, hardware_manager, wait_for)
-│   └── test_*.py        # Widget and integration tests
-├── integration/
-│   ├── conftest.py      # Hardware marker, camera/spectrograph/phase_reader fixtures
-│   ├── test_nidaq_diagnostics.py       # NI DAQ counter, phase tags, retrigger
-│   ├── test_chopper_acquisition.py     # chopper_2x2 ON/OFF separation
-│   ├── test_chopper_phase_stability.py # Continuous vs restart phase stability
-│   ├── test_camera_readout_modes.py    # RTA batch read, frame rate, spectra
-│   └── test_readout_time_sdk.py        # Readout time formula vs SDK reference
+│   ├── test_ta_integration.py         # TA panel wiring, hbin wavelength alignment
+│   └── widgets/
+│       ├── test_camera_settings_widget.py  # Camera UI, QSettings persistence
+│       └── test_ta_live_display.py         # Display, hover, click-to-select, readout
+├── integration/         # Hardware tests (--hardware flag)
 ├── procedures/          # Procedure tests
 └── e2e/                 # End-to-end workflow tests
 ```
+
+### Writing New Tests — Checklist
+
+For each function under test:
+- [ ] **Happy path**: known input → verify exact expected output
+- [ ] **Edge case**: empty input, zero values, boundary values
+- [ ] **Error case**: invalid input → correct exception type and message
+- [ ] **Side effects**: signals emitted with correct payload, stats updated, files written
+- [ ] **Integration**: component A feeds component B → verify end-to-end data flow
 
 ### Hardware Integration Tests
 
@@ -626,38 +676,16 @@ camera initialized after the test, subsequent tests (or the GUI) cannot
 acquire it.
 
 Rules for hardware integration test fixtures:
-- **Function scope** — `@pytest.fixture` (no `scope=` argument). Init in setup, shutdown in teardown. Every test gets a fresh camera/spectrograph.
-- **Always teardown** — Use `yield` + cleanup after yield. Camera: `cam.shutdown()`. Phase reader: `reader.stop()`. Spectrograph: `spec.shutdown()`.
-- **Abort before shutdown** — If the test starts acquisition, the `finally` block must call `camera.abort_acquisition()` before the fixture's `shutdown()` runs.
-- **No leftover NI DAQ tasks** — Use `with nidaqmx.Task() as task:` context managers so tasks are always closed, even on exception.
-- **Pop ANDOR_MOCK** — Hardware fixtures must `os.environ.pop("ANDOR_MOCK", None)` before importing the real camera, because the top-level conftest sets `ANDOR_MOCK=1`.
-
-Example pattern:
-```python
-@pytest.fixture
-def camera():
-    os.environ.pop("ANDOR_MOCK", None)
-    cam = AndorCamera(sdk_path=SDK_PATH)
-    cam.initialize()
-    yield cam
-    cam.shutdown()
-
-def test_batch_read(camera):
-    camera.apply_camera_settings(SETTINGS)
-    camera.start_run_till_abort()
-    try:
-        frames, n = camera.get_buffered_frames()
-        assert n > 0
-    finally:
-        camera.abort_acquisition()
-    # fixture teardown calls camera.shutdown() automatically
-```
+- **Function scope** — `@pytest.fixture` (no `scope=` argument). Init in setup, shutdown in teardown.
+- **Always teardown** — Use `yield` + cleanup after yield.
+- **Abort before shutdown** — If the test starts acquisition, the `finally` block must call `camera.abort_acquisition()`.
+- **No leftover NI DAQ tasks** — Use `with nidaqmx.Task() as task:` context managers.
+- **Pop ANDOR_MOCK** — Hardware fixtures must `os.environ.pop("ANDOR_MOCK", None)`.
 
 ### Key Fixtures (Mock Tests)
 - `qt_app` — QApplication instance (module scope)
 - `hardware_manager` — Fresh HardwareManager with mock SDK
 - `wait_for` — Polling helper for async operations
-- `reset_hardware_manager` — Resets singleton between tests
 
 ### Qt Signal Testing
 Signals from background threads need event loop processing:
@@ -673,6 +701,12 @@ def wait_for_qt(condition_fn, timeout=15.0):
         time.sleep(0.05)
     return False
 ```
+
+### CI
+
+GitHub Actions runs all non-hardware tests on push/PR to master.
+See `.github/workflows/test.yml`. A post-edit ruff hook in
+`.claude/settings.json` auto-fixes lint on every Python file edit.
 
 ## Common Patterns
 
