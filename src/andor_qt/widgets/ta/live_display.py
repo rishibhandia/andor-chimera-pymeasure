@@ -72,6 +72,7 @@ class TALiveDisplayWidget(QGroupBox):
         self._kinetic_delays: list = []
         self._kinetic_signals: list = []
         self._wavelengths: np.ndarray = np.array([])
+        self._last_delta_signal: np.ndarray = np.array([])
         self._monitor_mode: bool = False
         self._monitor_cycle: int = 0
         self._build_ui()
@@ -177,7 +178,15 @@ class TALiveDisplayWidget(QGroupBox):
         self._probe_wl_spin.setFixedWidth(100)
         self._probe_wl_spin.valueChanged.connect(self._update_kinetic_curve)
         self._probe_wl_spin.valueChanged.connect(self._update_probe_indicator)
+        self._probe_wl_spin.valueChanged.connect(self._update_delta_readout)
         selector_row.addWidget(self._probe_wl_spin)
+
+        self._delta_readout_label = QLabel("")
+        self._delta_readout_label.setStyleSheet(
+            "color: yellow; font-size: 11px; font-weight: bold; padding: 0 8px;"
+        )
+        selector_row.addWidget(self._delta_readout_label)
+
         selector_row.addStretch()
         kinetic_layout.addLayout(selector_row)
 
@@ -322,6 +331,9 @@ class TALiveDisplayWidget(QGroupBox):
             self._probe_indicator.setValue(float(wl[len(wl) // 2]))
             self._probe_indicator.setVisible(True)
 
+        self._last_delta_signal = sig
+        self._update_delta_readout()
+
         if self._monitor_mode:
             self._monitor_cycle += 1
             self._kinetic_delays.append(float(self._monitor_cycle))
@@ -358,6 +370,18 @@ class TALiveDisplayWidget(QGroupBox):
         self._colorbar.setLevels((-vmax, vmax))
 
     # -- internal ----------------------------------------------------------
+
+    def _update_delta_readout(self) -> None:
+        """Update the numerical DI/I0 readout at the current probe wavelength."""
+        if len(self._wavelengths) == 0 or len(self._last_delta_signal) == 0:
+            return
+        probe_nm = self._probe_wl_spin.value()
+        idx = int(np.argmin(np.abs(self._wavelengths - probe_nm)))
+        if idx < len(self._last_delta_signal):
+            value = float(self._last_delta_signal[idx])
+            self._delta_readout_label.setText(
+                f"\u0394I/I\u2080 = {value:.2e}"
+            )
 
     def _update_probe_indicator(self, value: float) -> None:
         """Move the probe indicator line to the given wavelength."""
@@ -464,6 +488,8 @@ class TALiveDisplayWidget(QGroupBox):
         self._kinetic_signals.clear()
         self._monitor_cycle = 0
         self._wavelengths = np.array([])
+        self._last_delta_signal = np.array([])
+        self._delta_readout_label.setText("")
         self._raw_curve_on.setData([], [])
         self._raw_curve_off.setData([], [])
         self._raw_curve_diff.setData([], [])

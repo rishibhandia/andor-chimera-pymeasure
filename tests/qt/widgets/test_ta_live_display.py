@@ -361,3 +361,118 @@ class TestSpectrumPlotHoverAndClick:
         widget.on_signal_updated(0.0, wavelengths, np.zeros(64))
         QApplication.instance().processEvents()
         assert widget._probe_indicator.isVisible()
+
+
+class TestDeltaReadoutLabel:
+    """Live numerical readout of DI/I0 at the selected probe wavelength."""
+
+    def test_has_delta_readout_label(self, widget):
+        """Widget should have a _delta_readout_label QLabel attribute."""
+        from PySide6.QtWidgets import QLabel
+
+        assert hasattr(widget, "_delta_readout_label")
+        assert isinstance(widget._delta_readout_label, QLabel)
+
+    def test_readout_initially_empty(self, widget):
+        """Before any data, the readout label should show placeholder text."""
+        text = widget._delta_readout_label.text()
+        # Should be empty or a placeholder — NOT a numeric value
+        assert text == "" or "---" in text or "N/A" in text
+
+    def test_readout_shows_value_after_signal_updated(self, widget):
+        """After on_signal_updated, label should display DI/I0 at probe wavelength."""
+        wavelengths = np.linspace(500.0, 700.0, 101)
+        # Create signal with a known value at 600 nm (index 50)
+        delta_signal = np.zeros(101)
+        delta_signal[50] = 1.23e-3
+        widget.on_signal_updated(0.0, wavelengths, delta_signal)
+        QApplication.instance().processEvents()
+
+        text = widget._delta_readout_label.text()
+        # Probe should auto-center at 600 nm; value should be 1.23e-3
+        assert "1.23" in text
+        assert "e-0" in text.lower() or "e-" in text.lower()
+
+    def test_readout_scientific_notation_format(self, widget):
+        """Readout should use scientific notation with DI/I0 prefix."""
+        wavelengths = np.linspace(500.0, 700.0, 101)
+        delta_signal = np.ones(101) * 5.67e-4
+        widget.on_signal_updated(0.0, wavelengths, delta_signal)
+        QApplication.instance().processEvents()
+
+        text = widget._delta_readout_label.text()
+        assert "\u0394I/I\u2080" in text or "DI/I" in text
+
+    def test_readout_updates_with_new_data(self, widget):
+        """Successive signal updates should change the readout value."""
+        wavelengths = np.linspace(500.0, 700.0, 101)
+
+        # First update
+        delta_signal_1 = np.ones(101) * 1.0e-3
+        widget.on_signal_updated(0.0, wavelengths, delta_signal_1)
+        QApplication.instance().processEvents()
+        text_1 = widget._delta_readout_label.text()
+
+        # Second update with different value
+        delta_signal_2 = np.ones(101) * 9.87e-4
+        widget.on_signal_updated(1.0, wavelengths, delta_signal_2)
+        QApplication.instance().processEvents()
+        text_2 = widget._delta_readout_label.text()
+
+        assert text_1 != text_2
+
+    def test_readout_tracks_probe_wavelength(self, widget):
+        """Changing probe wavelength should update readout from stored data."""
+        wavelengths = np.linspace(500.0, 700.0, 101)
+        # Create a signal where different wavelengths have different values
+        delta_signal = np.zeros(101)
+        delta_signal[25] = 2.00e-3  # at 550 nm
+        delta_signal[75] = 4.00e-3  # at 650 nm
+        widget.on_signal_updated(0.0, wavelengths, delta_signal)
+        QApplication.instance().processEvents()
+
+        # Select 550 nm
+        widget.probe_wavelength = 550.0
+        QApplication.instance().processEvents()
+        text_550 = widget._delta_readout_label.text()
+
+        # Select 650 nm
+        widget.probe_wavelength = 650.0
+        QApplication.instance().processEvents()
+        text_650 = widget._delta_readout_label.text()
+
+        # Values should be different since the signal differs at 550 vs 650
+        assert text_550 != text_650
+
+    def test_clear_resets_readout_label(self, widget):
+        """Calling clear() should reset the readout label to empty/placeholder."""
+        wavelengths = np.linspace(500.0, 700.0, 101)
+        delta_signal = np.ones(101) * 3.45e-3
+        widget.on_signal_updated(0.0, wavelengths, delta_signal)
+        QApplication.instance().processEvents()
+
+        # Verify it has a value
+        assert widget._delta_readout_label.text() != ""
+
+        widget.clear()
+        QApplication.instance().processEvents()
+
+        text = widget._delta_readout_label.text()
+        assert text == "" or "---" in text or "N/A" in text
+
+    def test_readout_correct_value_at_specific_wavelength(self, widget):
+        """Readout should display the value at the nearest wavelength to the selector."""
+        wavelengths = np.linspace(500.0, 700.0, 201)
+        delta_signal = np.zeros(201)
+        # Set a known value at index 100 = 600 nm
+        delta_signal[100] = -7.89e-3
+        widget.on_signal_updated(0.0, wavelengths, delta_signal)
+        QApplication.instance().processEvents()
+
+        # Probe auto-centers near 600 nm
+        widget.probe_wavelength = 600.0
+        QApplication.instance().processEvents()
+
+        text = widget._delta_readout_label.text()
+        assert "7.89" in text
+        assert "-" in text  # negative sign
