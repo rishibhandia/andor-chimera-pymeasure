@@ -4,7 +4,10 @@ HDF5 structure::
 
     /wavelengths                  — 1-D float64 array (nm)
     /metadata/
-        attrs: sample_name, notes, creation_time
+        attrs: sample_name, notes, creation_time,
+               n_delays, n_averages, n_scans, acquisition_mode,
+               scan_direction, shots_per_frame, software_version,
+               exposure_time_s, trigger_mode, hbin, vbin, ...
     /scan_000/
         time_delays               — 1-D float64 (ps), grows per write_point
         delta_signal                  — 2-D float64 (n_delays × n_wavelengths)
@@ -22,10 +25,13 @@ from __future__ import annotations
 import csv
 import datetime
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import h5py
 import numpy as np
+
+if TYPE_CHECKING:
+    from andor_qt.ta.scan_config import TAScanConfig
 
 
 def auto_filename(sample_name: str, base_dir: Union[str, Path]) -> str:
@@ -59,7 +65,27 @@ class TADataWriter:
         wavelengths: Wavelength array in nm.
         sample_name: Sample name stored in metadata.
         notes: Free-text notes stored in metadata.
+        scan_config: Optional ``TAScanConfig`` whose scan parameters are
+            written to ``/metadata`` as HDF5 attributes.
+        camera_settings: Optional dict of camera settings.  Keys that match
+            the known camera attribute names are written to ``/metadata``.
     """
+
+    # Camera setting keys that are written to /metadata when present.
+    # The value is the HDF5 attribute name.  ``exposure_time`` is renamed
+    # to ``exposure_time_s`` for clarity.
+    _CAMERA_SETTING_KEYS: Dict[str, str] = {
+        "exposure_time": "exposure_time_s",
+        "trigger_mode": "trigger_mode",
+        "hbin": "hbin",
+        "vbin": "vbin",
+        "vs_speed_index": "vs_speed_index",
+        "hs_speed_index": "hs_speed_index",
+        "amplifier_type": "amplifier_type",
+        "em_gain": "em_gain",
+        "preamp_gain_index": "preamp_gain_index",
+        "read_area_mode": "read_area_mode",
+    }
 
     def __init__(
         self,
@@ -67,11 +93,15 @@ class TADataWriter:
         wavelengths: np.ndarray,
         sample_name: str = "",
         notes: str = "",
+        scan_config: Optional[TAScanConfig] = None,
+        camera_settings: Optional[Dict[str, object]] = None,
     ):
         self._path = Path(path)
         self._wavelengths = np.asarray(wavelengths, dtype=np.float64)
         self._sample_name = sample_name
         self._notes = notes
+        self._scan_config = scan_config
+        self._camera_settings = camera_settings
         self._file: Optional[h5py.File] = None
         self._scan_groups: dict = {}     # scan_idx → h5py.Group
         self._scan_delays: dict = {}     # scan_idx → list of delays
@@ -86,6 +116,30 @@ class TADataWriter:
         meta.attrs["sample_name"] = self._sample_name
         meta.attrs["notes"] = self._notes
         meta.attrs["creation_time"] = datetime.datetime.now().isoformat()
+
+        # Write scan parameters from TAScanConfig
+        if self._scan_config is not None:
+            cfg = self._scan_config
+            meta.attrs["n_delays"] = len(cfg.delay_list)
+            meta.attrs["n_averages"] = cfg.n_averages
+            meta.attrs["n_scans"] = cfg.n_scans
+            meta.attrs["acquisition_mode"] = cfg.acquisition_mode
+            meta.attrs["scan_direction"] = cfg.scan_direction
+            meta.attrs["shots_per_frame"] = cfg.shots_per_frame
+
+            # Software version
+            try:
+                from andor_qt import __version__
+                meta.attrs["software_version"] = __version__
+            except (ImportError, AttributeError):
+                meta.attrs["software_version"] = "0.1.0"
+
+        # Write camera settings (only keys that are present in the dict)
+        if self._camera_settings is not None:
+            for src_key, attr_name in self._CAMERA_SETTING_KEYS.items():
+                if src_key in self._camera_settings:
+                    meta.attrs[attr_name] = self._camera_settings[src_key]
+
         self._file.flush()
 
     def begin_scan(self, scan_idx: int) -> None:

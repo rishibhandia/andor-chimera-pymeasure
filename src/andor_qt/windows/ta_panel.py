@@ -232,6 +232,8 @@ class TAWindowPanel(QWidget):
                 writer = TADataWriter(
                     h5_path, wavelengths=wavelengths,
                     sample_name=config.sample_name, notes=config.notes,
+                    scan_config=config,
+                    camera_settings=camera_settings,
                 )
                 writer.open()
                 self._writer = writer
