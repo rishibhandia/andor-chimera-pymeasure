@@ -510,3 +510,143 @@ class TestTransientAbsorptionEnginePauseResume:
             time.sleep(0.005)
 
         assert done[0] is True
+
+
+class TestStatusShowsPositionNotDelay:
+    """Status messages should show stage position in µm, not delay in ps."""
+
+    def _run_and_capture_status(self, qt_app, config=None, hw=None):
+        """Run engine and capture all status_updated messages."""
+        from PySide6.QtWidgets import QApplication
+
+        if hw is None:
+            hw = make_mock_hw()
+        if config is None:
+            config = make_config(n_delays=3, n_scans=1)
+
+        engine = TransientAbsorptionEngine()
+        status_msgs: List[str] = []
+        engine.status_updated.connect(lambda msg: status_msgs.append(msg))
+
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda _: done.__setitem__(0, True))
+
+        engine.start_scan(config, hw)
+
+        start = time.time()
+        while not done[0] and time.time() - start < 10.0:
+            QApplication.instance().processEvents()
+            time.sleep(0.005)
+
+        return status_msgs
+
+    def test_status_contains_um_not_ps(self, qt_app):
+        """Status messages with point info should show µm, not ps."""
+        msgs = self._run_and_capture_status(qt_app)
+        point_msgs = [m for m in msgs if m.startswith("pt ")]
+        assert len(point_msgs) > 0, "No point status messages emitted"
+        for msg in point_msgs:
+            assert "µm" in msg, f"Status should show µm: {msg}"
+            assert " ps " not in msg, f"Status should not show ps: {msg}"
+
+    def test_progress_callback_shows_um(self, qt_app):
+        """Progress callback during accumulation should show µm."""
+        # Use chopper mode to trigger progress callbacks
+        hw = make_mock_hw()
+        from andor_qt.ta.nidaq_phase import MockNIDAQChopper2x2Reader
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=3, n_scans=1,
+            acquisition_mode="chopper_2x2", scan_direction="forward",
+            sample_name="test", shots_per_frame=2,
+        )
+        reader = MockNIDAQChopper2x2Reader()
+        engine = TransientAbsorptionEngine()
+        status_msgs: List[str] = []
+        engine.status_updated.connect(lambda msg: status_msgs.append(msg))
+
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda _: done.__setitem__(0, True))
+
+        engine.start_scan(config, hw, phase_reader=reader)
+
+        start = time.time()
+        while not done[0] and time.time() - start < 10.0:
+            from PySide6.QtWidgets import QApplication
+            QApplication.instance().processEvents()
+            time.sleep(0.005)
+
+        point_msgs = [m for m in status_msgs if m.startswith("pt ")]
+        for msg in point_msgs:
+            assert "µm" in msg, f"Progress status should show µm: {msg}"
+
+    def test_static_scan_status_shows_um(self, qt_app):
+        """Static ON/OFF mode status messages should show µm."""
+        hw = make_mock_hw()
+        config = TAScanConfig(
+            delay_list=[0.0, 1.0], n_averages=2, n_scans=1,
+            acquisition_mode="static_onoff", scan_direction="forward",
+            sample_name="test",
+        )
+        engine = TransientAbsorptionEngine()
+        status_msgs: List[str] = []
+        engine.status_updated.connect(lambda msg: status_msgs.append(msg))
+
+        # Auto-respond to the "block pump" prompt
+        engine.user_prompt.connect(lambda _: engine._worker._user_response.set())
+
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda _: done.__setitem__(0, True))
+
+        engine.start_scan(config, hw)
+
+        start = time.time()
+        while not done[0] and time.time() - start < 10.0:
+            from PySide6.QtWidgets import QApplication
+            QApplication.instance().processEvents()
+            time.sleep(0.005)
+
+        pass_msgs = [m for m in status_msgs if "Pass" in m and "pt " in m]
+        for msg in pass_msgs:
+            assert "µm" in msg, f"Static scan status should show µm: {msg}"
+            assert " ps " not in msg, f"Static scan status should not show ps: {msg}"
+
+    def test_monitor_status_shows_um(self, qt_app):
+        """Monitor mode status should show position in µm."""
+        from PySide6.QtWidgets import QApplication
+        from andor_qt.ta.monitor_engine import TAMonitorEngine as MonitorEngine
+
+        hw = make_mock_hw()
+        config = TAScanConfig(
+            delay_list=[0.0], n_averages=1,
+            acquisition_mode="boxcar", scan_direction="forward",
+            sample_name="test",
+        )
+        engine = MonitorEngine()
+        status_msgs: List[str] = []
+        engine.status_updated.connect(lambda msg: status_msgs.append(msg))
+
+        engine.start_monitor(config, hw)
+
+        # Let it run one cycle
+        start = time.time()
+        while time.time() - start < 3.0:
+            QApplication.instance().processEvents()
+            if any("Monitor cycle" in m for m in status_msgs):
+                break
+            time.sleep(0.05)
+
+        engine.stop()
+        start = time.time()
+        while engine.is_running and time.time() - start < 3.0:
+            QApplication.instance().processEvents()
+            time.sleep(0.05)
+
+        cycle_msgs = [m for m in status_msgs if "Monitor cycle" in m]
+        for msg in cycle_msgs:
+            assert "µm" in msg, f"Monitor status should show µm: {msg}"

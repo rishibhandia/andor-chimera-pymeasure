@@ -43,7 +43,7 @@ from andor_qt.ta.acquisition import (
     AcquisitionSession,
     acquire_static_at_delay,
 )
-from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS
+from andor_qt.ta.scan_config import TAScanConfig, SPEED_OF_LIGHT_MM_PS, ps_to_um
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -240,7 +240,7 @@ class _ScanWorker(QObject):
                 cur_mm = getattr(axis, "position", float("nan"))
                 log.info(f"Moving stage to initial delay {first_delay:.2f} ps ({target_mm:.3f} mm) before scan")
                 self.status_updated.emit(
-                    f"Moving to start — {first_delay:.2f} ps  "
+                    f"Moving to start — {ps_to_um(first_delay):.0f} µm  "
                     f"current: {cur_mm:.3f} mm → commanded: {target_mm:.3f} mm"
                 )
                 if hasattr(axis, "move_fast"):
@@ -323,22 +323,24 @@ class _ScanWorker(QObject):
                             f"moving to {delay_ps:.2f} ps ({target_mm:.3f} mm)  ETA: {eta_str}"
                         )
 
+                        _pos_um = ps_to_um(delay_ps)
+
                         def _raw_cb(pumped, ref, n_matched, n_discarded, n_frames,
                                     _si=scan_idx, _pi=pt_idx, _ns=n_scans, _np=n_pts,
-                                    _d=delay_ps, _eta=eta_str):
+                                    _um=_pos_um, _eta=eta_str):
                             self.raw_pair_updated.emit(pumped, ref, n_matched, n_discarded, n_frames)
                             valid_pct = 100.0 * (2 * n_matched) / n_frames if n_frames > 0 else 0.0
                             self.status_updated.emit(
-                                f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
+                                f"pt {_pi+1}/{_np}  {_um:.0f} µm  "
                                 f"pairs: {n_matched}  discarded: {n_discarded}  "
                                 f"({valid_pct:.0f}% valid)  ETA: {_eta}"
                             )
 
                         def _progress_cb(n_acc, n_tgt, elapsed,
-                                         _pi=pt_idx, _np=n_pts, _d=delay_ps, _eta=eta_str):
+                                         _pi=pt_idx, _np=n_pts, _um=_pos_um, _eta=eta_str):
                             pct = 100.0 * n_acc / n_tgt if n_tgt > 0 else 0.0
                             self.status_updated.emit(
-                                f"pt {_pi+1}/{_np}  {_d:.2f} ps  "
+                                f"pt {_pi+1}/{_np}  {_um:.0f} µm  "
                                 f"pairs: {n_acc}/{n_tgt} ({pct:.0f}%)  "
                                 f"elapsed: {elapsed:.0f}s  ETA: {_eta}"
                             )
@@ -493,7 +495,7 @@ class _ScanWorker(QObject):
 
                 self.status_updated.emit(
                     f"Pass 1 (pump ON): pt {pt_idx+1}/{n_pts}  "
-                    f"{delay_ps:.2f} ps  ETA: {eta_str}"
+                    f"{ps_to_um(delay_ps):.0f} µm  ETA: {eta_str}"
                 )
                 self.raw_pair_updated.emit(avg, avg, 1, 0, 2)
                 self.point_completed.emit(0, delay_ps)
@@ -591,7 +593,7 @@ class _ScanWorker(QObject):
                     )
 
                 self.status_updated.emit(
-                    f"Pass 2 (pump OFF): pt {pt_idx+1}/{n_pts}  {delay_ps:.2f} ps"
+                    f"Pass 2 (pump OFF): pt {pt_idx+1}/{n_pts}  {ps_to_um(delay_ps):.0f} µm"
                 )
                 self.point_completed.emit(1, delay_ps)
 

@@ -179,7 +179,7 @@ class _MonitorWorker(QObject):
                     pos_um = getattr(axis, "position", 0.0) * 1000 if axis else 0.0
                     self.status_updated.emit(
                         f"Monitor cycle {cycle}  |  "
-                        f"{delay_ps:.2f} ps ({pos_um:.0f} \u00b5m)  |  "
+                        f"{pos_um:.0f} µm  |  "
                         f"avg of {len(avg_stack)} cycles"
                     )
 
