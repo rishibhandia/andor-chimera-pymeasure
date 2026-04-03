@@ -360,3 +360,218 @@ class TestAcquisitionSessionProtocol:
         assert isinstance(result, np.ndarray)
         # Should NOT have started RTA since there's no phase reader
         hw.camera.start_run_till_abort.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Incremental multi-chunk accumulation
+# ---------------------------------------------------------------------------
+
+
+def _make_multi_chunk_hw(on_val, off_val, frames_per_chunk, n_pixels=5,
+                         initial_empty=0):
+    """Mock hw_manager that returns frames in small batches.
+
+    The first call is the drain call (always returns empty).
+    Then ``initial_empty`` calls return (empty, 0) to simulate the camera
+    not yet having frames ready.  After that, each call returns
+    ``frames_per_chunk`` frames with alternating ON/OFF pattern.
+
+    Args:
+        on_val: Pixel value for pump-ON frames.
+        off_val: Pixel value for pump-OFF frames.
+        frames_per_chunk: Number of frames returned per non-empty call.
+        n_pixels: Number of pixels per frame.
+        initial_empty: Number of empty reads after the drain call.
+    """
+    hw = MagicMock()
+    hw.motion_manager = None
+
+    call_count = 0
+
+    def _get_buffered(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+
+        # First call is the drain in __enter__ / top of _acquire_chopper_cycle
+        if call_count <= 1:
+            return (np.array([]), 0)
+
+        # Simulate initial empty reads (camera hasn't accumulated frames yet)
+        if call_count <= 1 + initial_empty:
+            return (np.array([]), 0)
+
+        # Return a batch of alternating ON/OFF frames
+        frames = []
+        for i in range(frames_per_chunk):
+            val = on_val if i % 2 == 0 else off_val
+            frames.append(np.full(n_pixels, val, dtype=float))
+        return (np.array(frames), frames_per_chunk)
+
+    hw.camera.start_run_till_abort.return_value = None
+    hw.camera.get_buffered_frames.side_effect = _get_buffered
+    hw.camera.abort_acquisition.return_value = None
+    return hw
+
+
+class TestIncrementalAccumulation:
+    """Test the multi-chunk incremental accumulation path.
+
+    The existing tests use mocks that return ALL frames at once, so the
+    while loop in ``_acquire_chopper_cycle`` executes only one iteration.
+    These tests verify the incremental path where frames arrive in small
+    batches across multiple ``get_buffered_frames()`` calls.
+    """
+
+    def test_multi_chunk_accumulation_correct_delta(self):
+        """Frames arrive in batches of 10; need 3+ reads to reach n_averages=20."""
+        from andor_qt.ta.acquisition import AcquisitionSession
+
+        on_val, off_val, n_pixels = 1200.0, 1000.0, 5
+        frames_per_chunk = 10  # 5 ON + 5 OFF per chunk
+        n_averages = 20        # need 20 ON and 20 OFF
+
+        hw = _make_multi_chunk_hw(on_val, off_val, frames_per_chunk, n_pixels)
+        reader = MockNIDAQChopper2x2Reader()
+        config = _make_config("chopper_2x2", n_averages=n_averages)
+
+        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+            result = session.acquire_one_cycle()
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (n_pixels,)
+        # (1200 - 1000) / 1000 = 0.2
+        np.testing.assert_allclose(result, 0.2, atol=1e-10)
+
+        # Verify multiple chunks were read (drain + at least 3 data reads)
+        assert hw.camera.get_buffered_frames.call_count >= 4
+
+    def test_empty_reads_then_data(self):
+        """Camera returns empty for first 2 data reads, then real frames."""
+        from andor_qt.ta.acquisition import AcquisitionSession
+
+        on_val, off_val, n_pixels = 1500.0, 1000.0, 4
+        # 2 empty reads after drain, then 20 frames per chunk
+        hw = _make_multi_chunk_hw(on_val, off_val, frames_per_chunk=20,
+                                  n_pixels=n_pixels, initial_empty=2)
+        reader = MockNIDAQChopper2x2Reader()
+        config = _make_config("chopper_2x2", n_averages=5)
+
+        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+            result = session.acquire_one_cycle()
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (n_pixels,)
+        # (1500 - 1000) / 1000 = 0.5
+        np.testing.assert_allclose(result, 0.5, atol=1e-10)
+
+        # drain(1) + 2 empty + at least 1 data read = at least 4 calls
+        assert hw.camera.get_buffered_frames.call_count >= 4
+
+    def test_all_discarded_tags_raises(self):
+        """All tags are mismatched (spf=2 with alternating [1,0]) -> RuntimeError."""
+        from andor_qt.ta.acquisition import AcquisitionSession
+
+        n_pixels = 5
+        n_averages = 3
+        frames_per_chunk = 40  # large chunk so min_check threshold is reached
+
+        hw = MagicMock()
+        hw.motion_manager = None
+
+        call_count = 0
+
+        def _get_buffered(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return (np.array([]), 0)
+            frames = np.ones((frames_per_chunk, n_pixels)) * 1000.0
+            return (frames, frames_per_chunk)
+
+        hw.camera.start_run_till_abort.return_value = None
+        hw.camera.get_buffered_frames.side_effect = _get_buffered
+        hw.camera.abort_acquisition.return_value = None
+
+        # Phase reader that returns alternating [1,0,1,0,...] — every tag
+        # group will be [1,0] which is mismatched for spf=2
+        reader = MagicMock()
+        reader.drain.return_value = None
+
+        def _mismatched_tags(n):
+            return np.array([1, 0] * (n // 2 + 1), dtype=np.int8)[:n]
+
+        reader.read_tags.side_effect = _mismatched_tags
+
+        config = _make_config("chopper_2x2", n_averages=n_averages,
+                              shots_per_frame=2)
+
+        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+            with pytest.raises(RuntimeError, match="no valid pairs"):
+                session.acquire_one_cycle()
+
+    def test_progress_callback_called_per_chunk(self):
+        """progress_callback is called multiple times with increasing n_pairs."""
+        from andor_qt.ta.acquisition import AcquisitionSession
+
+        on_val, off_val, n_pixels = 1200.0, 1000.0, 5
+        frames_per_chunk = 10
+        n_averages = 20
+
+        hw = _make_multi_chunk_hw(on_val, off_val, frames_per_chunk, n_pixels)
+        reader = MockNIDAQChopper2x2Reader()
+        config = _make_config("chopper_2x2", n_averages=n_averages)
+
+        progress_calls = []
+
+        def _on_progress(n_pairs, n_target, elapsed_s):
+            progress_calls.append((n_pairs, n_target, elapsed_s))
+
+        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+            session.acquire_one_cycle(progress_callback=_on_progress)
+
+        # Should have been called multiple times (once per chunk)
+        assert len(progress_calls) >= 3
+
+        # n_target should always be n_averages
+        for _, n_target, _ in progress_calls:
+            assert n_target == n_averages
+
+        # n_pairs should be non-decreasing
+        n_pairs_values = [c[0] for c in progress_calls]
+        for i in range(1, len(n_pairs_values)):
+            assert n_pairs_values[i] >= n_pairs_values[i - 1]
+
+        # Final call should have n_pairs >= n_averages
+        assert n_pairs_values[-1] >= n_averages
+
+        # elapsed_s should be non-decreasing
+        elapsed_values = [c[2] for c in progress_calls]
+        for i in range(1, len(elapsed_values)):
+            assert elapsed_values[i] >= elapsed_values[i - 1]
+
+    def test_abort_check_during_accumulation(self):
+        """abort_check triggers after 2 data reads -> RuntimeError("aborted")."""
+        from andor_qt.ta.acquisition import AcquisitionSession
+
+        on_val, off_val, n_pixels = 1200.0, 1000.0, 5
+        frames_per_chunk = 4  # small chunks, need many reads
+        n_averages = 100       # high target so we never finish naturally
+
+        hw = _make_multi_chunk_hw(on_val, off_val, frames_per_chunk, n_pixels)
+        reader = MockNIDAQChopper2x2Reader()
+        config = _make_config("chopper_2x2", n_averages=n_averages)
+
+        data_reads = 0
+
+        def _abort_after_2_data_reads():
+            # Count how many times get_buffered_frames has been called
+            # with actual data returned (call_count > 1 in the side_effect)
+            nonlocal data_reads
+            # Each abort_check call is at top of while loop, before the read.
+            # We count iterations to determine when to abort.
+            data_reads += 1
+            return data_reads > 2
+
+        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+            with pytest.raises(RuntimeError, match="aborted"):
+                session.acquire_one_cycle(abort_check=_abort_after_2_data_reads)
