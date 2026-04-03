@@ -592,13 +592,23 @@ Both use `SharedHardwareMixin` from `procedures/base.py` to share hardware with 
 
 ## Testing
 
-### Philosophy: Functional Tests Over Crash Tests
+### Philosophy: Functional Tests + Smoke Tests
 
-**Every test must verify that a function produces the correct output**, not
-just that it runs without crashing. "No exception raised" is not a passing
-test — assert the actual computed values.
+Tests should be layered. **Smoke tests** catch regressions (does it run
+without crashing?). **Functional tests** verify correctness (does it
+produce the right output?). Both are needed — but every component should
+have at least one functional test that asserts computed values.
 
-**Good test — verifies behaviour:**
+**Smoke test — catches regressions:**
+```python
+def test_process_chopper_frames_no_crash(self):
+    """Basic smoke test — function runs without exception."""
+    result = _process_chopper_frames(frames, tags, config)
+    assert result is not None
+    assert result.shape == (n_pixels,)
+```
+
+**Functional test — verifies correctness:**
 ```python
 def test_process_chopper_frames_correct_delta(self):
     """ON=1200, OFF=1000 → ΔI/I₀ = (1200-1000)/1000 = 0.2"""
@@ -608,12 +618,9 @@ def test_process_chopper_frames_correct_delta(self):
     np.testing.assert_allclose(result, 0.2, atol=1e-10)
 ```
 
-**Bad test — only checks for no crash:**
-```python
-def test_process_chopper_frames(self):
-    result = _process_chopper_frames(frames, tags, config)
-    assert result is not None  # ← proves nothing about correctness
-```
+**Rule: never write only smoke tests.** A smoke test is fine as a starting
+point, but always follow it with a functional test that checks the actual
+output against a hand-calculated expected value.
 
 ### What To Test For Each Function
 
