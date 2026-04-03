@@ -16,6 +16,7 @@ except ImportError:
     HAS_H5PY = False
 
 from andor_qt.ta.hdf5_writer import TADataWriter, auto_filename, export_csv
+from andor_qt.ta.scan_config import TAScanConfig
 
 
 pytestmark = pytest.mark.skipif(not HAS_H5PY, reason="h5py not installed")
@@ -233,3 +234,209 @@ class TestHDF5WriterEdgeCases:
             positions = f["scan_000/stage_positions_um"][:]
             assert len(positions) == 2
             np.testing.assert_allclose(positions, [100.0, 200.0])
+
+
+# ---------------------------------------------------------------------------
+# Acquisition metadata in /metadata group
+# ---------------------------------------------------------------------------
+
+
+def _make_scan_config(**overrides) -> TAScanConfig:
+    """Create a TAScanConfig with sensible defaults for testing."""
+    defaults = dict(
+        delay_list=[0.0, 1.0, 5.0],
+        n_averages=50,
+        n_scans=3,
+        acquisition_mode="chopper_2x2",
+        scan_direction="forward",
+        sample_name="rhodamine_6g",
+        notes="test measurement",
+        shots_per_frame=2,
+    )
+    defaults.update(overrides)
+    return TAScanConfig(**defaults)
+
+
+_SAMPLE_CAMERA_SETTINGS = {
+    "exposure_time": 0.0004,
+    "trigger_mode": "fast_external",
+    "hbin": 1,
+    "vbin": 1,
+    "vs_speed_index": 0,
+    "hs_speed_index": 0,
+    "amplifier_type": 1,
+    "em_gain": 1,
+    "preamp_gain_index": 2,
+    "read_area_mode": "full",
+}
+
+
+class TestAcquisitionMetadata:
+    """Test that /metadata group includes scan parameters, camera settings,
+    and software version when scan_config and camera_settings are provided."""
+
+    def test_scan_parameters_written(self, tmp_path):
+        """Scan parameters from TAScanConfig should appear in /metadata attrs."""
+        path = tmp_path / "meta.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert meta.attrs["n_delays"] == 3
+            assert meta.attrs["n_averages"] == 50
+            assert meta.attrs["n_scans"] == 3
+            assert meta.attrs["acquisition_mode"] == "chopper_2x2"
+            assert meta.attrs["scan_direction"] == "forward"
+            assert meta.attrs["shots_per_frame"] == 2
+
+    def test_scan_parameter_types(self, tmp_path):
+        """Verify correct types for scan parameter attributes."""
+        path = tmp_path / "types.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert isinstance(meta.attrs["n_delays"], (int, np.integer))
+            assert isinstance(meta.attrs["n_averages"], (int, np.integer))
+            assert isinstance(meta.attrs["n_scans"], (int, np.integer))
+            assert isinstance(meta.attrs["acquisition_mode"], str)
+            assert isinstance(meta.attrs["scan_direction"], str)
+            assert isinstance(meta.attrs["shots_per_frame"], (int, np.integer))
+
+    def test_camera_settings_written(self, tmp_path):
+        """Camera settings dict should appear in /metadata attrs."""
+        path = tmp_path / "cam.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+            camera_settings=_SAMPLE_CAMERA_SETTINGS,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert meta.attrs["exposure_time_s"] == pytest.approx(0.0004)
+            assert meta.attrs["trigger_mode"] == "fast_external"
+            assert meta.attrs["hbin"] == 1
+            assert meta.attrs["vbin"] == 1
+            assert meta.attrs["vs_speed_index"] == 0
+            assert meta.attrs["hs_speed_index"] == 0
+            assert meta.attrs["amplifier_type"] == 1
+            assert meta.attrs["em_gain"] == 1
+            assert meta.attrs["preamp_gain_index"] == 2
+            assert meta.attrs["read_area_mode"] == "full"
+
+    def test_camera_settings_types(self, tmp_path):
+        """Verify correct types for camera settings attributes."""
+        path = tmp_path / "cam_types.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+            camera_settings=_SAMPLE_CAMERA_SETTINGS,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert isinstance(meta.attrs["exposure_time_s"], (float, np.floating))
+            assert isinstance(meta.attrs["trigger_mode"], str)
+            assert isinstance(meta.attrs["hbin"], (int, np.integer))
+            assert isinstance(meta.attrs["vbin"], (int, np.integer))
+            assert isinstance(meta.attrs["vs_speed_index"], (int, np.integer))
+            assert isinstance(meta.attrs["hs_speed_index"], (int, np.integer))
+            assert isinstance(meta.attrs["amplifier_type"], (int, np.integer))
+            assert isinstance(meta.attrs["em_gain"], (int, np.integer))
+            assert isinstance(meta.attrs["preamp_gain_index"], (int, np.integer))
+            assert isinstance(meta.attrs["read_area_mode"], str)
+
+    def test_missing_camera_settings_no_crash(self, tmp_path):
+        """When camera_settings is None, no camera attrs should exist but no crash."""
+        path = tmp_path / "no_cam.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            # Scan params should still be present
+            assert meta.attrs["n_delays"] == 3
+            # Camera-specific attrs should NOT be present
+            assert "exposure_time_s" not in meta.attrs
+            assert "trigger_mode" not in meta.attrs
+
+    def test_no_scan_config_backward_compatible(self, tmp_path):
+        """When scan_config is None (old API), only basic metadata is written."""
+        path = tmp_path / "compat.h5"
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name="compat_test", notes="backward compat",
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert meta.attrs["sample_name"] == "compat_test"
+            assert meta.attrs["notes"] == "backward compat"
+            assert "creation_time" in meta.attrs
+            # Scan-specific attrs should NOT be present
+            assert "n_delays" not in meta.attrs
+            assert "n_averages" not in meta.attrs
+
+    def test_software_version_written(self, tmp_path):
+        """Software version should appear in /metadata attrs."""
+        path = tmp_path / "ver.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert "software_version" in meta.attrs
+            assert isinstance(meta.attrs["software_version"], str)
+            # Should be a valid version string like "0.1.0"
+            assert len(meta.attrs["software_version"]) > 0
+
+    def test_partial_camera_settings(self, tmp_path):
+        """Only provided camera setting keys should be written."""
+        path = tmp_path / "partial.h5"
+        config = _make_scan_config()
+        wavelengths = np.linspace(400, 800, 10)
+        partial_settings = {"exposure_time": 0.001, "trigger_mode": "internal"}
+        with TADataWriter(
+            path, wavelengths=wavelengths,
+            sample_name=config.sample_name, notes=config.notes,
+            scan_config=config,
+            camera_settings=partial_settings,
+        ) as writer:
+            pass
+        with h5py.File(path, "r") as f:
+            meta = f["metadata"]
+            assert meta.attrs["exposure_time_s"] == pytest.approx(0.001)
+            assert meta.attrs["trigger_mode"] == "internal"
+            # Keys not in the dict should be absent
+            assert "hbin" not in meta.attrs
+            assert "vs_speed_index" not in meta.attrs
