@@ -6,7 +6,7 @@ Uses MockNIDAQPhaseReader and mock hardware — no real NI DAQ or camera needed.
 from __future__ import annotations
 
 import itertools
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -301,8 +301,9 @@ class TestAcquireChopper2x2:
         hw.camera.abort_acquisition.return_value = None
 
         cfg = make_config_2x2(n_averages=1)
-        with pytest.raises(RuntimeError, match="chopper_2x2"):
-            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=AllMixedReader())
+        with patch("andor_qt.ta.acquisition.time.sleep"):
+            with pytest.raises(RuntimeError, match="chopper_2x2"):
+                acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=AllMixedReader())
 
     def test_off_first_phase_still_correct(self):
         """initial_phase=0 means OFF frame arrives first."""
@@ -353,8 +354,9 @@ class TestAcquireChopper2x2:
         hw.camera.abort_acquisition.return_value = None
         cfg = make_config_2x2(n_averages=1)
         reader = MockNIDAQChopper2x2Reader()
-        with pytest.raises(RuntimeError, match="chopper_2x2"):
-            acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
+        with patch("andor_qt.ta.acquisition.time.sleep"):
+            with pytest.raises(RuntimeError, match="chopper_2x2"):
+                acquire_delta_signal_at_delay(0.0, hw, cfg, phase_reader=reader)
 
     def test_shot_to_shot_raw_callback_called(self):
         """shot_to_shot should also call raw_callback."""

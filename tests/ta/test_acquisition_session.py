@@ -71,7 +71,7 @@ class TestAcquisitionSessionChopper2x2:
         reader.read_tags.return_value = np.array([1, 1, 0, 0] * 5, dtype=np.int8)
         config = _make_config("chopper_2x2")
 
-        with AcquisitionSession(hw, config, phase_reader=reader):
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01):
             # Camera starts FIRST (Fire output must be active)
             hw.camera.start_run_till_abort.assert_called_once()
             # Phase reader starts with Fire trigger from config
@@ -86,7 +86,7 @@ class TestAcquisitionSessionChopper2x2:
         reader = MockNIDAQChopper2x2Reader()
         config = _make_config("chopper_2x2")
 
-        with AcquisitionSession(hw, config, phase_reader=reader):
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01):
             pass
         hw.camera.abort_acquisition.assert_called_once()
 
@@ -98,7 +98,7 @@ class TestAcquisitionSessionChopper2x2:
         config = _make_config("chopper_2x2")
 
         with pytest.raises(ValueError):
-            with AcquisitionSession(hw, config, phase_reader=reader):
+            with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01):
                 raise ValueError("test error")
         hw.camera.abort_acquisition.assert_called_once()
 
@@ -109,7 +109,7 @@ class TestAcquisitionSessionChopper2x2:
         reader = MockNIDAQChopper2x2Reader()
         config = _make_config("chopper_2x2", n_averages=3)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             session.acquire_one_cycle()
             session.acquire_one_cycle()
             session.acquire_one_cycle()
@@ -125,7 +125,7 @@ class TestAcquisitionSessionChopper2x2:
         reader = MockNIDAQChopper2x2Reader()
         config = _make_config("chopper_2x2", n_averages=3)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             result = session.acquire_one_cycle()
 
         assert isinstance(result, np.ndarray)
@@ -145,7 +145,7 @@ class TestAcquisitionSessionChopper2x2:
         reader.drain.return_value = None
         config = _make_config("chopper_2x2", n_averages=3, shots_per_frame=2)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             session.acquire_one_cycle()
 
         reader.read_tags.assert_called()
@@ -162,7 +162,7 @@ class TestAcquisitionSessionChopper2x2:
         config = _make_config("chopper_2x2", n_averages=3)
         dark = np.full(n, 100.0)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             result = session.acquire_one_cycle(dark=dark)
 
         assert isinstance(result, np.ndarray)
@@ -183,7 +183,7 @@ class TestAcquisitionSessionChopper2x2:
             captured["ref"] = ref
             captured["n_matched"] = n_matched
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             session.acquire_one_cycle(raw_callback=cb)
 
         assert "pumped" in captured
@@ -198,7 +198,7 @@ class TestAcquisitionSessionChopper2x2:
         settings = {"trigger_mode": "fast_external", "exposure_time": 0.0004}
 
         with AcquisitionSession(hw, config, camera_settings=settings,
-                                phase_reader=reader):
+                                phase_reader=reader, read_interval=0.01):
             pass
 
         hw.camera.apply_camera_settings.assert_called_once_with(settings)
@@ -221,7 +221,7 @@ class TestAcquisitionSessionChopper2x2:
             call_count += 1
             return call_count > 2
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             with pytest.raises(RuntimeError, match="aborted|no frames"):
                 session.acquire_one_cycle(abort_check=_abort_after_2)
 
@@ -434,7 +434,7 @@ class TestIncrementalAccumulation:
         reader = MockNIDAQChopper2x2Reader()
         config = _make_config("chopper_2x2", n_averages=n_averages)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             result = session.acquire_one_cycle()
 
         assert isinstance(result, np.ndarray)
@@ -456,7 +456,7 @@ class TestIncrementalAccumulation:
         reader = MockNIDAQChopper2x2Reader()
         config = _make_config("chopper_2x2", n_averages=5)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             result = session.acquire_one_cycle()
 
         assert isinstance(result, np.ndarray)
@@ -505,7 +505,7 @@ class TestIncrementalAccumulation:
         config = _make_config("chopper_2x2", n_averages=n_averages,
                               shots_per_frame=2)
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             with pytest.raises(RuntimeError, match="no valid pairs"):
                 session.acquire_one_cycle()
 
@@ -526,7 +526,7 @@ class TestIncrementalAccumulation:
         def _on_progress(n_pairs, n_target, elapsed_s):
             progress_calls.append((n_pairs, n_target, elapsed_s))
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             session.acquire_one_cycle(progress_callback=_on_progress)
 
         # Should have been called multiple times (once per chunk)
@@ -572,6 +572,6 @@ class TestIncrementalAccumulation:
             data_reads += 1
             return data_reads > 2
 
-        with AcquisitionSession(hw, config, phase_reader=reader) as session:
+        with AcquisitionSession(hw, config, phase_reader=reader, read_interval=0.01) as session:
             with pytest.raises(RuntimeError, match="aborted"):
                 session.acquire_one_cycle(abort_check=_abort_after_2_data_reads)

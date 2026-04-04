@@ -603,12 +603,14 @@ class AcquisitionSession:
         config: TAScanConfig,
         camera_settings: Optional[dict[str, Any]] = None,
         phase_reader: Any = None,
+        read_interval: float = 0.5,
     ) -> None:
         self._hw = hw_manager
         self._config = config
         self._camera_settings = camera_settings
         self._phase_reader = phase_reader
         self._camera_running = False
+        self._read_interval = read_interval
         self._is_chopper = (
             config.acquisition_mode == "chopper_2x2"
             and phase_reader is not None
@@ -735,7 +737,7 @@ class AcquisitionSession:
                         f"({n_frames_total} total, {n_on} ON, {n_off} OFF) — "
                         f"check trigger"
                     )
-                time.sleep(1.0)
+                time.sleep(self._read_interval)
                 continue
             empty_reads = 0
 
@@ -808,7 +810,7 @@ class AcquisitionSession:
             # Real cameras need time to accumulate frames; mocks return instantly
             # and exit the loop quickly via the safety check above.
             if min(n_on, n_off) < n_target:
-                time.sleep(0.5)
+                time.sleep(self._read_interval)
 
         # Compute final result from running sums
         if n_on == 0 or n_off == 0 or sum_on is None or sum_off is None:
