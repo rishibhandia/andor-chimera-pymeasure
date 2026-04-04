@@ -321,7 +321,7 @@ class TestCameraBusySignal:
 class TestMainWindowAcquireLockout:
     """Main window acquire/queue buttons should be disabled during TA camera use."""
 
-    def test_acquire_disabled_during_ta_scan(self, qt_app, mock_sdk):
+    def test_acquire_disabled_during_ta_scan(self, qt_app, mock_sdk, reset_hardware_manager):
         from andor_qt.windows.main_window import AndorSpectrometerWindow
 
         window = AndorSpectrometerWindow()
@@ -332,7 +332,7 @@ class TestMainWindowAcquireLockout:
             "Acquire button should be disabled when TA camera is busy"
         window.deleteLater()
 
-    def test_acquire_reenabled_after_ta_scan(self, qt_app, mock_sdk):
+    def test_acquire_reenabled_after_ta_scan(self, qt_app, mock_sdk, reset_hardware_manager):
         from andor_qt.windows.main_window import AndorSpectrometerWindow
 
         window = AndorSpectrometerWindow()
@@ -343,7 +343,7 @@ class TestMainWindowAcquireLockout:
             "Acquire button should be re-enabled when TA camera is free"
         window.deleteLater()
 
-    def test_queue_disabled_during_ta_scan(self, qt_app, mock_sdk):
+    def test_queue_disabled_during_ta_scan(self, qt_app, mock_sdk, reset_hardware_manager):
         from andor_qt.windows.main_window import AndorSpectrometerWindow
 
         window = AndorSpectrometerWindow()
@@ -355,7 +355,7 @@ class TestMainWindowAcquireLockout:
 
 
 class TestMainWindowTATab:
-    def test_main_window_has_ta_tab(self, qt_app, mock_sdk):
+    def test_main_window_has_ta_tab(self, qt_app, mock_sdk, reset_hardware_manager):
         """Main window should have a TA tab."""
         from unittest.mock import patch
         from PySide6.QtWidgets import QTabWidget

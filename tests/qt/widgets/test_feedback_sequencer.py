@@ -14,15 +14,10 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from PySide6.QtCore import QModelIndex
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QMessageBox
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
+# qt_app fixture comes from tests/qt/conftest.py — do not redefine here
 
 
 @pytest.fixture
