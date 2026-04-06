@@ -488,3 +488,68 @@ class TestHbinWavelengthAlignment:
         mock_hw_manager.get_wavelengths.assert_called_with(hbin=8)
         assert len(panel._live_display._wavelengths) == 200
         panel.deleteLater()
+
+
+class TestStageAxisE2E:
+    """End-to-end: spinbox value in config widget → engine → set_axis_hardware_index."""
+
+    def test_spinbox_value_in_emitted_config(self, qt_app, mock_hw_manager):
+        """Config emitted by scan_requested carries the spinbox stage_axis value."""
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        # Change the spinbox to axis 3
+        panel.config_widget._stage_axis_spin.setValue(3)
+
+        emitted_configs = []
+        panel.config_widget.scan_requested.connect(lambda cfg: emitted_configs.append(cfg))
+        panel.config_widget.scan_requested.emit(panel.config_widget._build_config())
+
+        assert len(emitted_configs) == 1
+        assert emitted_configs[0].stage_axis == 3
+        panel.deleteLater()
+
+    def test_spinbox_axis_1_in_emitted_config(self, qt_app, mock_hw_manager):
+        """Config emitted by scan_requested carries stage_axis=1."""
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        panel.config_widget._stage_axis_spin.setValue(1)
+
+        emitted_configs = []
+        panel.config_widget.scan_requested.connect(lambda cfg: emitted_configs.append(cfg))
+        panel.config_widget.scan_requested.emit(panel.config_widget._build_config())
+
+        assert len(emitted_configs) == 1
+        assert emitted_configs[0].stage_axis == 1
+        panel.deleteLater()
+
+    def test_engine_receives_stage_axis_from_panel(self, qt_app, mock_hw_manager):
+        """Full flow: spinbox=3 → panel starts engine → engine calls set_axis_hardware_index(3)."""
+        import time
+        from PySide6.QtWidgets import QApplication
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        panel.config_widget._stage_axis_spin.setValue(3)
+
+        # Simulate a scan request
+        config = panel.config_widget._build_config()
+        config.delay_list = [0.0]
+        config.n_averages = 1
+        config.n_scans = 1
+
+        done = [False]
+        panel.engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        panel.engine.aborted.connect(lambda: done.__setitem__(0, True))
+        panel.engine.error.connect(lambda _: done.__setitem__(0, True))
+
+        panel.engine.start_scan(config, mock_hw_manager)
+
+        start = time.time()
+        while not done[0] and time.time() - start < 10.0:
+            QApplication.instance().processEvents()
+            time.sleep(0.005)
+
+        mock_hw_manager.motion_manager.set_axis_hardware_index.assert_called_with("delay", 3)
+        panel.deleteLater()
