@@ -72,8 +72,10 @@ def acquire_delta_signal_at_delay(
     # Clear stale stats so they don't leak from a previous call on error
     last_acquisition_stats.clear()
 
-    # Move stage to target delay
+    # Apply user-selected stage axis, then move to target delay
     mm = getattr(hw_manager, "motion_manager", None)
+    if mm is not None and hasattr(mm, "set_axis_hardware_index"):
+        mm.set_axis_hardware_index("delay", config.stage_axis)
     axis = mm.get_axis("delay") if mm is not None else None
     if axis is not None:
         axis.position_ps = delay_ps

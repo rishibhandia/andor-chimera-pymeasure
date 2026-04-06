@@ -606,3 +606,42 @@ class TestTAScanConfigChopper2x2Fields:
         loaded = TAScanConfig.from_yaml(path)
         assert loaded.nidaq_chopper_sync_source == "/Dev2/PFI5"
         assert loaded.nidaq_chopper_counter == "ctr0"
+
+
+# ---------------------------------------------------------------------------
+# Stage axis selection in acquire_delta_signal_at_delay
+# ---------------------------------------------------------------------------
+
+
+class TestAcquireStageAxisSelection:
+    """acquire_delta_signal_at_delay must apply config.stage_axis."""
+
+    @staticmethod
+    def _make_hw_with_motion_manager(n_pixels: int = 8):
+        """Create mock hw with motion_manager that has set_axis_hardware_index."""
+        hw = MagicMock()
+        hw.camera.get_spectrum.return_value = np.ones(n_pixels) * 1000.0
+        mock_axis = MagicMock()
+        mock_axis.position_ps = 0.0
+        hw.motion_manager.get_axis.return_value = mock_axis
+        return hw
+
+    def test_calls_set_axis_hardware_index(self):
+        """acquire_delta_signal_at_delay calls set_axis_hardware_index with config.stage_axis."""
+        hw = self._make_hw_with_motion_manager()
+        config = make_config(n_averages=1)
+        config.stage_axis = 3
+
+        acquire_delta_signal_at_delay(0.0, hw, config)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 3)
+
+    def test_calls_set_axis_hardware_index_axis_1(self):
+        """acquire_delta_signal_at_delay applies stage_axis=1."""
+        hw = self._make_hw_with_motion_manager()
+        config = make_config(n_averages=1)
+        config.stage_axis = 1
+
+        acquire_delta_signal_at_delay(0.0, hw, config)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 1)
