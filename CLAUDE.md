@@ -155,15 +155,25 @@ temperature = Instrument.measurement(
 # Run in mock mode (no hardware)
 uv run python -m andor_qt --mock
 
-# Run tests
-uv run pytest
+# Run full test suite (exclude hardware integration & e2e)
+uv run pytest tests/ --ignore=tests/integration --ignore=tests/e2e -q --tb=short
 
 # Run specific test file
 uv run pytest tests/qt/test_spectrum_overlay.py -v
 
+# Run tests without uv (avoids uv package-sync overhead)
+.venv/Scripts/pytest.exe tests/ --ignore=tests/integration --ignore=tests/e2e -q --tb=short
+
 # Check formatting
 uv run ruff check src/
 ```
+
+### Test Execution Notes
+
+- **Always exclude `tests/integration` and `tests/e2e`** — these require real hardware
+- **Prefer `.venv/Scripts/pytest.exe` directly** when iterating fast — `uv run` syncs packages each time
+- **Run Qt-heavy test files individually** if you see hangs — combining many Qt test files in one process can deadlock the event loop
+- **Background mode causes hangs** — always run pytest in foreground
 
 ## Andor SDK Notes
 
