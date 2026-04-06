@@ -194,6 +194,30 @@ class MotionControllerManager:
                 return axis
         return None
 
+    def set_axis_hardware_index(self, name: str, index: int) -> None:
+        """Change the hardware axis index for a named axis at runtime.
+
+        Mutates axis.index so all subsequent protocol commands target the
+        new physical axis (e.g., ESP302 axis 1, 2, or 3).
+
+        Args:
+            name: Axis name (e.g. "delay").
+            index: New hardware axis index (1-3 for ESP302).
+
+        Raises:
+            KeyError: If no axis with the given name exists.
+            ValueError: If index is out of range.
+        """
+        if not (1 <= index <= 3):
+            raise ValueError(
+                f"Axis index must be between 1 and 3, got {index}"
+            )
+        axis = self.get_axis(name)
+        if axis is None:
+            raise KeyError(name)
+        axis.index = index
+        log.info("Axis '%s' hardware index changed to %d", name, index)
+
     def get_controller(self, name: str) -> Optional["MotionController"]:
         """Get controller by name.
 
