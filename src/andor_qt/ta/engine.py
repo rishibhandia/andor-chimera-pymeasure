@@ -224,7 +224,10 @@ class _ScanWorker(QObject):
             log.info(f"Saving spectra to: {spectra_folder}")
 
         # Get motion axis (used by both regular and static scans)
-        axis = getattr(getattr(hw, "motion_manager", None), "get_axis", lambda _: None)("delay")
+        mm = getattr(hw, "motion_manager", None)
+        if mm is not None and hasattr(mm, "set_axis_hardware_index"):
+            mm.set_axis_hardware_index("delay", config.stage_axis)
+        axis = getattr(mm, "get_axis", lambda _: None)("delay") if mm is not None else None
 
         # Static ON/OFF: two full scans with user prompt between
         if config.acquisition_mode == "static_onoff":

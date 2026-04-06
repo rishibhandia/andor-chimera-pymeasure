@@ -650,3 +650,72 @@ class TestStatusShowsPositionNotDelay:
         cycle_msgs = [m for m in status_msgs if "Monitor cycle" in m]
         for msg in cycle_msgs:
             assert "µm" in msg, f"Monitor status should show µm: {msg}"
+
+
+class TestEngineStageAxisSelection:
+    """Engine must apply config.stage_axis to the motion axis before scanning."""
+
+    def _run_engine(self, engine, config, hw, timeout=10.0):
+        import time as _time
+        from PySide6.QtWidgets import QApplication
+
+        done = [False]
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda msg: done.__setitem__(0, True))
+
+        engine.start_scan(config, hw)
+
+        start = _time.time()
+        while not done[0] and _time.time() - start < timeout:
+            QApplication.instance().processEvents()
+            _time.sleep(0.005)
+
+    def test_engine_calls_set_axis_hardware_index(self, qt_app):
+        """Engine calls motion_manager.set_axis_hardware_index('delay', stage_axis)."""
+        hw = make_mock_hw()
+        config = make_config(n_delays=2, n_scans=1)
+        config.stage_axis = 3  # non-default axis
+
+        engine = TransientAbsorptionEngine()
+        self._run_engine(engine, config, hw)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 3)
+
+    def test_engine_applies_stage_axis_1(self, qt_app):
+        """Engine applies stage_axis=1 correctly."""
+        hw = make_mock_hw()
+        config = make_config(n_delays=2, n_scans=1)
+        config.stage_axis = 1
+
+        engine = TransientAbsorptionEngine()
+        self._run_engine(engine, config, hw)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 1)
+
+    def test_engine_applies_stage_axis_for_static_scan(self, qt_app):
+        """Engine applies stage_axis for static_onoff mode too."""
+        hw = make_mock_hw()
+        config = make_config(n_delays=2, n_scans=1)
+        config.stage_axis = 3
+        config.acquisition_mode = "static_onoff"
+
+        engine = TransientAbsorptionEngine()
+
+        # Static scan prompts user — abort after a brief delay to avoid hang
+        done = [False]
+        engine.user_prompt.connect(lambda _: engine.abort())
+        engine.aborted.connect(lambda: done.__setitem__(0, True))
+        engine.scan_completed.connect(lambda: done.__setitem__(0, True))
+        engine.error.connect(lambda _: done.__setitem__(0, True))
+
+        engine.start_scan(config, hw)
+
+        import time as _time
+        from PySide6.QtWidgets import QApplication
+        start = _time.time()
+        while not done[0] and _time.time() - start < 10.0:
+            QApplication.instance().processEvents()
+            _time.sleep(0.005)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 3)
