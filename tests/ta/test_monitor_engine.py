@@ -661,3 +661,44 @@ class TestMonitorEdgeCases:
 
         _stop_and_wait(engine)
         # No crash is the pass condition
+
+
+# ===========================================================================
+# Stage axis selection
+# ===========================================================================
+
+
+class TestMonitorStageAxisSelection:
+    """Monitor engine must apply config.stage_axis before acquisition."""
+
+    def test_monitor_calls_set_axis_hardware_index(self, qt_app):
+        """Monitor calls motion_manager.set_axis_hardware_index('delay', stage_axis)."""
+        hw = _make_hw()
+        config = _make_config("boxcar", n_averages=1)
+        config.stage_axis = 3
+
+        engine = TAMonitorEngine()
+        cycles = []
+        engine.cycle_completed.connect(lambda *args: cycles.append(1))
+
+        engine.start_monitor(config, hw)
+        _wait_for_qt(lambda: len(cycles) >= 1, timeout=10.0)
+        _stop_and_wait(engine)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 3)
+
+    def test_monitor_applies_stage_axis_1(self, qt_app):
+        """Monitor applies stage_axis=1."""
+        hw = _make_hw()
+        config = _make_config("boxcar", n_averages=1)
+        config.stage_axis = 1
+
+        engine = TAMonitorEngine()
+        cycles = []
+        engine.cycle_completed.connect(lambda *args: cycles.append(1))
+
+        engine.start_monitor(config, hw)
+        _wait_for_qt(lambda: len(cycles) >= 1, timeout=10.0)
+        _stop_and_wait(engine)
+
+        hw.motion_manager.set_axis_hardware_index.assert_called_with("delay", 1)

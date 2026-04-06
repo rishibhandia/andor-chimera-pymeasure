@@ -93,6 +93,11 @@ class _MonitorWorker(QObject):
         else:
             self._wavelengths = np.array([])
 
+        # Apply user-selected stage axis before any motion
+        mm = getattr(hw, "motion_manager", None)
+        if mm is not None and hasattr(mm, "set_axis_hardware_index"):
+            mm.set_axis_hardware_index("delay", config.stage_axis)
+
         # Apply camera settings
         _apply = getattr(getattr(hw, "camera", None), "apply_camera_settings", None)
         if callable(_apply) and self._camera_settings:
