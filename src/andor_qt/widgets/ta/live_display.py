@@ -183,7 +183,7 @@ class TALiveDisplayWidget(QGroupBox):
 
         self._delta_readout_label = QLabel("")
         self._delta_readout_label.setStyleSheet(
-            "color: yellow; font-size: 11px; font-weight: bold; padding: 0 8px;"
+            "color: #00bfff; font-size: 11px; font-weight: bold; padding: 0 8px;"
         )
         selector_row.addWidget(self._delta_readout_label)
 
@@ -466,8 +466,8 @@ class TALiveDisplayWidget(QGroupBox):
 
         # FFT (need at least 4 uniformly spaced points)
         if len(kinetic) >= 4 and len(delays_ps) >= 4:
-            dt_ps = np.mean(np.diff(delays_ps))
-            if abs(dt_ps) > 1e-12:
+            dt_ps = abs(np.mean(np.diff(delays_ps)))
+            if dt_ps > 1e-12:
                 signal = kinetic - kinetic.mean()
                 window = np.hanning(len(signal))
                 fft_vals = np.abs(np.fft.rfft(signal * window))
