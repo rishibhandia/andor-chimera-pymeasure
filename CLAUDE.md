@@ -237,6 +237,13 @@ Same speeds available for both EM and conventional amplifier.
 - Typically 3 options: ×1, ×2, ×4 (exact values queried at runtime via `GetNumberPreAmpGains / GetPreAmpGain`)
 - Higher gain = better SNR for weak signals (lower effective read noise in e⁻/ADU)
 
+#### Keep Cleans (`EnableKeepCleans(mode)`)
+- `EnableKeepCleans(1)` — camera continuously flushes charge between external triggers to prevent dark current buildup
+- `EnableKeepCleans(0)` — disable keep-clean cycles
+- **Keep cleans OFF recommended for external trigger modes** — significantly reduces noise at high frame rates (500 Hz chopper_2x2)
+- Keep cleans ON is useful for internal trigger with long idle periods between acquisitions
+- Controlled via "Keep Cleans" checkbox in Camera Settings UI; default is OFF
+
 #### Read Modes
 - **FVB** (Full Vertical Binning): all 200 rows summed → 1D spectrum. Fastest for spectroscopy.
 - **Image**: 2D readout with `SetImage(hbin, vbin, hstart, hend, vstart, vend)`
