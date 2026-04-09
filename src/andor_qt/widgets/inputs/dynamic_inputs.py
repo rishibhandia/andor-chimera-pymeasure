@@ -106,6 +106,14 @@ class DynamicInputsWidget(QGroupBox):
 
         # Camera settings (VS/HS speed, amplifier, gain, read area)
         self._camera_settings = CameraSettingsWidget()
+        # Hide CameraSettingsWidget's exposure spinbox — we have our own above
+        self._camera_settings.exposure_spin.setVisible(False)
+        # Also hide its label in the form layout
+        trig_form = self._camera_settings.exposure_spin.parent().layout()
+        if trig_form is not None:
+            label = trig_form.labelForField(self._camera_settings.exposure_spin)
+            if label is not None:
+                label.setVisible(False)
         layout.addWidget(self._camera_settings)
 
     def _connect_signals(self) -> None:
@@ -215,7 +223,9 @@ class DynamicInputsWidget(QGroupBox):
         else:
             params["vbin"] = self.vbin
 
-        params["camera_settings"] = self._camera_settings.get_settings()
+        cam_settings = self._camera_settings.get_settings()
+        cam_settings["exposure_time"] = self.exposure_time  # use our spinbox, not the hidden one
+        params["camera_settings"] = cam_settings
 
         return params
 
