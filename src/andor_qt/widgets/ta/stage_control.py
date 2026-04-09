@@ -52,11 +52,16 @@ class StageControlWidget(QGroupBox):
 
         # --- Readout row ---
         readout_row = QHBoxLayout()
+        self._axis_indicator = QLabel(f"ESP302 axis {self._axis.index}")
+        self._axis_indicator.setStyleSheet(
+            "font-weight: bold; color: #1a73e8;"
+        )
+        readout_row.addWidget(self._axis_indicator)
+        readout_row.addWidget(QLabel("Position:"))
         self._mm_label = QLabel("0.000 mm")
         self._mm_label.setAlignment(Qt.AlignCenter)
         self._ps_label = QLabel("0.00 ps")
         self._ps_label.setAlignment(Qt.AlignCenter)
-        readout_row.addWidget(QLabel("Position:"))
         readout_row.addWidget(self._mm_label)
         readout_row.addWidget(self._ps_label)
         root.addLayout(readout_row)
@@ -105,6 +110,10 @@ class StageControlWidget(QGroupBox):
     @property
     def jog_buttons(self) -> List[QPushButton]:
         return list(self._jog_buttons)
+
+    def update_axis_indicator(self) -> None:
+        """Update the axis indicator label to reflect the current hardware index."""
+        self._axis_indicator.setText(f"ESP302 axis {self._axis.index}")
 
     def update_position(self, position_mm: float, position_ps: float) -> None:
         """Update position readout labels and button states.

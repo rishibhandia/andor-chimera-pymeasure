@@ -83,6 +83,20 @@ class TAMonitorWidget(QGroupBox):
         self._axis_combo.setMinimumWidth(100)
         self._axis_combo.currentIndexChanged.connect(lambda: self._update_position())
         axis_row.addWidget(self._axis_combo)
+
+        axis_row.addWidget(QLabel("HW:"))
+        self._hw_index_spin = QSpinBox()
+        self._hw_index_spin.setRange(1, 3)
+        self._hw_index_spin.setValue(2)
+        self._hw_index_spin.setToolTip("ESP302 physical axis (1-3)")
+        self._hw_index_spin.setFixedWidth(45)
+        self._hw_index_spin.valueChanged.connect(self._on_hw_index_changed)
+        axis_row.addWidget(self._hw_index_spin)
+
+        self._axis_indicator = QLabel("ESP302 axis 2")
+        self._axis_indicator.setStyleSheet("font-weight: bold; color: #1a73e8;")
+        axis_row.addWidget(self._axis_indicator)
+
         axis_row.addStretch()
         self._pos_label = QLabel("-- \u00b5m  (-- ps)")
         self._pos_label.setStyleSheet("font-weight: bold; font-size: 12px;")
@@ -387,6 +401,25 @@ class TAMonitorWidget(QGroupBox):
                 self._axis_combo.addItem(name, name)
         self._axis_combo.blockSignals(False)
         self._update_position()
+        # Sync HW index spinbox with the axis object
+        axis = self._get_selected_axis()
+        if axis is not None:
+            self._hw_index_spin.blockSignals(True)
+            self._hw_index_spin.setValue(axis.index)
+            self._hw_index_spin.blockSignals(False)
+            self._axis_indicator.setText(f"ESP302 axis {axis.index}")
+
+    def _on_hw_index_changed(self, index: int) -> None:
+        """Handle hardware axis index change in monitor widget."""
+        axis_name = self._get_selected_axis_name()
+        if not self._hw or not self._hw.motion_manager:
+            return
+        mm = self._hw.motion_manager
+        if hasattr(mm, "set_axis_hardware_index"):
+            mm.set_axis_hardware_index(axis_name, index)
+            log.info(f"Monitor: changed '{axis_name}' hardware index to {index}")
+            self._axis_indicator.setText(f"ESP302 axis {index}")
+            self._update_position()
 
     def _get_selected_axis_name(self) -> str:
         return self._axis_combo.currentData() or "delay"

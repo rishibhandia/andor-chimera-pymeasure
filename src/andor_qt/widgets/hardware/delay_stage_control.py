@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -70,6 +71,20 @@ class DelayStageControlWidget(QGroupBox):
         self._axis_combo.setMinimumWidth(120)
         self._axis_combo.setToolTip("Select motion axis")
         axis_row.addWidget(self._axis_combo)
+
+        axis_row.addWidget(QLabel("HW index:"))
+        self._hw_index_spin = QSpinBox()
+        self._hw_index_spin.setRange(1, 3)
+        self._hw_index_spin.setValue(2)
+        self._hw_index_spin.setToolTip("ESP302 physical axis (1-3)")
+        self._hw_index_spin.setFixedWidth(45)
+        axis_row.addWidget(self._hw_index_spin)
+
+        self._axis_indicator = QLabel("ESP302 axis 2")
+        self._axis_indicator.setStyleSheet(
+            "font-weight: bold; color: #1a73e8;"
+        )
+        axis_row.addWidget(self._axis_indicator)
 
         axis_row.addStretch()
         layout.addLayout(axis_row)
@@ -139,6 +154,7 @@ class DelayStageControlWidget(QGroupBox):
         self._unit_combo.currentTextChanged.connect(self._on_unit_changed)
         self._go_button.clicked.connect(self._on_go_clicked)
         self._home_button.clicked.connect(self._on_home_clicked)
+        self._hw_index_spin.valueChanged.connect(self._on_hw_index_changed)
 
         # Hardware signals
         self._signals.motion_initialized.connect(self._on_motion_initialized)
@@ -159,6 +175,12 @@ class DelayStageControlWidget(QGroupBox):
         # Update display for first axis
         if self._axis_combo.count() > 0:
             self._update_position_display()
+            axis = self._get_current_axis()
+            if axis is not None:
+                self._hw_index_spin.blockSignals(True)
+                self._hw_index_spin.setValue(axis.index)
+                self._hw_index_spin.blockSignals(False)
+                self._axis_indicator.setText(f"ESP302 axis {axis.index}")
 
     def _get_current_axis(self):
         """Get the currently selected axis."""
@@ -209,6 +231,25 @@ class DelayStageControlWidget(QGroupBox):
         """Handle axis selection change."""
         self._update_position_display()
         self._update_position_range()
+        # Sync HW index spinbox with the axis object's current index
+        axis = self._get_current_axis()
+        if axis is not None:
+            self._hw_index_spin.blockSignals(True)
+            self._hw_index_spin.setValue(axis.index)
+            self._hw_index_spin.blockSignals(False)
+
+    @Slot(int)
+    def _on_hw_index_changed(self, index: int) -> None:
+        """Handle hardware axis index change."""
+        axis_name = self._axis_combo.currentData()
+        if not axis_name or not self._hw.motion_manager:
+            return
+        mm = self._hw.motion_manager
+        if hasattr(mm, "set_axis_hardware_index"):
+            mm.set_axis_hardware_index(axis_name, index)
+            log.info(f"Changed '{axis_name}' hardware index to {index}")
+            self._axis_indicator.setText(f"ESP302 axis {index}")
+            self._update_position_display()
 
     @Slot(str)
     def _on_unit_changed(self, unit: str) -> None:
