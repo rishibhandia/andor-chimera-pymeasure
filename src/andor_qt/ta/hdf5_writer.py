@@ -85,6 +85,8 @@ class TADataWriter:
         "em_gain": "em_gain",
         "preamp_gain_index": "preamp_gain_index",
         "read_area_mode": "read_area_mode",
+        "baseline_clamp": "baseline_clamp",
+        "keep_cleans": "keep_cleans",
     }
 
     def __init__(
@@ -95,6 +97,7 @@ class TADataWriter:
         notes: str = "",
         scan_config: Optional[TAScanConfig] = None,
         camera_settings: Optional[Dict[str, object]] = None,
+        hardware_info: Optional[Dict[str, object]] = None,
     ):
         self._path = Path(path)
         self._wavelengths = np.asarray(wavelengths, dtype=np.float64)
@@ -102,11 +105,14 @@ class TADataWriter:
         self._notes = notes
         self._scan_config = scan_config
         self._camera_settings = camera_settings
+        self._hardware_info = hardware_info
         self._file: Optional[h5py.File] = None
         self._scan_groups: dict = {}     # scan_idx → h5py.Group
         self._scan_delays: dict = {}     # scan_idx → list of delays
         self._scan_data: dict = {}       # scan_idx → list of delta_signal arrays
         self._scan_stage_pos: dict = {}  # scan_idx → list of stage positions (µm)
+        self._scan_pump: dict = {}       # scan_idx → list of pump-ON spectra
+        self._scan_ref: dict = {}        # scan_idx → list of pump-OFF spectra
 
     def open(self) -> None:
         """Open the HDF5 file and write header datasets."""
@@ -140,6 +146,13 @@ class TADataWriter:
                 if src_key in self._camera_settings:
                     meta.attrs[attr_name] = self._camera_settings[src_key]
 
+        # Write hardware info (spectrograph, camera serial, stage axis, etc.)
+        if self._hardware_info is not None:
+            hw_grp = self._file.create_group("hardware")
+            for key, val in self._hardware_info.items():
+                if val is not None:
+                    hw_grp.attrs[key] = val
+
         self._file.flush()
 
     def begin_scan(self, scan_idx: int) -> None:
@@ -163,6 +176,8 @@ class TADataWriter:
         delay_ps: float,
         delta_signal: np.ndarray,
         stage_position_um: Optional[float] = None,
+        pump_spectrum: Optional[np.ndarray] = None,
+        ref_spectrum: Optional[np.ndarray] = None,
     ) -> None:
         """Write one delay point to the current scan.
 
@@ -175,11 +190,21 @@ class TADataWriter:
             stage_position_um: Optional stage position in µm.  When provided,
                 a ``stage_positions_um`` dataset is maintained alongside
                 ``time_delays``.
+            pump_spectrum: Optional averaged pump-ON spectrum (raw counts).
+            ref_spectrum: Optional averaged pump-OFF reference spectrum (raw counts).
         """
         self._scan_delays[scan_idx].append(float(delay_ps))
         self._scan_data[scan_idx].append(np.asarray(delta_signal, dtype=np.float64))
         if stage_position_um is not None:
             self._scan_stage_pos.setdefault(scan_idx, []).append(float(stage_position_um))
+        if pump_spectrum is not None:
+            self._scan_pump.setdefault(scan_idx, []).append(
+                np.asarray(pump_spectrum, dtype=np.float64)
+            )
+        if ref_spectrum is not None:
+            self._scan_ref.setdefault(scan_idx, []).append(
+                np.asarray(ref_spectrum, dtype=np.float64)
+            )
 
         grp = self._scan_groups[scan_idx]
         # Overwrite datasets each time (simplest crash-safe approach)
@@ -199,6 +224,18 @@ class TADataWriter:
             if "stage_positions_um" in grp:
                 del grp["stage_positions_um"]
             grp.create_dataset("stage_positions_um", data=pos_arr)
+
+        if scan_idx in self._scan_pump:
+            pump_arr = np.array(self._scan_pump[scan_idx], dtype=np.float64)
+            if "pump_spectrum" in grp:
+                del grp["pump_spectrum"]
+            grp.create_dataset("pump_spectrum", data=pump_arr)
+
+        if scan_idx in self._scan_ref:
+            ref_arr = np.array(self._scan_ref[scan_idx], dtype=np.float64)
+            if "ref_spectrum" in grp:
+                del grp["ref_spectrum"]
+            grp.create_dataset("ref_spectrum", data=ref_arr)
 
         self._file.flush()
 

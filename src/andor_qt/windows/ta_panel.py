@@ -216,6 +216,7 @@ class TAWindowPanel(QWidget):
         )
         self._live_display.clear()
         camera_settings = self._config_widget.camera_settings
+        self._pre_set_wavelengths(camera_settings)
 
         # Create HDF5 writer if a save directory is configured
         writer: Optional[TADataWriter] = None
@@ -229,11 +230,13 @@ class TAWindowPanel(QWidget):
                 h5_path = auto_filename(
                     config.sample_name or "ta_scan", config.save_hdf5_dir
                 )
+                hardware_info = self._collect_hardware_info(config)
                 writer = TADataWriter(
                     h5_path, wavelengths=wavelengths,
                     sample_name=config.sample_name, notes=config.notes,
                     scan_config=config,
                     camera_settings=camera_settings,
+                    hardware_info=hardware_info,
                 )
                 writer.open()
                 self._writer = writer
@@ -250,6 +253,55 @@ class TAWindowPanel(QWidget):
                                  trigger_gen=trigger_gen,
                                  phase_reader=phase_reader,
                                  dark=self._dark_frame)
+
+    def _collect_hardware_info(self, config: TAScanConfig) -> dict:
+        """Collect hardware metadata for HDF5 file."""
+        hw = self._hw_manager
+        info: dict = {}
+
+        # Camera info
+        try:
+            cam = hw.camera
+            if cam is not None:
+                info["camera_serial"] = str(getattr(cam, "_serial", ""))
+                info["camera_model"] = "DU970P Newton EMCCD"
+                temp = getattr(cam, "temperature", None)
+                if temp is not None:
+                    info["camera_temperature_c"] = float(temp)
+        except Exception:
+            pass
+
+        # Spectrograph info
+        try:
+            sp = hw.spectrograph
+            if sp is not None:
+                if sp.info is not None:
+                    info["spectrograph_serial"] = sp.info.serial_number
+                    info["num_gratings"] = sp.info.num_gratings
+                grating_idx = sp.grating
+                info["grating_index"] = grating_idx
+                for g in (sp.info.gratings if sp.info else ()):
+                    if g.index == grating_idx:
+                        info["grating_lines_per_mm"] = g.lines_per_mm
+                        info["grating_blaze"] = g.blaze
+                        break
+                info["center_wavelength_nm"] = sp.wavelength
+        except Exception:
+            pass
+
+        # Stage info
+        info["stage_axis"] = config.stage_axis
+        try:
+            mm = hw.motion_manager
+            if mm is not None:
+                axis = mm.get_axis("delay")
+                if axis is not None:
+                    info["stage_axis_hw_index"] = axis.index
+                    info["stage_t0_offset_mm"] = getattr(axis, "t0_offset_mm", 0.0)
+        except Exception:
+            pass
+
+        return info
 
     def _finalize_writer(self) -> None:
         if self._writer is not None:

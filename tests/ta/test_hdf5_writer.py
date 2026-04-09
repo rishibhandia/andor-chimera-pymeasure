@@ -140,6 +140,49 @@ class TestTADataWriter:
         with h5py.File(path, "r") as f:
             assert "stage_positions_um" not in f["scan_000"]
 
+    def test_write_point_stores_pump_and_ref_spectra(self, tmp_path):
+        """Pump-ON and pump-OFF spectra are saved alongside delta_signal."""
+        path = tmp_path / "test.h5"
+        wavelengths = np.linspace(400.0, 800.0, 10)
+        pump = np.ones(10) * 1200.0
+        ref = np.ones(10) * 1000.0
+        delta = (pump - ref) / ref
+        with TADataWriter(path, wavelengths=wavelengths, sample_name="s") as writer:
+            writer.begin_scan(0)
+            writer.write_point(0, 1.0, delta, pump_spectrum=pump, ref_spectrum=ref)
+        with h5py.File(path, "r") as f:
+            assert "pump_spectrum" in f["scan_000"]
+            assert "ref_spectrum" in f["scan_000"]
+            np.testing.assert_allclose(f["scan_000/pump_spectrum"][0], pump)
+            np.testing.assert_allclose(f["scan_000/ref_spectrum"][0], ref)
+
+    def test_write_point_no_pump_ref_no_datasets(self, tmp_path):
+        """When pump/ref not provided, datasets are absent."""
+        path = tmp_path / "test.h5"
+        wavelengths = np.linspace(400.0, 800.0, 5)
+        with TADataWriter(path, wavelengths=wavelengths, sample_name="s") as writer:
+            writer.begin_scan(0)
+            writer.write_point(0, 1.0, np.ones(5))
+        with h5py.File(path, "r") as f:
+            assert "pump_spectrum" not in f["scan_000"]
+            assert "ref_spectrum" not in f["scan_000"]
+
+    def test_write_point_pump_ref_multiple_points(self, tmp_path):
+        """Pump/ref accumulate across multiple write_point calls."""
+        path = tmp_path / "test.h5"
+        wavelengths = np.linspace(400.0, 800.0, 5)
+        with TADataWriter(path, wavelengths=wavelengths, sample_name="s") as writer:
+            writer.begin_scan(0)
+            for i in range(3):
+                pump = np.ones(5) * (1000.0 + i * 100)
+                ref = np.ones(5) * 1000.0
+                writer.write_point(0, float(i), np.ones(5) * 0.1,
+                                   pump_spectrum=pump, ref_spectrum=ref)
+        with h5py.File(path, "r") as f:
+            assert f["scan_000/pump_spectrum"].shape == (3, 5)
+            assert f["scan_000/ref_spectrum"].shape == (3, 5)
+            assert f["scan_000/pump_spectrum"][2, 0] == pytest.approx(1200.0)
+
     def test_open_close_explicit(self, tmp_path):
         path = tmp_path / "test.h5"
         wavelengths = np.linspace(400.0, 800.0, 5)
