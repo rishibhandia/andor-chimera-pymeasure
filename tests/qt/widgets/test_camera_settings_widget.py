@@ -14,6 +14,7 @@ def widget(qt_app):
     QSettings("AndorSpectrometer", "CameraSettings").clear()
     from andor_qt.widgets.hardware.camera_settings import CameraSettingsWidget
     w = CameraSettingsWidget()
+    w._suppress_em_warning = True  # skip confirmation dialog in tests
     w.show()
     return w
 

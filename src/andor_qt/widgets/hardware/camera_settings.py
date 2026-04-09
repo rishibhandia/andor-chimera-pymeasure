@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QMessageBox,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -69,6 +70,7 @@ class CameraSettingsWidget(QGroupBox):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Camera Settings", parent)
         self._camera = None  # set by populate_from_camera(); enables SDK readout time
+        self._suppress_em_warning = False  # set True in tests to skip confirmation dialog
         self._setup_ui()
         self._connect_signals()
         self._on_amplifier_changed(1)       # apply initial enable/disable (default: Conventional)
@@ -230,6 +232,16 @@ class CameraSettingsWidget(QGroupBox):
         )
         layout.addWidget(self.baseline_clamp_check)
 
+        # --- Keep cleans ---
+        self.keep_cleans_check = QCheckBox("Keep Cleans")
+        self.keep_cleans_check.setChecked(False)
+        self.keep_cleans_check.setToolTip(
+            "Continuously flush charge between external triggers.\n"
+            "OFF recommended for external trigger modes — reduces noise.\n"
+            "ON useful for internal trigger with long idle periods."
+        )
+        layout.addWidget(self.keep_cleans_check)
+
         # --- Readout time display ---
         self._readout_label = QLabel("Readout: -- ms")
         self._readout_label.setStyleSheet("font-size: 11px;")
@@ -275,6 +287,7 @@ class CameraSettingsWidget(QGroupBox):
         self.settings_changed.connect(self._update_readout_label)
         self.settings_changed.connect(self._save_settings)
         self.baseline_clamp_check.toggled.connect(self._save_settings)
+        self.keep_cleans_check.toggled.connect(self._save_settings)
 
     # ------------------------------------------------------------------
     # Slots
@@ -334,15 +347,48 @@ class CameraSettingsWidget(QGroupBox):
 
             t_ms = calculate_readout_time_ms(calc_mode, n_rows, n_px, vs_idx, hs_idx, hbin, vbin)
 
-        color = "red" if t_ms > 1.0 else "green" if t_ms < 0.8 else "orange"
+        exposure_ms = self.exposure_spin.value() * 1000.0
+        total_ms = t_ms + exposure_ms
+        frame_period_ms = 2.0  # 500 Hz = 2 ms per frame
+
+        if total_ms > frame_period_ms:
+            color = "red"
+            warning = f" ⚠ &gt;{frame_period_ms:.0f} ms"
+        elif total_ms > frame_period_ms * 0.8:
+            color = "orange"
+            warning = ""
+        else:
+            color = "green"
+            warning = ""
+
         self._readout_label.setText(
-            f"<span style='color:{color}'>Readout: {t_ms:.2f} ms</span>"
-            + (" ⚠ &gt;1 ms" if t_ms > 1.0 else "")
+            f"<span style='color:{color}'>"
+            f"Readout: {t_ms:.2f} ms"
+            f"</span>{warning}"
         )
         self._readout_label.setTextFormat(Qt.TextFormat.RichText)
 
     def _on_amplifier_changed(self, index: int) -> None:
         amplifier_type = self.amplifier_combo.itemData(index) if index >= 0 else 0
+
+        # Confirm before switching to EM amplifier (skip in tests)
+        if amplifier_type == 0 and not self._suppress_em_warning:
+            reply = QMessageBox.warning(
+                self,
+                "Switch to EMCCD mode?",
+                "You are about to enable the EM (EMCCD) amplifier.\n\n"
+                "EM gain multiplies both signal and clock-induced charge. "
+                "High EM gain with bright signals can damage the sensor.\n\n"
+                "Are you sure you want to switch to EMCCD mode?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self.amplifier_combo.blockSignals(True)
+                self.amplifier_combo.setCurrentIndex(1)  # revert to Conventional
+                self.amplifier_combo.blockSignals(False)
+                return
+
         self.em_gain_spin.setEnabled(amplifier_type == 0)
         self._populate_hs_speeds(amplifier_type)
 
@@ -489,6 +535,7 @@ class CameraSettingsWidget(QGroupBox):
             "trigger_mode": trigger_mode,
             "exposure_time": self.exposure_spin.value(),
             "baseline_clamp": self.baseline_clamp_check.isChecked(),
+            "keep_cleans": self.keep_cleans_check.isChecked(),
         }
 
         if mode == "single_track":
@@ -522,6 +569,7 @@ class CameraSettingsWidget(QGroupBox):
         s.setValue("trigger_mode", self.trigger_mode_combo.currentIndex())
         s.setValue("exposure_time", self.exposure_spin.value())
         s.setValue("baseline_clamp", self.baseline_clamp_check.isChecked())
+        s.setValue("keep_cleans", self.keep_cleans_check.isChecked())
 
     def _load_settings(self) -> None:
         """Restore widget values from QSettings (if any).
@@ -603,6 +651,10 @@ class CameraSettingsWidget(QGroupBox):
         bc = s.value("baseline_clamp")
         if bc is not None:
             self.baseline_clamp_check.setChecked(str(bc).lower() == "true")
+
+        kc = s.value("keep_cleans")
+        if kc is not None:
+            self.keep_cleans_check.setChecked(str(kc).lower() == "true")
 
         for w in widgets:
             w.blockSignals(False)
