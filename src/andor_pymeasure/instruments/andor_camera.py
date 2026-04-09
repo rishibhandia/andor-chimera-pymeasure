@@ -834,6 +834,14 @@ class AndorCamera:
                 else:
                     log.debug(f"Baseline clamp: {'ON' if state else 'OFF'}")
 
+            if "keep_cleans" in settings:
+                state = 1 if settings["keep_cleans"] else 0
+                ret = self._sdk.EnableKeepCleans(state)
+                if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                    log.warning(f"EnableKeepCleans({state}) returned: {ret}")
+                else:
+                    log.debug(f"Keep cleans: {'ON' if state else 'OFF'}")
+
         log.debug(f"Camera settings applied: {settings}")
 
     def warmup(self, target: float = -20.0, timeout: float = 300.0) -> bool:

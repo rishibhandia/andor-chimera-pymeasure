@@ -62,6 +62,7 @@ class MockCameraState:
     crop_width: int = 1024
     trigger_mode: int = 0       # 0=internal, 1=external
     fast_ext_trigger: int = 0  # 0=disabled, 1=enabled (SetFastExtTrigger)
+    keep_cleans: int = 1       # 0=disabled, 1=enabled (EnableKeepCleans)
 
 
 @dataclass
@@ -348,6 +349,11 @@ class MockAtmcd:
 
     def SetOverlapMode(self, mode: int) -> int:
         """Enable or disable overlap mode."""
+        return DRV_SUCCESS
+
+    def EnableKeepCleans(self, mode: int) -> int:
+        """Enable (1) or disable (0) keep-clean cycles."""
+        self._state.keep_cleans = mode
         return DRV_SUCCESS
 
     def SetBaselineClamp(self, state: int) -> int:
