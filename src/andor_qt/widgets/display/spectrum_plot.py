@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 log = logging.getLogger(__name__)
 
@@ -93,12 +93,12 @@ class SpectrumPlotWidget(QWidget):
         # Connect mouse movement
         self._plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
 
-        # Add cursor readout label
-        self._cursor_label = pg.TextItem(text="", anchor=(0, 1))
-        self._cursor_label.setPos(0, 0)
-        self._plot_widget.addItem(self._cursor_label)
-
         layout.addWidget(self._plot_widget)
+
+        # Cursor readout label below the plot
+        self._cursor_label = QLabel("")
+        self._cursor_label.setStyleSheet("font-family: monospace; padding: 2px;")
+        layout.addWidget(self._cursor_label)
 
     @Slot(object)
     def _on_mouse_moved(self, pos) -> None:
@@ -112,9 +112,9 @@ class SpectrumPlotWidget(QWidget):
 
             # Update cursor readout
             if self._wavelengths is not None and len(self._wavelengths) > 0:
-                self._cursor_label.setText(f"λ: {x:.1f} nm, I: {y:.0f}")
+                self._cursor_label.setText(f"  λ: {x:.1f} nm,  I: {y:.0f}")
             else:
-                self._cursor_label.setText(f"Pixel: {x:.0f}, I: {y:.0f}")
+                self._cursor_label.setText(f"  Pixel: {x:.0f},  I: {y:.0f}")
 
     def _next_color(self) -> str:
         """Get the next color from the cycle."""
