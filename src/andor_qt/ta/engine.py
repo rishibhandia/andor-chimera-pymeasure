@@ -279,6 +279,16 @@ class _ScanWorker(QObject):
 
                     self.scan_started.emit(scan_idx)
 
+                    # Drain stale frames + tags before each scan to prevent
+                    # leftover data from contaminating the first point
+                    _drain_frames, _n_drain = hw.camera.get_buffered_frames()
+                    if _n_drain > 0 and phase_reader is not None:
+                        spf = getattr(config, "shots_per_frame", 2)
+                        try:
+                            phase_reader.read_tags(_n_drain * spf)
+                        except Exception:
+                            phase_reader.drain()
+
                     if writer is not None:
                         writer.begin_scan(scan_idx)
 
@@ -313,7 +323,7 @@ class _ScanWorker(QObject):
                             est_per_pt_s=_est_per_pt,
                         )
 
-                        # Move stage to target delay
+                        # Move stage to target delay (blocks until MD? reports done)
                         if axis is not None:
                             axis.position_ps = delay_ps
 
@@ -366,9 +376,14 @@ class _ScanWorker(QObject):
 
                         # Auto-save: write to HDF5 after each point
                         if writer is not None:
+                            from andor_qt.ta.acquisition import last_acquisition_stats as _stats
                             stage_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
-                            writer.write_point(scan_idx, delay_ps, delta_signal,
-                                               stage_position_um=stage_um)
+                            writer.write_point(
+                                scan_idx, delay_ps, delta_signal,
+                                stage_position_um=stage_um,
+                                pump_spectrum=_stats.get("pump_mean"),
+                                ref_spectrum=_stats.get("ref_mean"),
+                            )
 
                         self.signal_updated.emit(delay_ps, self._wavelengths, delta_signal)
 
