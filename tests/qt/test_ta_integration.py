@@ -553,3 +553,306 @@ class TestStageAxisE2E:
 
         mock_hw_manager.motion_manager.set_axis_hardware_index.assert_called_with("delay", 3)
         panel.deleteLater()
+
+
+class TestPostScanSave:
+    """Post-scan save buffer captures data for later HDF5 export."""
+
+    def test_buffer_starts_empty(self, qt_app, mock_hw_manager):
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        assert panel._last_scan_buffer["delays_ps"] == []
+        assert panel._last_scan_buffer["delta_signals"] == []
+        assert panel._last_scan_buffer["wavelengths"] is None
+        assert panel._save_last_btn.isEnabled() is False
+        panel.deleteLater()
+
+    def test_signal_updated_appends_to_buffer(self, qt_app, mock_hw_manager):
+        """signal_updated handler appends delay, delta, and correctly computed stage position."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_pymeasure.instruments.motion_controller import SPEED_OF_LIGHT_MM_PS
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+
+        wl = np.linspace(400.0, 800.0, 5)
+        delta = np.array([0.01, 0.02, 0.03, 0.02, 0.01])
+        # 1.5 ps → stage position = 1.5 * c_mm_per_ps / 2 * 1000 µm
+        expected_pos_um = (1.5 * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+        panel._on_buffer_signal_updated(1.5, wl, delta)
+
+        buf = panel._last_scan_buffer
+        assert buf["delays_ps"] == [1.5]
+        assert len(buf["delta_signals"]) == 1
+        np.testing.assert_array_equal(buf["delta_signals"][0], delta)
+        np.testing.assert_array_equal(buf["wavelengths"], wl)
+        assert len(buf["stage_positions_um"]) == 1
+        # Verify stage position is computed correctly (not just "exists")
+        assert buf["stage_positions_um"][0] == pytest.approx(expected_pos_um)
+        # Hand-calc sanity: 1.5 ps → ~224.84 µm
+        assert buf["stage_positions_um"][0] == pytest.approx(224.8443435, rel=1e-6)
+        panel.deleteLater()
+
+    def test_multiple_delays_produce_correct_stage_positions(self, qt_app, mock_hw_manager):
+        """Each signal_updated call produces the correct stage position for its delay."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_pymeasure.instruments.motion_controller import SPEED_OF_LIGHT_MM_PS
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+
+        wl = np.linspace(400.0, 800.0, 3)
+        delays = [-2.0, 0.0, 5.0, 10.0]
+        for d in delays:
+            panel._on_buffer_signal_updated(d, wl, np.zeros(3))
+
+        buf = panel._last_scan_buffer
+        assert buf["delays_ps"] == delays
+        for d, pos in zip(delays, buf["stage_positions_um"]):
+            expected = (d * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+            assert pos == pytest.approx(expected)
+        panel.deleteLater()
+
+    def test_raw_pair_updated_appends_pump_ref(self, qt_app, mock_hw_manager):
+        """raw_pair_updated handler appends pump and ref spectra."""
+        import numpy as np
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+
+        pump = np.ones(5) * 1200.0
+        ref = np.ones(5) * 1000.0
+        panel._on_buffer_raw_pair_updated(pump, ref, 100, 0, 200)
+
+        buf = panel._last_scan_buffer
+        assert len(buf["pump_spectra"]) == 1
+        assert len(buf["ref_spectra"]) == 1
+        np.testing.assert_array_equal(buf["pump_spectra"][0], pump)
+        np.testing.assert_array_equal(buf["ref_spectra"][0], ref)
+        panel.deleteLater()
+
+    def test_save_writes_hdf5(self, qt_app, mock_hw_manager, tmp_path):
+        """_on_save_last_scan writes buffered data to HDF5 with correct values and metadata."""
+        import numpy as np
+        import h5py
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+        from andor_pymeasure.instruments.motion_controller import SPEED_OF_LIGHT_MM_PS
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+
+        # Manually populate buffer with distinguishable delta values per point
+        config = TAScanConfig(
+            delay_list=[0.0, 1.0], n_averages=1, sample_name="test_sample",
+            notes="post-save test", stage_axis=2,
+        )
+        panel._reset_scan_buffer(config, {"hbin": 1, "exposure_time": 0.001})
+        wl = np.linspace(400.0, 800.0, 5)
+        delays = [0.0, 1.0]
+        # Each point has a unique delta profile (0.01..0.05, 0.02..0.06)
+        expected_deltas = [
+            np.array([0.01, 0.02, 0.03, 0.04, 0.05]),
+            np.array([0.02, 0.03, 0.04, 0.05, 0.06]),
+        ]
+        for d, delta in zip(delays, expected_deltas):
+            panel._on_buffer_signal_updated(d, wl, delta)
+            panel._on_buffer_raw_pair_updated(
+                np.ones(5) * 1200, np.ones(5) * 1000, 100, 0, 200
+            )
+
+        out_path = tmp_path / "post_save.h5"
+        with patch(
+            "PySide6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=(str(out_path), ""),
+        ), patch("PySide6.QtWidgets.QMessageBox.information"):
+            panel._on_save_last_scan()
+
+        assert out_path.exists()
+        with h5py.File(out_path, "r") as f:
+            # Structure
+            assert "scan_000" in f
+            assert "metadata" in f
+            assert "wavelengths" in f
+
+            # Time delays and delta values round-trip correctly
+            np.testing.assert_allclose(f["scan_000/time_delays"][:], delays)
+            for i, expected in enumerate(expected_deltas):
+                np.testing.assert_allclose(f["scan_000/delta_signal"][i], expected)
+
+            # Wavelength axis
+            np.testing.assert_allclose(f["wavelengths"][:], wl)
+
+            # Pump and ref spectra
+            np.testing.assert_allclose(f["scan_000/pump_spectrum"][0], np.ones(5) * 1200)
+            np.testing.assert_allclose(f["scan_000/pump_spectrum"][1], np.ones(5) * 1200)
+            np.testing.assert_allclose(f["scan_000/ref_spectrum"][0], np.ones(5) * 1000)
+
+            # Stage positions computed from delays via speed of light
+            pos_ds = f["scan_000/stage_positions_um"][:]
+            for i, d in enumerate(delays):
+                assert pos_ds[i] == pytest.approx((d * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0)
+
+            # Metadata from config and camera settings
+            meta = f["metadata"]
+            assert meta.attrs["sample_name"] == "test_sample"
+            assert meta.attrs["notes"] == "post-save test"
+            assert meta.attrs["exposure_time_s"] == pytest.approx(0.001)
+            assert meta.attrs["hbin"] == 1
+        panel.deleteLater()
+
+    def test_save_writes_hardware_group(self, qt_app, mock_hw_manager, tmp_path):
+        """Post-scan HDF5 save includes a /hardware group with scan axis info."""
+        import numpy as np
+        import h5py
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        # Provide a fully-numeric mock axis so TAMonitorWidget._update_position
+        # can format positions as floats without error.
+        mock_axis = MagicMock()
+        mock_axis.index = 2
+        mock_axis.t0_offset_mm = 1.23
+        mock_axis.position = 0.0
+        mock_axis.position_ps = 0.0
+        mock_axis.position_min = 0.0
+        mock_axis.position_max = 300.0
+        mock_hw_manager.motion_manager.get_axis.return_value = mock_axis
+        mock_hw_manager.motion_manager.all_axes = {"delay": mock_axis}
+        # Spectrograph returns None attributes so the try/except path is exercised safely
+        mock_hw_manager.spectrograph.info = None
+        mock_hw_manager.spectrograph.grating = 1
+        mock_hw_manager.spectrograph.wavelength = 550.0
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        config = TAScanConfig(delay_list=[0.0], n_averages=1, sample_name="hw_test", stage_axis=3)
+        panel._reset_scan_buffer(config, {"hbin": 1, "exposure_time": 0.001})
+        panel._on_buffer_signal_updated(0.0, np.linspace(400, 800, 3), np.zeros(3))
+        panel._on_buffer_raw_pair_updated(np.ones(3) * 100, np.ones(3) * 90, 1, 0, 2)
+
+        out_path = tmp_path / "hw.h5"
+        with patch(
+            "PySide6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=(str(out_path), ""),
+        ), patch("PySide6.QtWidgets.QMessageBox.information"):
+            panel._on_save_last_scan()
+
+        with h5py.File(out_path, "r") as f:
+            assert "hardware" in f
+            hw = f["hardware"]
+            # stage_axis comes from config
+            assert hw.attrs["stage_axis"] == 3
+            # axis HW index comes from the mock axis object
+            assert hw.attrs["stage_axis_hw_index"] == 2
+            # center wavelength comes from spectrograph.wavelength
+            assert hw.attrs["center_wavelength_nm"] == pytest.approx(550.0)
+            assert hw.attrs["grating_index"] == 1
+        panel.deleteLater()
+
+    def test_save_hdf5_with_mismatched_pump_ref_counts(self, qt_app, mock_hw_manager, tmp_path):
+        """Save succeeds even when pump/ref spectra are shorter than delays."""
+        import numpy as np
+        import h5py
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+
+        config = TAScanConfig(delay_list=[0.0, 1.0, 2.0], n_averages=1, sample_name="partial")
+        panel._reset_scan_buffer(config, {"hbin": 1, "exposure_time": 0.001})
+        wl = np.linspace(400.0, 800.0, 5)
+
+        # 3 delta signals but only 2 pump/ref pairs (simulates late point failing
+        # after signal_updated but before raw_pair_updated)
+        for d in [0.0, 1.0, 2.0]:
+            panel._on_buffer_signal_updated(d, wl, np.ones(5) * 0.01)
+        for _ in range(2):
+            panel._on_buffer_raw_pair_updated(
+                np.ones(5) * 1200, np.ones(5) * 1000, 100, 0, 200
+            )
+
+        out_path = tmp_path / "partial.h5"
+        with patch(
+            "PySide6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=(str(out_path), ""),
+        ), patch("PySide6.QtWidgets.QMessageBox.information"):
+            panel._on_save_last_scan()
+
+        # The save should succeed: 3 delta points written, only 2 pump/ref points
+        assert out_path.exists()
+        with h5py.File(out_path, "r") as f:
+            assert f["scan_000/time_delays"].shape == (3,)
+            assert f["scan_000/delta_signal"].shape == (3, 5)
+            # pump/ref were only written for points where both were available
+            assert f["scan_000/pump_spectrum"].shape == (2, 5)
+            assert f["scan_000/ref_spectrum"].shape == (2, 5)
+        panel.deleteLater()
+
+    def test_save_spectra_writes_text_files(self, qt_app, mock_hw_manager, tmp_path):
+        """_on_save_last_spectra writes per-point text files to a timestamped subfolder."""
+        import numpy as np
+        from unittest.mock import patch
+        from andor_qt.ta.scan_config import TAScanConfig
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+
+        config = TAScanConfig(delay_list=[0.0, 1.0], n_averages=1, sample_name="test")
+        panel._reset_scan_buffer(config, {"hbin": 1, "exposure_time": 0.001})
+        wl = np.linspace(400.0, 800.0, 5)
+        for i, d in enumerate([0.0, 1.0]):
+            panel._on_buffer_signal_updated(d, wl, np.ones(5) * (0.01 * (i + 1)))
+            panel._on_buffer_raw_pair_updated(
+                np.ones(5) * 1200, np.ones(5) * 1000, 100, 0, 200
+            )
+
+        with patch(
+            "PySide6.QtWidgets.QFileDialog.getExistingDirectory",
+            return_value=str(tmp_path),
+        ), patch("PySide6.QtWidgets.QMessageBox.information"):
+            panel._on_save_last_spectra()
+
+        # The save creates a timestamped subfolder under tmp_path
+        subfolders = [p for p in tmp_path.iterdir() if p.is_dir()]
+        assert len(subfolders) == 1
+        folder = subfolders[0]
+
+        delta_files = list(folder.glob("scan000_pos*um.txt"))
+        # 2 delta files + matching _pump and _ref text files
+        delta_only = [f for f in delta_files if "_pump" not in f.name and "_ref" not in f.name]
+        pump_files = list(folder.glob("scan000_pos*um_pump.txt"))
+        ref_files = list(folder.glob("scan000_pos*um_ref.txt"))
+        assert len(delta_only) == 2
+        assert len(pump_files) == 2
+        assert len(ref_files) == 2
+
+        # Verify content of one delta file: 5 tab-separated rows of wl<TAB>delta
+        first = sorted(delta_only)[0]
+        lines = first.read_text().strip().split("\n")
+        assert len(lines) == 5
+        for line, expected_wl in zip(lines, wl):
+            cols = line.split("\t")
+            assert len(cols) == 2
+            assert float(cols[0]) == pytest.approx(expected_wl, rel=1e-3)
+            # first delta file is for delay=0 → delta = 0.01
+            assert float(cols[1]) == pytest.approx(0.01, rel=1e-6)
+
+        # Verify pump text file content: 5 rows, all value 1200
+        first_pump = sorted(pump_files)[0]
+        pump_lines = first_pump.read_text().strip().split("\n")
+        assert len(pump_lines) == 5
+        for line in pump_lines:
+            cols = line.split("\t")
+            assert float(cols[1]) == pytest.approx(1200.0)
+        panel.deleteLater()
+
+    def test_save_spectra_no_data_shows_message(self, qt_app, mock_hw_manager):
+        """Saving with no buffered data shows a message and doesn't crash."""
+        from unittest.mock import patch
+        from andor_qt.windows.ta_panel import TAWindowPanel
+
+        panel = TAWindowPanel(hw_manager=mock_hw_manager)
+        # buffer is empty by default
+        with patch("PySide6.QtWidgets.QMessageBox.information") as mock_info:
+            panel._on_save_last_spectra()
+        mock_info.assert_called_once()
+        panel.deleteLater()

@@ -109,6 +109,19 @@ class TAWindowPanel(QWidget):
         self._dark_frame: Optional[np.ndarray] = None
         self._dark_acquiring: bool = False
 
+        # In-memory buffer for post-scan save (always populated, regardless
+        # of whether HDF5 auto-save is enabled)
+        self._last_scan_buffer: dict = {
+            "delays_ps": [],
+            "delta_signals": [],
+            "pump_spectra": [],
+            "ref_spectra": [],
+            "stage_positions_um": [],
+            "wavelengths": None,
+            "config": None,
+            "camera_settings": None,
+        }
+
         # --- Trigger test state ---
         self._trigger_test_running = False
         self._trigger_test_gen = None
@@ -138,8 +151,26 @@ class TAWindowPanel(QWidget):
         )
         self._trigger_test_btn.clicked.connect(self._toggle_trigger_test)
 
+        self._save_last_btn = QPushButton("Save HDF5...")
+        self._save_last_btn.setFixedWidth(110)
+        self._save_last_btn.setToolTip(
+            "Save the most recent scan to HDF5 (works even if auto-save was off)"
+        )
+        self._save_last_btn.setEnabled(False)
+        self._save_last_btn.clicked.connect(self._on_save_last_scan)
+
+        self._save_spectra_btn = QPushButton("Save Spectra...")
+        self._save_spectra_btn.setFixedWidth(120)
+        self._save_spectra_btn.setToolTip(
+            "Save per-point spectrum text files (works even if auto-save was off)"
+        )
+        self._save_spectra_btn.setEnabled(False)
+        self._save_spectra_btn.clicked.connect(self._on_save_last_spectra)
+
         status_row = QHBoxLayout()
         status_row.addWidget(self._status_label, stretch=1)
+        status_row.addWidget(self._save_last_btn, stretch=0)
+        status_row.addWidget(self._save_spectra_btn, stretch=0)
         status_row.addWidget(self._trigger_test_btn, stretch=0)
 
         # --- Layout ---
@@ -170,6 +201,10 @@ class TAWindowPanel(QWidget):
         self._engine.signal_updated.connect(self._live_display.on_signal_updated)
         self._engine.map_updated.connect(self._live_display.on_map_updated)
         self._engine.raw_pair_updated.connect(self._live_display.on_raw_pair_updated)
+
+        # Engine → in-memory buffer for post-scan save
+        self._engine.signal_updated.connect(self._on_buffer_signal_updated)
+        self._engine.raw_pair_updated.connect(self._on_buffer_raw_pair_updated)
 
         # --- Signal wiring: Monitor ---
         self._monitor_widget.monitor_requested.connect(self._on_monitor_requested)
@@ -218,6 +253,11 @@ class TAWindowPanel(QWidget):
         camera_settings = self._config_widget.camera_settings
         self._pre_set_wavelengths(camera_settings)
 
+        # Reset post-scan save buffer for new scan
+        self._reset_scan_buffer(config, camera_settings)
+        self._save_last_btn.setEnabled(False)
+        self._save_spectra_btn.setEnabled(False)
+
         # Create HDF5 writer if a save directory is configured
         writer: Optional[TADataWriter] = None
         if config.save_hdf5_dir:
@@ -253,6 +293,177 @@ class TAWindowPanel(QWidget):
                                  trigger_gen=trigger_gen,
                                  phase_reader=phase_reader,
                                  dark=self._dark_frame)
+
+    def _reset_scan_buffer(self, config: TAScanConfig, camera_settings: dict) -> None:
+        """Clear the in-memory scan buffer at the start of a new scan."""
+        self._last_scan_buffer = {
+            "delays_ps": [],
+            "delta_signals": [],
+            "pump_spectra": [],
+            "ref_spectra": [],
+            "stage_positions_um": [],
+            "wavelengths": None,
+            "config": config,
+            "camera_settings": dict(camera_settings) if camera_settings else None,
+        }
+
+    @Slot(float, object, object)
+    def _on_buffer_signal_updated(self, delay_ps: float, wavelengths, delta_signal) -> None:
+        """Append a delta signal to the post-scan save buffer."""
+        import numpy as np
+        from andor_pymeasure.instruments.motion_controller import SPEED_OF_LIGHT_MM_PS
+
+        buf = self._last_scan_buffer
+        buf["delays_ps"].append(float(delay_ps))
+        buf["delta_signals"].append(np.asarray(delta_signal, dtype=np.float64).copy())
+        buf["stage_positions_um"].append((delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0)
+        if buf["wavelengths"] is None and wavelengths is not None and len(wavelengths) > 0:
+            buf["wavelengths"] = np.asarray(wavelengths, dtype=np.float64).copy()
+
+    @Slot(object, object, int, int, int)
+    def _on_buffer_raw_pair_updated(self, pumped, ref, n_matched: int,
+                                     n_discarded: int, n_frames: int) -> None:
+        """Capture pump/ref spectra into the buffer at the same cadence as delta signals."""
+        import numpy as np
+        buf = self._last_scan_buffer
+        # raw_pair_updated fires once per acquisition cycle, in lockstep with signal_updated
+        buf["pump_spectra"].append(np.asarray(pumped, dtype=np.float64).copy())
+        buf["ref_spectra"].append(np.asarray(ref, dtype=np.float64).copy())
+
+    def _on_save_last_scan(self) -> None:
+        """Prompt for a file path and save the in-memory scan buffer to HDF5."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        import numpy as np
+
+        buf = self._last_scan_buffer
+        if not buf["delays_ps"]:
+            QMessageBox.information(self, "Save Last Scan", "No scan data in memory.")
+            return
+
+        config = buf["config"]
+        default_name = (config.sample_name if config else "ta_scan") or "ta_scan"
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Last Scan",
+            f"{default_name}.h5",
+            "HDF5 files (*.h5);;All files (*)",
+        )
+        if not path_str:
+            return
+
+        from pathlib import Path
+        path = Path(path_str)
+        if path.suffix == "":
+            path = path.with_suffix(".h5")
+
+        try:
+            wavelengths = buf["wavelengths"]
+            if wavelengths is None:
+                wavelengths = np.array([])
+            hardware_info = self._collect_hardware_info(config) if config else None
+            with TADataWriter(
+                path, wavelengths=wavelengths,
+                sample_name=(config.sample_name if config else ""),
+                notes=(config.notes if config else ""),
+                scan_config=config,
+                camera_settings=buf["camera_settings"],
+                hardware_info=hardware_info,
+            ) as writer:
+                writer.begin_scan(0)
+                # Pump/ref may be shorter than delays if some points failed; pad with None
+                n = len(buf["delays_ps"])
+                pumps = buf["pump_spectra"]
+                refs = buf["ref_spectra"]
+                positions = buf["stage_positions_um"]
+                for i in range(n):
+                    pump_i = pumps[i] if i < len(pumps) else None
+                    ref_i = refs[i] if i < len(refs) else None
+                    writer.write_point(
+                        scan_idx=0,
+                        delay_ps=buf["delays_ps"][i],
+                        delta_signal=buf["delta_signals"][i],
+                        stage_position_um=positions[i],
+                        pump_spectrum=pump_i,
+                        ref_spectrum=ref_i,
+                    )
+            log.info(f"Post-scan save complete: {path}")
+            QMessageBox.information(
+                self, "Save Last Scan",
+                f"Saved {n} points to:\n{path}"
+            )
+        except Exception as exc:
+            log.exception("Post-scan save failed")
+            QMessageBox.critical(
+                self, "Save Failed", f"Could not save scan:\n{exc}"
+            )
+
+    def _on_save_last_spectra(self) -> None:
+        """Prompt for a parent directory and save per-point spectrum text files.
+
+        Mirrors the auto-save format used during scans: creates a timestamped
+        subfolder containing one ``scanNNN_pos±X.Xum.txt`` per delay point,
+        plus pump/ref text files when available.
+        """
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from pathlib import Path
+        from andor_qt.ta.engine import _save_spectrum_file, _make_scan_folder
+        from andor_pymeasure.instruments.motion_controller import SPEED_OF_LIGHT_MM_PS
+
+        buf = self._last_scan_buffer
+        if not buf["delays_ps"]:
+            QMessageBox.information(self, "Save Spectra", "No scan data in memory.")
+            return
+
+        parent_str = QFileDialog.getExistingDirectory(
+            self, "Choose Parent Directory for Spectra Folder"
+        )
+        if not parent_str:
+            return
+
+        config = buf["config"]
+        sample_name = (config.sample_name if config else "") or ""
+        try:
+            spectra_folder = _make_scan_folder(parent_str, sample_name)
+            wavelengths = buf["wavelengths"]
+            n = len(buf["delays_ps"])
+            n_pumps = len(buf["pump_spectra"])
+            n_refs = len(buf["ref_spectra"])
+            for i in range(n):
+                delay_ps = buf["delays_ps"][i]
+                delta = buf["delta_signals"][i]
+                _save_spectrum_file(
+                    spectra_folder, scan_idx=0, delay_ps=delay_ps,
+                    wavelengths=wavelengths if wavelengths is not None else [],
+                    delta_signal=delta,
+                )
+                # Save pump and ref spectra alongside (matches engine auto-save)
+                position_um = (delay_ps * SPEED_OF_LIGHT_MM_PS / 2.0) * 1000.0
+                for suffix, data in [
+                    ("pump", buf["pump_spectra"][i] if i < n_pumps else None),
+                    ("ref", buf["ref_spectra"][i] if i < n_refs else None),
+                ]:
+                    if data is None:
+                        continue
+                    fn = f"scan000_pos{position_um:+.1f}um_{suffix}.txt"
+                    lines = []
+                    if wavelengths is not None and len(wavelengths) == len(data):
+                        for wl, d in zip(wavelengths, data):
+                            lines.append(f"{float(wl):.4f}\t{float(d):.8e}")
+                    else:
+                        for d in data:
+                            lines.append(f"\t{float(d):.8e}")
+                    (spectra_folder / fn).write_text("\n".join(lines), encoding="utf-8")
+
+            log.info(f"Post-scan spectra save complete: {spectra_folder}")
+            QMessageBox.information(
+                self, "Save Spectra",
+                f"Saved {n} spectra to:\n{spectra_folder}"
+            )
+        except Exception as exc:
+            log.exception("Post-scan spectra save failed")
+            QMessageBox.critical(
+                self, "Save Failed", f"Could not save spectra:\n{exc}"
+            )
 
     def _collect_hardware_info(self, config: TAScanConfig) -> dict:
         """Collect hardware metadata for HDF5 file."""
@@ -336,12 +547,20 @@ class TAWindowPanel(QWidget):
     def _on_scan_completed(self) -> None:
         log.info("TA scan completed")
         self._status_label.setText("Scan complete")
+        # Enable post-scan save if any data was collected
+        if len(self._last_scan_buffer["delays_ps"]) > 0:
+            self._save_last_btn.setEnabled(True)
+            self._save_spectra_btn.setEnabled(True)
         self._end_scan()
 
     @Slot()
     def _on_aborted(self) -> None:
         log.info("TA scan aborted")
         self._status_label.setText("Scan aborted")
+        # Allow saving partial data
+        if len(self._last_scan_buffer["delays_ps"]) > 0:
+            self._save_last_btn.setEnabled(True)
+            self._save_spectra_btn.setEnabled(True)
         self._end_scan()
 
     @Slot(str)
