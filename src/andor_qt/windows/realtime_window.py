@@ -259,17 +259,24 @@ class RealtimeWindow(QMainWindow):
             """Background acquisition loop."""
             try:
                 while self._running:
-                    if mode == "fvb":
-                        data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
-                        calibration = self._hw_manager.get_calibration(hbin=hbin)
-                        self._signals.spectrum_ready.emit(calibration, data)
-                    else:
-                        data = self._hw_manager.camera.acquire_image(hbin=hbin)
-                        calibration = self._hw_manager.get_calibration(hbin=hbin)
-                        self._signals.image_ready.emit(data, calibration)
+                    try:
+                        if mode == "fvb":
+                            data = self._hw_manager.camera.acquire_fvb(hbin=hbin)
+                            calibration = self._hw_manager.get_calibration(hbin=hbin)
+                            self._signals.spectrum_ready.emit(calibration, data)
+                        else:
+                            data = self._hw_manager.camera.acquire_image(hbin=hbin)
+                            calibration = self._hw_manager.get_calibration(hbin=hbin)
+                            self._signals.image_ready.emit(data, calibration)
 
-                    self._frame_count += 1
-                    self._signals.frame_count_updated.emit(self._frame_count)
+                        self._frame_count += 1
+                        self._signals.frame_count_updated.emit(self._frame_count)
+                    except RuntimeError as e:
+                        # DRV_NO_NEW_DATA (20024) is transient — skip and retry
+                        if "20024" in str(e):
+                            log.debug(f"Transient no-data error, retrying: {e}")
+                            continue
+                        raise
 
             except Exception as e:
                 log.error(f"Acquisition error: {e}")
