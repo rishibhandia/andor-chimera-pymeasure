@@ -836,11 +836,17 @@ class AndorCamera:
 
             if "keep_cleans" in settings:
                 state = 1 if settings["keep_cleans"] else 0
-                ret = self._sdk.EnableKeepCleans(state)
-                if ret != self._errors.Error_Codes.DRV_SUCCESS:
-                    log.warning(f"EnableKeepCleans({state}) returned: {ret}")
+                # EnableKeepCleans requires idle state. Skip silently if acquiring —
+                # the setting will take effect on the next idle apply.
+                status_ret, status = self._sdk.GetStatus()
+                if status == self._errors.Error_Codes.DRV_ACQUIRING:
+                    log.debug("Skipping EnableKeepCleans — camera is acquiring")
                 else:
-                    log.debug(f"Keep cleans: {'ON' if state else 'OFF'}")
+                    ret = self._sdk.EnableKeepCleans(state)
+                    if ret != self._errors.Error_Codes.DRV_SUCCESS:
+                        log.warning(f"EnableKeepCleans({state}) returned: {ret}")
+                    else:
+                        log.debug(f"Keep cleans: {'ON' if state else 'OFF'}")
 
         log.debug(f"Camera settings applied: {settings}")
 
