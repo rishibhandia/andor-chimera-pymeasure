@@ -478,7 +478,14 @@ Previous approach (chopper REF on PFI13 as edge-detect sync) was confirmed NOT t
 
 **Tag-to-frame alignment:** The offset detection in `_process_chopper_frames` tries offsets 0 through `shots_per_frame-1` and picks the one with the most matched tag groups (all tags identical within a group). This works purely from the P0.0 tag pattern — it does NOT need intensity data or a chopped probe. With the Fire trigger, the offset is deterministic (always the same value across restarts).
 
-**P0.0 polarity (MC2000B):** The photo-interrupter polarity is fixed by hardware and does NOT change between sessions. The MC2000B INNER REF OUT always outputs the same logic level for blade-open vs blade-closed. This means tag=1 always maps to the same physical state (pump-ON or pump-OFF) — no auto-detection needed for real experiments.
+**P0.0 polarity (MC2000B) — CAN flip between sessions.** This claim was wrong in earlier versions of this doc and was empirically corrected on 2026-05-20.
+
+- **Within a single session (no chopper power-cycle, no PLL re-lock event), polarity is stable.** Validated by `scripts/test_fire_trigger.py`: 10/10 stable with Camera Fire trigger on PFI13 (vs 5/10 random without). The Fire trigger guarantees tag[0] = frame[0] deterministically.
+- **Between sessions (after `enable=0`→`1`, power-cycle, or extended drift-and-re-lock), polarity CAN flip.** The MC2000B PLL at N/D=1/2 has TWO stable lock points 180° apart in the chopper cycle. Each re-lock event randomly picks one. The Camera Fire trigger keeps subsequent acquisitions consistent with whichever lock point the chopper happens to be in.
+- **Mitigation:** `TAScanConfig.swap_tags: bool` (added 2026-05-20) and matching **"Swap pump-ON/OFF tags"** checkboxes in the TA Monitor and TA Scan panels. Toggle when the GUI shows pump-ON dark and pump-OFF bright. Persisted via QSettings.
+- The photo-interrupter ↔ beam optical alignment offset is hardware-fixed, but which stable lock point the PLL chose determines the beam-to-interrupter phase relationship modulo 180° → which determines polarity.
+
+Diagnostic: `scripts/test_tag_polarity_multiphase.py` runs the Fire-trigger acquisition at multiple chopper phases and reports STABLE ON-bright / STABLE OFF-bright / FLIPPED.
 
 **`_ensure_idle()` prevents DRV_ACQUIRING (20072).** Called at the top of `start_run_till_abort()` and `start_run_till_abort_crop()` — checks `GetStatus()` and aborts if still acquiring.
 
@@ -530,7 +537,7 @@ with AcquisitionSession(hw, config, camera_settings, phase_reader) as session:
 
 **`_process_chopper_frames()`** is the single source of truth for tag alignment and frame separation. It tries offsets 0 through `shots_per_frame-1` and picks the offset with the most matched groups (all tags in a group identical).
 
-Frame assignment: P0.0=1 → pump-ON, P0.0=0 → pump-OFF. **No intensity-based auto-swap** — trust the chopper controller output directly.
+Frame assignment: P0.0=1 → pump-ON, P0.0=0 → pump-OFF by default. If `TAScanConfig.swap_tags=True`, the assignment is inverted (P0.0=0 → pump-ON). **No intensity-based auto-swap** — trust the chopper controller output, then let the user override via the swap-tags checkbox if the PLL lock point puts the polarity backward.
 
 #### Camera Settings for chopper_2x2
 
@@ -556,6 +563,27 @@ Frame assignment: P0.0=1 → pump-ON, P0.0=0 → pump-OFF. **No intensity-based 
 | `nidaq_clock_rate` | `1000.0` | Clock rate in Hz |
 | `nidaq_chopper_sync_source` | `"/Astrella DAQ/PFI12"` | 250 Hz chopper pulse (counter retrigger source) |
 | `nidaq_chopper_counter` | `"ctr1"` | NI counter to use for 500 Hz trigger generation |
+| `nidaq_fire_trigger` | `"/Astrella_DAQ/PFI13"` | Camera Fire output terminal — phase reader start trigger. Guarantees tag[0] = frame[0]. |
+| `swap_tags` | `False` | Invert P0.0 polarity interpretation (tag=0 → pump-ON instead of tag=1). UI exposed as "Swap pump-ON/OFF tags" checkbox in Monitor + TA Scan panels. |
+
+### Chopper Diagnostic Scripts (scripts/)
+
+Standalone scripts under `scripts/` for debugging the chopper_2x2 setup. None of them depend on the andor_qt GUI; they share defaults matching the Monitor configuration (exposure=0.4 ms, vs=0, hs=0, amp=1, preamp=0, hbin=8, fast_external) and expose every camera setting as a CLI flag.
+
+| Script | Purpose |
+|--------|---------|
+| `chopper_control.py` | Raw MC2000B serial control via pyserial — bypasses Thorlabs DLL (which times out on v4.19 firmware). Subcommands: `list`, `info`, `setup`, `phase`, `enable`, `sweep`, `shutdown`. |
+| `acquire_dark_frame.py` | Records dark spectrum (probe blocked at source) for dark-subtracted contrast. Outputs .npy. |
+| `chopper_phase_sweep.py` | Full COM4 phase sweep with contrast measurement at each point. Optional `--dark-frame`, `--lock-timeout`, `--samples-per-phase`. Restarts camera per phase (bulletproof atexit + signal shutdown). |
+| `test_chopper_lock_dynamics.py` | Polls `locked?` at 10 Hz for 20 s at each test phase. Reports first-lock time, lock fraction, streak durations. No camera needed. Use to choose dwell + lock-timeout. |
+| `test_tag_polarity_multiphase.py` | Fire-trigger acquisition at multiple phases, N trials each. Reports STABLE ON-bright / OFF-bright / FLIPPED. Use to confirm tag stability + identify which phases give which polarity. |
+| `test_fire_trigger.py` | A/B compares phase reader WITHOUT Camera Fire trigger (5/10 random flips) vs WITH (10/10 stable). Confirms Fire trigger is wired correctly. |
+| `model_chopper_phase.py` | Pure-Python simulation of 250 Hz square chopper + 1 kHz laser deltas + 500 Hz camera with 0.4 ms exposure. Validates expectations against measured data. |
+| `analyze_sweep_precision.py` | From a sweep CSV, extracts σ-per-pair and predicts σ at any (pairs N, samples K). Empirical v4.19: σ_per_pair ≈ 13.4 % contrast → 200 pairs gives σ ≈ 0.95 %. |
+
+**MC2000B firmware v4.19 fact**: rejects any fractional phase like `phase=19.5` with `CMD_ARG_INVALID`. Only integer phases 0-360 accepted. The phase sweep script rounds internally before sending.
+
+**MC2000B SDK DLL fact**: `MC2000CommandLibWin32.dll` (and Win64) timed out (-3) against firmware v4.19. The Thorlabs Python SDK is unusable on this firmware. **Use raw pyserial via the chopper_control.py module — the ASCII protocol from the device manual chapter 8 works fine at 115200 8N1.**
 
 ### Mock Objects (ANDOR_MOCK=1)
 
@@ -764,6 +792,54 @@ See `.github/workflows/test.yml`. A post-edit ruff hook in
 - `SequencerAdapter` — Bridges SequencerWidget to our queue
 - QTabWidget with Single/Sequence tabs in left panel
 
+## Recent Features (2026)
+
+### Swap pump-ON/OFF tags (May 2026)
+- `TAScanConfig.swap_tags: bool` — invert P0.0 polarity interpretation in `_process_chopper_frames`. Honors PLL bistability: chopper REF OUT polarity can flip between sessions; this flag corrects it without touching hardware.
+- UI: checkbox below "External trigger" in `TAMonitorWidget` and `TAScanConfigWidget`. Persisted via QSettings.
+- Disabled while a scan/monitor is running.
+
+### Default exposure time persistence (May 2026)
+- `CameraSettingsWidget` initial exposure is **0.4 ms** (was 2 ms).
+- Persistence bug fixed: `_on_acq_mode_changed` runs `apply_mode_preset` on widget construction which clobbered QSettings; both `TAMonitorWidget` and `TAScanConfigWidget` now re-call `_camera_settings._load_settings()` after `_build_ui` finishes, so the persisted value wins.
+- `apply_mode_preset()` still hard-codes 0.002/0.0003 for chopper_2x2/shot_to_shot — these only kick in when the user actively switches mode in the dropdown.
+
+### Bulletproof script camera shutdown (May 2026)
+Scripts that touch the Andor SDK (`scripts/chopper_phase_sweep.py`, `scripts/acquire_dark_frame.py`) register an `atexit` handler at module load that always calls `camera.shutdown()` if the camera was initialized. Also install signal handlers for SIGINT / SIGBREAK / SIGTERM that raise KeyboardInterrupt so try/finally unwinds normally. Pattern to copy when writing new SDK-touching scripts:
+
+```python
+_camera_for_cleanup = None
+
+def _emergency_shutdown():
+    global _camera_for_cleanup
+    cam = _camera_for_cleanup
+    if cam is None:
+        return
+    _camera_for_cleanup = None
+    try: cam.abort_acquisition()
+    except Exception: pass
+    try: cam.shutdown()
+    except Exception as e: print(f"[atexit] {e}", flush=True)
+
+atexit.register(_emergency_shutdown)
+
+def _signal_handler(signum, _frame):
+    raise KeyboardInterrupt()
+for n in ("SIGINT", "SIGBREAK", "SIGTERM"):
+    s = getattr(signal, n, None)
+    if s is not None:
+        try: signal.signal(s, _signal_handler)
+        except (ValueError, OSError): pass
+
+# In init_camera():
+_camera_for_cleanup = cam  # register BEFORE settings apply
+
+# In finally:
+_camera_for_cleanup = None  # already shut down — prevent atexit double-call
+```
+
+The only way to leak the SDK after these handlers is a hard `taskkill /F` — which we never do (per the project rule).
+
 ## Instrument Driver Patterns
 
 ### Creating New Instruments
@@ -866,3 +942,15 @@ class SpectrumProcedure(SharedHardwareMixin, Procedure):
 - Check cooler is enabled: `camera.set_cooler(True)`
 - Verify temperature target: `camera.set_temperature(-60)`
 - Monitor via `temperature_changed` signal
+
+### TA Monitor / Scan shows pump-ON dark and pump-OFF bright (inverted polarity)
+- Expected behavior — MC2000B PLL has 2 stable lock points (at N/D=1/2), polarity may flip between sessions.
+- Fix: check the **"Swap pump-ON/OFF tags"** box in the Monitor or TA Scan panel.
+- Diagnose: run `scripts/test_tag_polarity_multiphase.py --phases 19,20,21 --trials 5` — confirms whether polarity is stable (in which case the swap-tags toggle is the right fix) or randomly flipping mid-acquisition (which would point to a Fire-trigger problem).
+
+### Chopper SDK calls time out
+- Don't use Thorlabs' `MC2000CommandLibWin*.dll` against firmware v4.19 — it times out (-3) on every Get* call.
+- Use the raw pyserial path via `scripts/chopper_control.py` instead. ASCII protocol at 115200 8N1 works fine.
+
+### Chopper rejects fractional phase like `phase=19.5`
+- MC2000B firmware v4.19 only accepts integer phases. Returns `CMD_ARG_INVALID` for any decimal. Use `int(round(phase))` before sending.
