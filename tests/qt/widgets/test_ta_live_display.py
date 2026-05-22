@@ -476,3 +476,119 @@ class TestDeltaReadoutLabel:
         text = widget._delta_readout_label.text()
         assert "7.89" in text
         assert "-" in text  # negative sign
+
+
+def _feed_known_oscillation(widget, freq_thz=2.0, n_points=64, dt_ps=0.05):
+    """Push a known sinusoidal kinetic trace into the widget so the FFT computes.
+
+    Returns the (frequency, amplitude) of the expected FFT peak after the
+    Hanning window is applied. Uses 5 wavelength bins; only bin index 2
+    carries the oscillation.
+    """
+    wl = np.linspace(400.0, 800.0, 5)
+    for i in range(n_points):
+        delay = i * dt_ps
+        sig = np.zeros(5)
+        sig[2] = np.sin(2 * np.pi * freq_thz * delay)
+        widget.on_signal_updated(delay, wl, sig)
+    # Pin the probe to the bin carrying the signal so the FFT actually sees it
+    widget._probe_wl_spin.setValue(float(wl[2]))
+    QApplication.instance().processEvents()
+
+
+class TestFFTInteractiveInspection:
+    """Hover/click on the FFT plot reveals frequency + amplitude readout."""
+
+    def test_fft_data_cached_after_kinetic_update(self, widget):
+        """FFT computation populates the cached freqs/values arrays."""
+        _feed_known_oscillation(widget)
+        # FFT bins should be cached (rfft of 64-point signal → 33 bins minus DC = 32)
+        assert len(widget._fft_freqs) > 0
+        assert len(widget._fft_vals) == len(widget._fft_freqs)
+        # Frequencies must be monotonically increasing and start at the first non-DC bin
+        assert np.all(np.diff(widget._fft_freqs) > 0)
+        assert widget._fft_freqs[0] > 0  # DC bin was dropped
+
+    def test_snap_returns_nearest_bin(self, widget):
+        """_snap_to_fft_bin returns the FFT data point closest to a given frequency."""
+        _feed_known_oscillation(widget, freq_thz=2.0, n_points=64, dt_ps=0.05)
+        # Nyquist = 10 THz, bin spacing = 10/32 = 0.3125 THz; nearest bin to 2.0 should be ~2.0
+        f_snap, amp_snap = widget._snap_to_fft_bin(2.0)
+        assert f_snap is not None
+        assert abs(f_snap - 2.0) < 0.4  # within one bin
+        # The cached amplitude should be the peak (since the kinetic is sin(2π·2·t))
+        peak_idx = int(np.argmax(widget._fft_vals))
+        assert abs(widget._fft_freqs[peak_idx] - 2.0) < 0.4
+        # The snapped amplitude should equal the cached amplitude at the snap freq
+        snap_idx = int(np.argmin(np.abs(widget._fft_freqs - 2.0)))
+        assert amp_snap == pytest.approx(widget._fft_vals[snap_idx])
+
+    def test_snap_with_no_data_returns_none(self, widget):
+        """Snapping before any FFT exists returns (None, None) safely."""
+        f, a = widget._snap_to_fft_bin(1.0)
+        assert f is None
+        assert a is None
+
+    def test_click_updates_selection_label(self, widget):
+        """Clicking the FFT plot writes the snapped freq, period, and amplitude."""
+        from unittest.mock import MagicMock
+        from PySide6.QtCore import Qt as _Qt, QPointF as _QPointF
+
+        _feed_known_oscillation(widget, freq_thz=2.0)
+        # Pick a frequency near the peak and feed scene coordinates that map to it
+        target_freq = widget._fft_freqs[int(np.argmax(widget._fft_vals))]
+        vb = widget._fft_plot.getPlotItem().getViewBox()
+        target_amp = widget._fft_vals[int(np.argmax(widget._fft_vals))]
+        scene_point = vb.mapViewToScene(_QPointF(float(target_freq), float(target_amp)))
+
+        # Force the view box to claim it contains the scene_point
+        # (in tests the widget hasn't actually been shown, so coordinates may not map cleanly)
+        event = MagicMock()
+        event.button.return_value = _Qt.MouseButton.LeftButton
+        event.scenePos.return_value = scene_point
+        # Patch the contains() check so the click handler proceeds
+        original_contains = vb.sceneBoundingRect().contains
+        widget._fft_plot.getPlotItem().getViewBox().sceneBoundingRect = lambda: MagicMock(
+            contains=lambda p: True
+        )
+
+        widget._on_fft_mouse_clicked(event)
+
+        text = widget._fft_selection_label.text()
+        # Selection label should show frequency, period, and amplitude
+        assert "THz" in text
+        assert "ps" in text
+        assert "amp" in text
+        # Persistent indicator visible at the snapped frequency
+        assert widget._fft_selected_indicator.isVisible()
+        assert widget._fft_selected_indicator.pos().x() == pytest.approx(
+            target_freq, rel=1e-6
+        )
+
+    def test_click_with_no_fft_data_does_nothing(self, widget):
+        """Clicking when no FFT exists should leave the UI untouched."""
+        from unittest.mock import MagicMock
+        from PySide6.QtCore import Qt as _Qt
+
+        event = MagicMock()
+        event.button.return_value = _Qt.MouseButton.LeftButton
+        # Force "contains" to return True so we'd reach the snap stage if we had data
+        widget._fft_plot.getPlotItem().getViewBox().sceneBoundingRect = lambda: MagicMock(
+            contains=lambda p: True
+        )
+        event.scenePos.return_value = MagicMock()
+
+        widget._on_fft_mouse_clicked(event)
+        # No FFT data → indicator stays hidden and label keeps the default
+        assert not widget._fft_selected_indicator.isVisible()
+        assert "Click" in widget._fft_selection_label.text()
+
+    def test_clear_resets_fft_state(self, widget):
+        """clear() empties FFT caches and resets the selection label."""
+        _feed_known_oscillation(widget)
+        assert len(widget._fft_freqs) > 0
+        widget.clear()
+        assert len(widget._fft_freqs) == 0
+        assert len(widget._fft_vals) == 0
+        assert not widget._fft_selected_indicator.isVisible()
+        assert widget._fft_selection_label.text() == "Click a peak to inspect"

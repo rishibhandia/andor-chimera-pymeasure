@@ -75,6 +75,9 @@ class TALiveDisplayWidget(QGroupBox):
         self._last_delta_signal: np.ndarray = np.array([])
         self._monitor_mode: bool = False
         self._monitor_cycle: int = 0
+        # FFT data cached so hover/click can snap to actual data points
+        self._fft_freqs: np.ndarray = np.array([])
+        self._fft_vals: np.ndarray = np.array([])
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -98,16 +101,17 @@ class TALiveDisplayWidget(QGroupBox):
         self._raw_plot.setLabel("left", "Counts")
         self._raw_plot.setLabel("bottom", "Wavelength (nm)")
         self._raw_plot.setMinimumHeight(120)
+        # Add the legend BEFORE plot() calls so curve names auto-register.
+        self._raw_plot.addLegend(offset=(60, 5))
         self._raw_curve_on = self._raw_plot.plot(
-            pen=pg.mkPen("r", width=1.2), name="ON"
+            pen=pg.mkPen("r", width=1.2), name="ON (pump-on tag, red)"
         )
         self._raw_curve_off = self._raw_plot.plot(
-            pen=pg.mkPen("b", width=1.2), name="OFF"
+            pen=pg.mkPen("b", width=1.2), name="OFF (pump-off tag, blue)"
         )
         self._raw_curve_diff = self._raw_plot.plot(
-            pen=pg.mkPen("g", width=1.2), name="ON\u2212OFF"
+            pen=pg.mkPen("g", width=1.2), name="ON\u2212OFF (diff, green)"
         )
-        self._raw_plot.addLegend(offset=(60, 5))
         raw_layout.addWidget(self._raw_plot)
 
         # Phase stats compact row
@@ -203,13 +207,61 @@ class TALiveDisplayWidget(QGroupBox):
         self._kinetic_curve = self._kinetic_plot.plot(pen="c", symbol="o", symbolSize=3)
         kinetic_fft_splitter.addWidget(self._kinetic_plot)
 
+        # FFT plot with hover crosshair + click-to-mark frequency
+        fft_widget = QWidget()
+        fft_layout = QVBoxLayout(fft_widget)
+        fft_layout.setContentsMargins(0, 0, 0, 0)
+        fft_layout.setSpacing(0)
+
         self._fft_plot = pg.PlotWidget()
         self._fft_plot.setLabel("left", "Amplitude")
         self._fft_plot.setLabel("bottom", "Frequency (THz)")
         self._fft_plot.setMinimumHeight(80)
         self._fft_plot.showGrid(x=True, y=True, alpha=0.3)
         self._fft_curve = self._fft_plot.plot(pen="c")
-        kinetic_fft_splitter.addWidget(self._fft_plot)
+
+        # Crosshair lines on FFT plot
+        self._fft_crosshair_v = pg.InfiniteLine(
+            angle=90, pen=pg.mkPen("y", width=1, style=Qt.PenStyle.DashLine)
+        )
+        self._fft_crosshair_h = pg.InfiniteLine(
+            angle=0, pen=pg.mkPen("y", width=1, style=Qt.PenStyle.DashLine)
+        )
+        self._fft_crosshair_v.setVisible(False)
+        self._fft_crosshair_h.setVisible(False)
+        self._fft_plot.addItem(self._fft_crosshair_v, ignoreBounds=True)
+        self._fft_plot.addItem(self._fft_crosshair_h, ignoreBounds=True)
+
+        # Hover readout overlay
+        self._fft_hover_label = pg.TextItem(
+            text="", anchor=(0, 1),
+            color="w", fill=pg.mkBrush(0, 0, 0, 160),
+        )
+        self._fft_hover_label.setVisible(False)
+        self._fft_plot.addItem(self._fft_hover_label, ignoreBounds=True)
+
+        # Persistent marker at the last-clicked frequency
+        self._fft_selected_indicator = pg.InfiniteLine(
+            angle=90, movable=False,
+            pen=pg.mkPen("#00bfff", width=1.5, style=Qt.PenStyle.DashDotLine),
+        )
+        self._fft_selected_indicator.setVisible(False)
+        self._fft_plot.addItem(self._fft_selected_indicator, ignoreBounds=True)
+
+        # Connect mouse events on the FFT plot
+        self._fft_plot.scene().sigMouseMoved.connect(self._on_fft_mouse_moved)
+        self._fft_plot.scene().sigMouseClicked.connect(self._on_fft_mouse_clicked)
+
+        fft_layout.addWidget(self._fft_plot)
+
+        # Selection readout shown below the FFT plot
+        self._fft_selection_label = QLabel("Click a peak to inspect")
+        self._fft_selection_label.setStyleSheet(
+            "color: #00bfff; font-family: monospace; padding: 2px 6px;"
+        )
+        fft_layout.addWidget(self._fft_selection_label)
+
+        kinetic_fft_splitter.addWidget(fft_widget)
 
         kinetic_fft_splitter.setSizes([500, 300])
         kinetic_layout.addWidget(kinetic_fft_splitter)
@@ -434,6 +486,67 @@ class TALiveDisplayWidget(QGroupBox):
         mouse_point = vb.mapSceneToView(scene_pos)
         self._on_signal_plot_clicked(mouse_point.x())
 
+    def _snap_to_fft_bin(self, freq_thz: float) -> tuple:
+        """Return the (frequency, amplitude) at the FFT bin nearest to ``freq_thz``.
+
+        Returns ``(None, None)`` if no FFT data has been computed yet.
+        """
+        if len(self._fft_freqs) == 0:
+            return (None, None)
+        idx = int(np.argmin(np.abs(self._fft_freqs - freq_thz)))
+        return (float(self._fft_freqs[idx]), float(self._fft_vals[idx]))
+
+    def _on_fft_mouse_moved(self, pos: QPointF) -> None:
+        """Show crosshair + amplitude readout snapped to nearest FFT bin."""
+        vb = self._fft_plot.getPlotItem().getViewBox()
+        if not vb.sceneBoundingRect().contains(pos):
+            self._fft_crosshair_v.setVisible(False)
+            self._fft_crosshair_h.setVisible(False)
+            self._fft_hover_label.setVisible(False)
+            return
+
+        mouse_point = vb.mapSceneToView(pos)
+        cursor_freq = mouse_point.x()
+        snap_freq, snap_amp = self._snap_to_fft_bin(cursor_freq)
+        if snap_freq is None:
+            self._fft_crosshair_v.setVisible(False)
+            self._fft_crosshair_h.setVisible(False)
+            self._fft_hover_label.setVisible(False)
+            return
+
+        period_ps = 1.0 / snap_freq if snap_freq > 0 else float("inf")
+        self._fft_crosshair_v.setPos(snap_freq)
+        self._fft_crosshair_h.setPos(snap_amp)
+        self._fft_crosshair_v.setVisible(True)
+        self._fft_crosshair_h.setVisible(True)
+        self._fft_hover_label.setText(
+            f"f={snap_freq:.3f} THz\nT={period_ps:.2f} ps\nA={snap_amp:.3e}"
+        )
+        self._fft_hover_label.setPos(snap_freq, snap_amp)
+        self._fft_hover_label.setVisible(True)
+
+    def _on_fft_mouse_clicked(self, event) -> None:
+        """Pin the FFT marker to the clicked frequency and update the readout."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if len(self._fft_freqs) == 0:
+            return
+        vb = self._fft_plot.getPlotItem().getViewBox()
+        scene_pos = event.scenePos()
+        if not vb.sceneBoundingRect().contains(scene_pos):
+            return
+        cursor_freq = vb.mapSceneToView(scene_pos).x()
+        snap_freq, snap_amp = self._snap_to_fft_bin(cursor_freq)
+        if snap_freq is None:
+            return
+        period_ps = 1.0 / snap_freq if snap_freq > 0 else float("inf")
+        self._fft_selected_indicator.setPos(snap_freq)
+        self._fft_selected_indicator.setVisible(True)
+        self._fft_selection_label.setText(
+            f"  f = {snap_freq:.3f} THz   T = {period_ps:.2f} ps   "
+            f"amp = {snap_amp:.3e}"
+        )
+
     def _update_kinetic_curve(self) -> None:
         """Recompute kinetic trace at current probe wavelength and redraw."""
         if not self._kinetic_signals:
@@ -472,7 +585,10 @@ class TALiveDisplayWidget(QGroupBox):
                 window = np.hanning(len(signal))
                 fft_vals = np.abs(np.fft.rfft(signal * window))
                 freqs_thz = np.fft.rfftfreq(len(signal), d=dt_ps)
-                self._fft_curve.setData(freqs_thz[1:], fft_vals[1:])
+                # Cache for hover/click readout (drop DC bin like the displayed curve)
+                self._fft_freqs = freqs_thz[1:]
+                self._fft_vals = fft_vals[1:]
+                self._fft_curve.setData(self._fft_freqs, self._fft_vals)
                 self._fft_plot.setTitle(
                     f"FFT  (\u0394t = {dt_ps:.3f} ps, "
                     f"max freq = {freqs_thz[-1]:.1f} THz)"
@@ -494,6 +610,10 @@ class TALiveDisplayWidget(QGroupBox):
         self._raw_curve_off.setData([], [])
         self._raw_curve_diff.setData([], [])
         self._fft_curve.setData([], [])
+        self._fft_freqs = np.array([])
+        self._fft_vals = np.array([])
+        self._fft_selection_label.setText("Click a peak to inspect")
+        self._fft_selected_indicator.setVisible(False)
         self.reset_phase_stats()
         self._signal_curve.setData([], [])
         self._kinetic_curve.setData([], [])
@@ -505,4 +625,7 @@ class TALiveDisplayWidget(QGroupBox):
         self._crosshair_v.setVisible(False)
         self._crosshair_h.setVisible(False)
         self._hover_label.setVisible(False)
+        self._fft_crosshair_v.setVisible(False)
+        self._fft_crosshair_h.setVisible(False)
+        self._fft_hover_label.setVisible(False)
         self._probe_indicator.setVisible(False)
