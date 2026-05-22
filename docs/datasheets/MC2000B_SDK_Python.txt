@@ -1,0 +1,343 @@
+
+====== Page 17 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Page 14  
+Chapter 3 Python Software Development Kit 
+Python 3.6 or above is required. User can import MC2000B_COMMAND_LIB.py to your python project, that’s the 
+wrapper for MC2000B _COMMAND_LIB(MC2000BCommandLibraryWin32.dll  in C/C++ development 
+environment ). Copy MC2000BCommandLibraryWin32.dll  to your program folder, and make sure the library file 
+and MC2000B_COMMAND_LIB.py file are in the same folder. The “ MC2000B 
+_COMMAND_LIB_EXAMPLE.py” is example code for how to use the python APIs.  
+ 
+User can also replace the reference win32 lib to x64 lib for 64-bit application. 
+ 
+3.1. LK220_COMMAND_LIB Namespace Reference 
+3.1.1. Functions 
+0)def MC2000BListDevices 
+1)def MC2000BOpen 
+2)def MC2000BIsOpen 
+3)def MC2000BClose 
+4)def MC2000BSetFrequency 
+5)def MC2000BGetFrequency 
+6)def MC2000BSetBladeType 
+7)def MC2000BGetBladeType 
+8)def MC2000BSetHarmonicMultiplier 
+9)def MC2000BGetHarmonicMultiplier 
+10)def MC2000BSetHarmonicDivider 
+11)def MC2000BGetHarmonicDivider 
+12)def MC2000BSetPhase 
+13)def MC2000BGetPhase 
+14)def MC2000BSetEnable 
+15)def MC2000BGetEnable 
+16)def MC2000BSetReference 
+17)def MC2000BGetReference 
+18)def MC2000BSetReferenceOutput 
+19)def MC2000BGetReferenceOutput 
+20)def MC2000BSetDisplayIntensity 
+21)def MC2000BGetDisplayIntensity 
+22)def MC2000BGetReferenceFrequency 
+23)def MC2000BRestore 
+24)def MC2000BGetVerbose 
+25)def MC2000BSetVerbose 
+26)def MC2000BSetLanguage 
+27)def MC2000BGetLocked 
+28)def MC2000BGetCycleAdjust 
+29)def MC2000BSetCycleAdjust 
+30)def MC2000BGetReferenceOutFrequency 
+====== Page 18 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Rev A, Feb 27, 2020 Page 15 
+3.1.2. Function Documentation 
+def MC2000B_COMMAND_LIB.MC2000BClose ( hdl) 
+ 
+Close opened MC2000B device 
+Args: 
+    hdl: the handle of opened MC2000B device 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetBladeType ( hdl,  bladetype) 
+ 
+Get the blade type 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    bladetype: pointer to the blade type 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetCycleAdjust ( hdl,  cycle) 
+ 
+Get the cycle adjustment. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    cycle: pointer to the cycle adjustment 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetDisplayIntensity ( hdl,  intensity) 
+ 
+Get the display intensity (1-10). 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    intensity: pointer to display intensity (1-10) 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetEnable ( hdl,  enable) 
+ 
+Get enable or disable state of device 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    enable: pointer to enable state 1:enable, 0:disable 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetFrequency ( hdl,  frequency) 
+ 
+Get the internal reference frequency 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    frequency:get internal reference frequency 
+====== Page 19 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Page 16  
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetHarmonicDivider ( hdl,  dharmonic) 
+ 
+Get the Harmonic Divider applied to external reference frequency 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    dharmonic: pointer to the harmonic divider applied to external reference frequency 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetHarmonicMultiplier ( hdl,  nharmonic) 
+ 
+Get Harmonic Multiplier applied to external reference frequency 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    nharmonic: pointer to the harmonic multiplier 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetLocked ( hdl,  lock) 
+ 
+Get the lock state. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    lock: pointer to the lock state 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetPhase ( hdl,  phase) 
+ 
+Get the Phase adjust 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    phase: pointer to the phase adjust 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetReference ( hdl,  ref) 
+ 
+Get the reference mode 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    ref: pointer to reference mode 1:external, 0:internal 
+                    reference mode high precision 0:InternalOuter 1:InternalInner 2:ExternalOuter 
+3:ExternalInner     
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetReferenceFrequency ( hdl,  frequence) 
+ 
+====== Page 20 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Rev A, Feb 27, 2020 Page 17 
+Get the current supplied external reference frequency. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    frequence: pointer to the current supplied external reference frequency. 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetReferenceOutFrequency ( hdl,  freq) 
+ 
+Get actual frequency of blade spinning 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    freq: pointer to the actual frequency 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetReferenceOutput ( hdl,  output) 
+ 
+Get the output reference mode 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    output: pointer to the output mode 1:actual, 0:target 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BGetVerbose ( hdl,  verbose) 
+ 
+Get the verbose mode. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    verbose: verbose mode 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BIsOpen ( serialNo) 
+ 
+Check opened status of MC2000B device 
+Args: 
+    serialNo: serial number of MC2000B device 
+Returns:  
+    0: MC2000B device is not opened; 1: MC2000B device is opened. 
+  
+def MC2000B_COMMAND_LIB.MC2000BListDevices () 
+ 
+List all connected MC2000B devices 
+Returns:  
+   The MC2000B device list, each deice item is [serialNumber, MC2000BType] 
+  
+def MC2000B_COMMAND_LIB.MC2000BOpen ( serialNo,  nBaud,  timeout) 
+ 
+Open MC2000B device 
+====== Page 21 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Page 18  
+Args: 
+    serialNo: serial number of MC2000B device 
+    nBaud: bit per second of port 
+    timeout: set timeout value in (s) 
+Returns:  
+    non-negative number: hdl number returned Successful; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BRestore ( hdl) 
+ 
+Restore the factory default parameters. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetBladeType ( hdl,  bladetype) 
+ 
+Set the blade type 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    bladetype: desired blade type 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetCycleAdjust ( hdl,  cycle) 
+ 
+Set the cycle adjustment. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    cycle: the desired cycle adjustment 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetDisplayIntensity ( hdl,  intensity) 
+ 
+Set the display intensity (1-10). 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    intensity: display intensity (1-10) 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetEnable ( hdl,  enable) 
+ 
+Set enable or disable state of device 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    enable: enable state 1:enable, 0:disable. 
+Returns:  
+    0: Success; negative number: failed. 
+  
+====== Page 22 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Rev A, Feb 27, 2020 Page 19 
+def MC2000B_COMMAND_LIB.MC2000BSetFrequency ( hdl,  frequency) 
+ 
+Set the desired internal reference frequency. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    frequency:desired internal reference frequency 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetHarmonicDivider ( hdl,  dharmonic) 
+ 
+Set the Harmonic Divider applied to external reference frequency 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    dharmonic: desired harmonic divider applied to external reference frequency 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetHarmonicMultiplier ( hdl,  nharmonic) 
+ 
+Set Harmonic Multiplier applied to external reference frequency 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    nharmonic: desired harmonic multiplier 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetLanguage ( hdl,  lang) 
+ 
+Set display language in the device. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    lang: language mode. 1: English, 0: Chinese 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetPhase ( hdl,  phase) 
+ 
+Set the Phase adjust 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    phase: desired phase adjust 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetReference ( hdl,  ref) 
+ 
+Set the reference mode 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    ref: reference mode 1:external, 0:internal 
+         reference high pre 
+Returns:  
+====== Page 23 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Page 20  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetReferenceOutput ( hdl,  output) 
+ 
+Set the output reference mode 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    output: output mode 1:actual, 0:target 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetVerbose ( hdl,  verbose) 
+ 
+Set the verbose mode. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    verbose: verbose mode. When verbose mode is set to 1, status messages are output on the USB 
+Returns:  
+    0: Success; negative number: failed. 
+ 
+ 

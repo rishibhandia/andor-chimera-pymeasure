@@ -1,0 +1,199 @@
+
+====== Page 1 ======
+ 
+ 
+ 
+ 
+MC2000B® 
+Optical Chopper  
+SDK Manual 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Copyright 1999-2020 Thorlabs, Inc. 
+
+====== Page 2 ======
+(empty)
+====== Page 3 ======
+MC2000B® SDK Manual 
+ 
+Table of Contents 
+Chapter 1 Introduction ................................ ................................ ................................ ........................  1 
+Chapter 2 C++ Software Development Kit ................................ ................................ ........................  2 
+2.1. cmd_library.h File Reference ................................ ................................ ....................... 2 
+2.1.1. Functions ............................................................................................................................... 2 
+2.1.2. Function Documentation ....................................................................................................... 4 
+Chapter 3 Python Software Development Kit ................................ ................................ ................. 14 
+3.1. LK220_COMMAND_LIB Namespace Reference................................ ........................ 14 
+3.1.1. Functions ............................................................................................................................. 14 
+3.1.2. Function Documentation ..................................................................................................... 15 
+Chapter 4 LabVIEW Software Development Kit ................................ ................................ ............. 21 
+4.1. How to install ................................ ................................ ................................ .............. 21 
+4.2. How to find VI ................................ ................................ ................................ .............. 22 
+4.3. How to use ................................ ................................ ................................ .................. 22 
+  
+====== Page 12 ======
+MC2000B® SDK Manual Chapter 2: C++ Software Development Kit 
+Rev A, Feb 27, 2020 Page 9 
+MC2000COMMANDLIB_API int Read (int hdl, char * b, int limit) 
+Read string from device through opened port. 
+Make sure the port was opened successful before call this function. 
+Parameters: 
+hdl  Handle of port. 
+b  returned string buffer 
+limit   
+ABS(limit): max length value of b buffer.  
+SIGN(limit) == 1 : wait RX event until time out value expired; 
+SIGN(limit) == -1: INFINITE wait event untill RX has data; 
+Returns: 
+Non-negative number: size of actual read data in byte; negative number: failed. 
+MC2000COMMANDLIB_API int Restore (int hdl) 
+Restore the factory default parameters.  
+Parameters: 
+hdl  Handle of port. 
+Returns: 
+Negative number: failed.  
+0: success; negative number: failed. 
+-1: invalid string buffer; 
+-2: time out; 
+-3: time out; 
+-4: CMD_NOT_DEFINED; 
+MC2000COMMANDLIB_API int Set (int hdl, char * c, int var) 
+Set command to device according to protocol in manual. 
+Make sure the port was opened successful before call this function. 
+Make sure this is the correct device by checking the ID string before call this function. 
+Parameters: 
+hdl  Handle of port. 
+c  input command string 
+var  length of input command string (<255) 
+Returns: 
+0: success; 
+0xEA: CMD_NOT_DEFINED; 
+0xEB: time out; 
+0xED: invalid string buffer; 
+MC2000COMMANDLIB_API int SetBladeType (int hdl, int type) 
+Set the blade type.  
+Parameters: 
+hdl  Handle of port. 
+type  Desired blade type. 
+Returns: 
+Negative number: failed.  
+0: success; negative number: failed. 
+-1: invalid string buffer; 
+-2: time out; 
+====== Page 15 ======
+MC2000B® SDK Manual Chapter 2: C++ Software Development Kit 
+Page 12  
+-1: invalid string buffer; 
+-2: time out; 
+-3: time out; 
+-4: CMD_NOT_DEFINED; 
+MC2000COMMANDLIB_API int SetReference (int hdl, int ref) 
+Set the reference mode.  
+Parameters: 
+hdl  Handle of port. 
+ref  Reference mode. 
+Returns: 
+Negative number: failed.  
+0: success; negative number: failed. 
+-1: invalid string buffer; 
+-2: time out; 
+-3: time out; 
+-4: CMD_NOT_DEFINED; 
+MC2000COMMANDLIB_API int SetReferenceOutput (int hdl, int output) 
+Set the output reference mode.  
+Parameters: 
+hdl  Handle of port. 
+output  Output mode. 
+Returns: 
+Negative number: failed.  
+0: success; negative number: failed. 
+-1: invalid string buffer; 
+-2: time out; 
+-3: time out; 
+-4: CMD_NOT_DEFINED; 
+MC2000COMMANDLIB_API int SetTimeout (int hdl, int time) 
+Set time out value for read or write process.  
+Parameters: 
+hdl  Handle of port. 
+time  time out value 
+MC2000COMMANDLIB_API int SetVerbose (int hdl, int verbose) 
+Set the verbose mode.  
+Parameters: 
+hdl  Handle of port. 
+verbose  Verbose mode. When verbose mode is set to 1, status messages are output on 
+the USB 
+Returns: 
+Negative number: failed.  
+0: success; negative number: failed. 
+-1: invalid string buffer; 
+-2: time out; 
+-3: time out; 
+-4: CMD_NOT_DEFINED; 
+====== Page 23 ======
+MC2000B® SDK Manual Chapter 3: Python Software Development Kit 
+Page 20  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetReferenceOutput ( hdl,  output) 
+ 
+Set the output reference mode 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    output: output mode 1:actual, 0:target 
+Returns:  
+    0: Success; negative number: failed. 
+  
+def MC2000B_COMMAND_LIB.MC2000BSetVerbose ( hdl,  verbose) 
+ 
+Set the verbose mode. 
+Args: 
+    hdl: the handle of opened MC2000B device 
+    verbose: verbose mode. When verbose mode is set to 1, status messages are output on the USB 
+Returns:  
+    0: Success; negative number: failed. 
+ 
+ 
+====== Page 24 ======
+MC2000B® SDK Manual Chapter 4: LabVIEW Software Development Kit 
+Rev A, Feb 27, 2020 Page 21 
+Chapter 4 LabVIEW Software Development Kit 
+The user can start software development with LabVIEW 2011 or later versions based on LabVIEW instrument 
+driver mechanism. The supported files are in \LabVIEW SDK under the Sample directory. 
+ 
+4.1. How to install 
+ 
+Unzip the zip file and copy to instr.lib folder under LabVIEW installation folder. 
+  
+  
+ 
+ 
+Destination folder: under %LabVIEW install path%\instr.lib 
+Typically, C:\Program Files (x86)\National Instruments\LabVIEW 2011\instr.lib 
+Note: LabVIEW 2011 or later LabVIEW versions are compatible.  
+ 
+  
+ 
+ 
+ 
+====== Page 25 ======
+MC2000B® SDK Manual Chapter 4: LabVIEW Software Development Kit 
+Page 22  
+4.2. How to find VI 
+ 
+VI Could be found under: Functions\Instrument I/O\Instrument Drivers\ 
+  
+ 
+4.3. How to use 
+1. From VI 
+ 
+Note: Before you open the SDK LabVIEW project, make sure the device has been connected to the computer.  
+ 
+ 

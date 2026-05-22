@@ -1,0 +1,465 @@
+
+====== Page 3 ======
+MC2000B Optical Chopper Chapter 1: Warning Symbol Definitions 
+Page 2 TTN102010-D02 
+Chapter 7  Remote Communications ............................................................................................. 16 
+7.1.  Installing the USB Drivers ............................................................................................ 16 
+7.2.  Command Line Interface .............................................................................................. 16 
+Chapter 8  Commands ..................................................................................................................... 17 
+8.1.  Commands and Queries ............................................................................................... 17 
+8.2.  Blade Indices ................................................................................................................. 18 
+8.3.  Blade Dependent Reference Input ............................................................................... 18 
+8.4.  Blade Dependent Reference Output ............................................................................ 19 
+Chapter 9  Maintenance and Troubleshooting .............................................................................. 20 
+9.1.  Cleaning ......................................................................................................................... 20 
+9.2.  Diagnostic Messages .................................................................................................... 20 
+Chapter 10  Fuse Replacement and Line Voltage Selection .......................................................... 21 
+10.1. Materials Needed ........................................................................................................... 21 
+10.2. Fuse Replacement and Line Voltage Selection .......................................................... 21 
+Chapter 11  Visual Menu Structure .................................................................................................. 23 
+Chapter 12  Specifications ................................................................................................................ 24 
+12.1. Blade Specifications ..................................................................................................... 24 
+12.2. Performance Specifications ......................................................................................... 26 
+Chapter 13  Mechanical Drawing ...................................................................................................... 28 
+13.1. Console Dimension Drawing ........................................................................................ 28 
+13.2. Chopper Head Dimension Drawing ............................................................................. 29 
+Chapter 14  Regulatory ...................................................................................................................... 30 
+Chapter 15  Declaration of Conformity ............................................................................................ 31 
+Chapter 16  Thorlabs Worldwide Contacts ...................................................................................... 32 
+ 
+ 
+
+====== Page 6 ======
+MC2000B Optical Chopper Chapter 3: Description 
+Rev A, Jul 5, 2016 Page 3 
+Chapter 3 Description 
+3.1. Product Overview 
+The MC2000B Optical Chopper is a precision instrument that  utilizes advanced features to create pulses of light 
+from a continuous beam. This beam can be from a coherent or incoherent light source. The MC2000B is the 
+enhanced version of the MC2000. It offers faster locking ti mes, better graphics, and a larger selection of blades. 
+The MC2000B uses a phased-locked loop (PLL) motor spee d control design to accurately maintain the chopping 
+speed as well as the phase of a reference signal. An in ternal, crystal-stabilized, frequency synthesizer provides 
+an accurate and stable reference frequency for reliable, long-term performance. 
+Unlike conventional, open-loop speed control designs, the PLL speed control circuit also allows the MC2000B 
+chopper to be synchronized to external reference sig nals. This includes other MC2000B choppers, and reference 
+sources such as DSP lock-in amplifiers.  
+For more advanced measurements, the MC2000B locks to a harmonic, sub-harmonic, or fractional-harmonic of 
+an external reference frequency. The onboard microproce ssor multiplies the external reference up to the 15 th 
+harmonic, or divides the reference down to the 15 th sub-harmonic. A fractional harmonic can be obtained by 
+combining both the frequency multiplication and division together. 
+Additionally, the MC2000B supports tw o-frequency chopping from a single bla de. Special (Inner/Outer) 4/7, 5/7, 
+3/30, 8/60, and 53/60 harmonic blades are available. Th ese slot combinations split single beams for individual 
+modulation in ratio metric experiments. Another example application is a pump-probe experiment where the pump 
+beam is modulated at the outer frequency, and a probe b eam is modulated at the inner frequency. The MC2000B 
+provides the sum and difference frequencies of the two- frequency blades for accurate lock-in detection of the 
+frequency-mixed response.  
+Note, on two-frequency blades, the chopper wheel reference derives from two photo-interrupters on the optical 
+head that sense the motion of the chopper blade. A third set of slots on the rim of the blade are added, because 
+the second photo-interrupter is unable to  physically measure the i nner slots. These slots match the inner slots in 
+exact orientation and frequency.  
+The top two design elements responsible for this device’s high precision are a high-quality DC motor with a rare 
+earth magnet, and a photo-etched optical chopper wheel.  The compact optical head has a wide base for extra 
+stability. The base is slotted for two, 1/4"-20 mounting screws on  3" centers. The interf ace cable uses circular 
+snap-on connectors for easy setup. 
+The MC2000B controller includes a 240 x 128 pixel graphics display for setting and monitoring the chopper’s 
+functions. All of the functions  are accessible through a front panel knob wi th turn and push control. Multiple user 
+setups can be easily saved and recalled from non-vol atile memory. A USB interface is a standard feature for 
+remote PC control of the MC2000B. 
+  
+
+
+====== Page 9 ======
+MC2000B Optical Chopper Chapter 3: Description 
+Page 6 TTN102010-D02 
+3.3. Front Panel Description 
+ 
+ 
+ 
+ 
+ 
+Figure 1: Front Panel 
+ 
+3.4. Rear Panel Description 
+ 
+ 
+ 
+Figure 2: Rear Panel 
+LCD Display
+The controller menus are 
+displayed here.
+Power
+Press to
+toggle power
+Ref Output
+The reference output 
+signal selected by the 
+reference out menu 
+(CMOS logic level). 
+Cooling Fan
+Do not block when
+the unit is operating.
+Modular Interface
+Connector for the 
+optical head
+AC input receptacle
+Requires an IEC 
+compatible plug with 
+ground terminal. Cord 
+su
+pplied for US operation.
+Fuse Holder
+The system fuse is 
+installed here. 
+USB 2.0 Port
+Control Knob
+This knob is used to 
+highlight and select 
+menu items.
+Ext Input
+The external 
+reference signal is 
+connected to this 
+input BNC 
+(TTL/CMOS logic 
+level). 
+
+====== Page 11 ======
+MC2000B Optical Chopper Chapter 5: Basic Operation 
+Page 8 TTN102010-D02 
+Chapter 5 Basic Operation 
+5.1. Internal Reference Operating Mode 
+The MC2000B is most often used in the internal reference mode, where the chopping speed is set internally. 
+1. Turn the MC2000B power on. The LCD display will show the Thorlabs logo and firmware revision number 
+before changing to the top-level menu list. The di splay will then show the current menu, menu options, 
+and operating status of the unit. By  turning the front panel control knob, different menu items can be 
+highlighted. Push the control knob to select the highlighted item. 
+2. Set the MC2000B parameters to the following for quick internal operation:  
+ Blade: (MC1F10HP) 
+ Ref. In: (INT-OUTER) 
+ Freq.: Set to the desired frequency 
+ Phase: Set to the desired phase 
+ Harm N: Set the N harmonic to 1 
+ Harm D: Set the D harmonic to 1 
+3. Highlight and select Run Mode. The unit will adjust the speed of the blade and lock onto the set speed 
+within a few seconds. 
+5.2. External Reference Operating Mode 
+This mode allows the user to control the chopper blade with a logic-level external reference signal. 
+1. To enable external reference mode, attach a TTL or CMOS logic level reference signal, at the required 
+frequency, to the ‘EXT REF INPUT’ BNC on the front panel. Turn the MC2000B power on. 
+2. Set the MC2000B parameters to the fo llowing for quick external operation: 
+ Blade: (MC1F10HP) 
+ Ref. In: (EXT-OUTER) 
+ Phase: Set to the desired phase 
+ Harm N: Set the N harmonic to 1 
+ Harm D: Set the D harmonic to 1 
+3. Highlight and select Run Mode. The unit will adju st its speed and lock onto the external reference 
+frequency within a few seconds. 
+Note, all menu parameters can be changed in standby mode, while only frequency and phase can be changed in 
+run mode. Unless auto run has been selected, the unit always powers up in standby mode. 
+  
+
+====== Page 19 ======
+MC2000B Optical Chopper Chapter 7: Remote Communications 
+Page 16 TTN102010-D02 
+Chapter 7 Remote Communications 
+The MC2000B may also be controlled by a command line language through the USB port. This is offered to 
+enable operation through a terminal interface or for those who may want to write their own program to control the 
+system. 
+7.1. Installing the USB Drivers 
+Prior to running the command line interface, the USB drivers must be installed.  The MC2000B must not be 
+connected to the PC while installing the drivers. Insert the CD that was supplied with your unit into your PC. From 
+the dialog box that is displayed, select the Install Driver s button. If the dialog box is not displayed, browse to the 
+CD and run CD-Starter.exe. Follow the onscr een prompts to install the driver. Afte r the driver is installed, attach 
+the MC2000B to the PC and power it on. Your PC will then detect the new hardware and will prompt you when the 
+installation is complete. 
+7.2. Command Line Interface 
+Once the USB drivers have been installed and the uni t connected to the PC and powered on, configure the 
+terminal emulator as follows: 
+ Baud Rate = 115.2K Bits Per Second 
+ Data Bits = 8 
+ Parity = None 
+ Stop Bits = 1 
+ Flow Control = None 
+If the connection is correct you will see the following after pressing the “Enter” key. 
+Command error CMD_NOT_DEFINED 
+ 
+Followed immediately by the prompt: 
+> 
+ 
+The basic structure of the interface is a keyword followed by either an equals sign “=” or a question mark “?”. The 
+“=” or “?” will determine if the stri ng is a command or a query. All strings (commands and queries) must be 
+terminated by a carriage return (CR) or pressing the ENTER key on the computer. 
+The command structure is as follows: 
+Keyword=argument(CR) 
+ 
+Where “keyword” defines the function and “argument” is a numerical value followed by a carriage return (CR). 
+See listing below. 
+The query structure is as follows: 
+Keyword?(CR) 
+ 
+The “keyword” defines the function and the question mark (?) indicates a query. The string is terminated with a 
+carriage return (CR). See listing below. There are a few exceptions to this which are noted below. 
+The prompt symbol “>” will appear on power up and after a command is accepted by the system indicating it is 
+ready to receive another command line. 
+
+====== Page 20 ======
+MC2000B Optical Chopper Chapter 8: Commands 
+Rev A, Jul 5, 2016 Page 17 
+Chapter 8 Commands 
+8.1. Commands and Queries 
+The following list shows all of the available commands and queries, and summarizes their functions: 
+Command Syntax1 Description 
+Get Commands ? List the available commands. 
+Get Identification id? Returns the model number and firmware version. 
+Set Frequency freq=n  Set the desired internal reference frequency. 
+Get Frequency freq? Returns the in ternal reference frequency. 
+Get Ref-Out 
+Frequency refoutfreq? Returns the reference output frequency. 
+Set Blade Type blade= n Set the blade type ( n is number indicated in section 6.4). 
+Get Blade Type blade? Return the blade type (see section 6.4 for more details). 
+Set Harmonic 
+Multiplier nharmonic=n Set Harmonic Multiplier applied to external reference frequency (1-15). 
+Get Harmonic 
+Multiplier nharmonic? Returns the Harmonic Multiplier. 
+Set Harmonic Divider dharmonic= n Set the Harmonic Divider applied to external reference frequency (1-15). 
+Get Harmonic 
+Divider dharmonic? Returns the Harmonic Divider. 
+Set Phase phase=n Set the Phase adjust (0-360°). 
+Get Phase phase? Returns the Phase adjust. 
+Set Enable enable=n Set Enable (0=disabled, 1=enabled). 
+Get Enable enable? Get Enable. 
+Set Reference ref= n Set the reference mode ( * See blade dependent reference input)  
+Get Reference ref? Retu rns the reference mode. 
+Set Ref Output output= n Set the output reference mode  ( * See blade dependent reference 
+output) 
+Get Ref Output output? Returns the output reference mode. 
+Set On Cycle oncycle=n Set On Cycle (1-50%) 
+Get On Cycle oncycle? Get On Cycle 
+Set Display Intensity intensity= n Set the Display Intensity (1-10). 
+Get Display Intensity intensity? Returns the Display Intensity. 
+Get Reference 
+Frequency input? Returns the current supplied external reference frequency. 
+Restore restore  Restore the factory default parameters. 
+Get Verbose verbose? Returns the verbose mode. 
+Set Verbose verbose= n When verbose mode is set to 1, status messages are output on the USB. 
+ 
+If the keyword, format, or argument is incorrect or out of  range, the unit will return an error string. The function is 
+determined by the value set with the mode command in the above table. 
+  
+                                                      
+1 All commands and queries are in lower case letters. 
+
+====== Page 21 ======
+MC2000B Optical Chopper Chapter 8: Commands 
+Page 18 TTN102010-D02 
+8.2. Blade Indices 
+Blade type can be gotten or set through the command line interface using the commands “blade?” and “blade=n ”, 
+respectively. These commands do not denote blade type using product names. Rather, they index blade type 
+using the numbers from 0 to 14. The following table provides the mapping: 
+Photo Blade Index  Photo Blade Index  
+ 
+MC1F2 0 MC1F6P10 8 
+ 
+MC1F10 1 MC1F10A 9 
+ 
+MC1F15 2 MC2F330 10 
+ 
+MC1F30 3 MC2F47 11 
+ 
+MC1F60 4 MC2F57B 12 
+ 
+MC1F100 5 MC2F860 13 
+ 
+MC1F10HP 6 MC2F5360 14 
+ 
+MC1F2P10 7  
+ 
+8.3. Blade Dependent Reference Input 
+Reference mode can be gotten or set through the command line interface using the commands “ref?” and “ref= n”, 
+respectively. The following table provides the mapping: 
+
+
+====== Page 22 ======
+MC2000B Optical Chopper Chapter 8: Commands 
+Rev A, Jul 5, 2016 Page 19 
+Blade Internal External INT- 
+OUTER 
+INT- 
+INNER 
+EXT- 
+OUTER 
+EXT- 
+INNER 
+MC1F2     0 1 2 3 
+MC1F10 0 1         
+MC1F15 0 1         
+MC1F30 0 1         
+MC1F60 0 1         
+MC1F100 0 1         
+MC1F10HP     0 1 2 3 
+MC1F2P10     0 1 2 3 
+MC1F6P10 0 1         
+MC1F10A 0 1         
+MC2F330 0 1         
+MC2F47 0 1         
+MC2F57B 0 1         
+MC2F860 0 1         
+MC2F5360 0 1         
+8.4. Blade Dependent Reference Output 
+Reference mode can be gotten or set through the command line interface using the commands “output?” and 
+“output=n”, respectively. The following table provides the mapping: 
+Blade Target Actual Outer Inner Sum Diff 
+MC1F2 0  1  2     
+MC1F10 0 1         
+MC1F15 0 1         
+MC1F30 0 1         
+MC1F60 0 1         
+MC1F100 0 1         
+MC1F10HP 0  1 2      
+MC1F2P10 0  1 2     
+MC1F6P10 0 1         
+MC1F10A 0 1         
+MC2F330 0   1 2 3 4 
+MC2F47 0   1 2 3 4 
+MC2F57B 0   1 2 3 4 
+MC2F860 0   1 2 3 4 
+MC2F5360 0   1 2 3 4 
+
+====== Page 23 ======
+MC2000B Optical Chopper Chapter 9: Maintenance and Troubleshooting 
+Page 20 TTN102010-D02 
+Chapter 9 Maintenance and Troubleshooting 
+9.1. Cleaning 
+The MC2000B should only be cleaned with a soft cloth and mild soap detergent or isopropyl alcohol. Do not use a 
+solvent-based cleaner. 
+The optical chopper wheel may build up a layer of dust ov er time on the leading edges of the wheel. To clean the 
+wheel, remove it from the optical head and wipe it clea n with a cloth dampened in isopropyl alcohol. To help 
+prevent the chopper wheel from rust ing in high humidity environments, wipe the blade with a clean rag sprayed 
+with a light lubricating rust inhibitor (e.g. WD40 or similar). 
+9.2. Diagnostic Messages 
+ During normal operation, a run time diagnostic messag e is displayed indicating whether the chopper is 
+locked in both frequency and phase. 
+ 
+ 
+ If the unit is in external input mode, an out of r ange messages will be displayed if the external signal 
+exceeds the blade limits. 
+Locked Indicator
+
+====== Page 24 ======
+MC2000B Optical Chopper Chapter 10: Fuse Replacement and Line Voltage Selection 
+Rev A, Jul 5, 2016 Page 21 
+Chapter 10 Fuse Replacement and Line Voltage Selection 
+Thorlabs ships the MC2000B unit configured to operate  at 100/115 VAC and the MC2000B-EC configured to 
+operate at 220/230 VAC. If the installed fuse needs to be replaced, follow the instructions below.  
+Warning Electrical Shock 
+The unit must be powered off, unplugged from the AC input power source,  
+and disconnected from all external devices before removing the cover and  
+replacing the fuse. Failure to do so may cause serious injury to the user since high  
+voltages exist within the unit. 
+10.1. Materials Needed 
+ MC2000B Operating Manual 
+ 250 mA Type IEC60127-2/III, Type ‘T’ Slo-blo Fuse –  The 250 mA fuse is installed in the MC2000B at 
+the factory and must be used when operating the unit at 100/115 VAC.  
+ 125 mA Type IEC60127-2/III, Type ‘T’ Slo-blo Fuse – The 125 mA fuse is installed in the MC2000B-EC at 
+the factory and must be used when operating the unit at 220/230 VAC. 
+ Phillips Head Screwdriver (#2 Preferred) – Mo torized screwdrivers are not recommend.  
+10.2. Fuse Replacement and Line Voltage Selection 
+1. Important! – Make sure the power cord, optical head, and any external devices are disconnected before 
+continuing. See warning above. 
+2. Remove the two screws securing the enclosure cover with a Phillips head screwdriver. The screws are 
+located on the bottom side, rear corners of the unit. Place the screws in a safe location. 
+3. Carefully remove the cover by sliding it toward the rear of the unit. 
+4. To change the line voltage, locate the line select swit ch behind the power switch. Select the appropriate 
+line voltage by adjusting the switch to either 110 or 220. Select 110 if operating at 100 to 120 VAC. Select 
+220 for operation from 220 to 240 VAC. 
+5. Replace the enclosure cover and secure with the enclosure screws. 
+6. Locate the fuse holder below the power input conne ctor. Slide the fuse tray out using a flat head 
+screwdriver. Remove the fuse and replace with the appropriate value as described below: 
+ 100 – 120 VAC operation – Use the 250 mA fuse 
+ 220 – 240 VAC operation – Use the 125 mA fuse 
+  
+
+====== Page 29 ======
+MC2000B Optical Chopper Chapter 12: Specifications 
+Page 26 TTN102010-D02 
+12.2. Performance Specifications 
+Input/Output Specifications 
+Ext. Input Compatibility TTL/CMOS 
+Ext. Input Voltage Range3 0 – 5 V 
+Input High >2 V 
+Input Low <0.8 V 
+Ext. Input Impedance 200 
+Ref Out Compatibility TTL/CMOS 
+Ref Out Voltage Range3 0 – 5 V Typ. 
+Ref Out Impedance 200 
+Min Load Impedance4 500 
+Ref Out Signals Inner/Outer Slot Chopping Blade, Synthesizer, Sum and Diff 
+Frequencies 
+Ref Out Selection Selectable Menu or USB command ‘O ’ 
+Communications 
+Communications Port USB 
+Protocol USB (RS232 Emulated) 
+Baud Rate 115,200 (fixed) 
+Data Bits 8 
+Stop Bits 1 
+Parity None 
+Handshaking None 
+Optical Head Specifications 
+Chopping Blade Diameter Ø4.0" (Ø101.6 mm) 
+Chopping Blade Thickness 0.010" (0.254 mm) 
+Mounting Base 1/4"-20 (or M6) Clearance Slots Spaced 3.0" (Compatible with Thorlabs 
+Breadboards) 
+Physical Features 
+Dimensions (W x H x D) 6.05" x 2.88" x 11.54"  
+(153.6 mm x 73.2 mm x 293.1 mm) 
+Input and Output Connectors BNC 
+Menu Control Twist / Push-Button Knob 
+Input Power Connection5 IEC Connector 
+Weight 5 lbs (9.1 lbs Shipped Weight) 
+Operating Temperature 10 – 40 C 
+Display Type 240 x 124 Pixel LCD Graphics Display 
+Frequency Resolution 1 Hz (10, 15, 30, 60 and 100 – “Single Frequency” Blades) 
+1 Hz (4/7, 5/7, 3/30, 8/60 and 53/60 – “Harmonic” Blades) 
+0.1 Hz (10/100 slot – “Higher Precision” Blades) 
+0.01 Hz (2 slot – 10% and 50% Duty Cycle – “Higher Precision” Blades)
+  
+                                                      
+3 The reference output and external input is short circuit protected by limiting the current to 25 mA. Over and under voltage protection is 
+available, but continued use will degrade or damage the unit. 
+4 The Min Load Impedance represents the smallest allowable terminating resistance. Applying lower impedances will cause the short circuit 
+protection to limit the output voltage. Continued use in this mode will cause circuit degradation and eventual circuit failure. 
+5 The MC2000B is shipped with a 120 VAC US style power cord while the MC2000B-EC is shipped with a 230 VAC power cord. 
+
+====== Page 33 ======
+MC2000B Optical Chopper Chapter 14: Regulatory 
+Page 30 TTN102010-D02 
+Chapter 14 Regulatory 
+As required by the WEEE (Waste Electr ical and Electronic Equipment Directive) of the European Community and 
+the corresponding national laws, Thorlabs offers all end users in the EC the possibility to return “end of life” units 
+without incurring disposal charges. 
+ This offer is valid for Thorlabs electrical and electronic equipment: 
+ Sold after August 13, 2005  
+ Marked correspondingly with the crossed out “wheelie bin” logo (see right) 
+ Sold to a company or institute within the EC  
+ Currently owned by a company or institute within the EC  
+ Still complete, not disassem bled and not contaminated 
+As the WEEE directive applies to self-contained operational electrical and electronic products, this end of life take 
+back service does not refer to other Thorlabs products, such as: 
+ Pure OEM products, that means assemblies to be built  into a unit by the user (e. g. OEM laser driver 
+cards)  
+ Components  
+ Mechanics and optics  
+ Left over parts of units disassembled by the user (PCB’s, housings etc.).  
+If you wish to return a Thorlabs unit for waste recovery, please contact Thorlabs or your nearest dealer for further 
+information. 
+Waste Treatment is Your Own Responsibility 
+If you do not return an “end of life” unit to Thorlabs, y ou must hand it to a company specialized in waste recovery. 
+Do not dispose of the unit in a litter bin or at a public waste disposal site. 
+Ecological Background 
+It is well known that WEEE pollutes the environment by releasing toxic products during decomposition. The aim of 
+the European RoHS directive is to reduce the content of toxic substances in electronic products in the future. 
+The intent of the WEEE directive is to enforce the recycling of WEEE. A controlled recycling of end of life products 
+will thereby avoid negative impacts on the environment. 
+ 
+  
+Wheelie Bin Logo 
