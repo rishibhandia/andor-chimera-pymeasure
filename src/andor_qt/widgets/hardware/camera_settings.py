@@ -200,7 +200,7 @@ class CameraSettingsWidget(QGroupBox):
 
         self.exposure_spin = QDoubleSpinBox()
         self.exposure_spin.setRange(0.000001, 300.0)
-        self.exposure_spin.setValue(0.002)
+        self.exposure_spin.setValue(0.0004)  # 0.4 ms — default for all modes
         self.exposure_spin.setDecimals(6)
         self.exposure_spin.setSuffix(" s")
         trig_form.addRow("Exposure:", self.exposure_spin)
