@@ -78,6 +78,11 @@ class TAScanConfig:
     save_hdf5_dir: Optional[str] = None
     # Optional directory to save individual spectrum files per delay point
     save_spectra_dir: Optional[str] = None
+    # If True, swap the pump-on / pump-off tag assignment. Useful when the
+    # chopper REF OUT polarity is reversed relative to the beam path so the
+    # GUI tags pump-on frames as "blocked". Polarity is empirical — depends
+    # on beam-to-photo-interrupter alignment, not configurable on chopper.
+    swap_tags: bool = False
 
     def ordered_delays(self, scan_index: int) -> list[float]:
         """Return delay list in scan order for the given scan index.

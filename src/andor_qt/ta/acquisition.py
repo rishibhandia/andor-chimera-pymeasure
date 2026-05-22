@@ -152,8 +152,13 @@ def _process_chopper_frames(
     matched_frames = frames[matched_mask]
     matched_tags = tag_groups[matched_mask, 0]
 
-    on_frames = matched_frames[matched_tags == 1]
-    off_frames = matched_frames[matched_tags == 0]
+    # Tag convention: P0.0=1 → pump-ON, P0.0=0 → pump-OFF.
+    # If config.swap_tags is True, reverse the assignment — useful when the
+    # chopper REF OUT polarity is inverted relative to the beam path.
+    swap = bool(getattr(config, "swap_tags", False))
+    on_tag, off_tag = (0, 1) if swap else (1, 0)
+    on_frames = matched_frames[matched_tags == on_tag]
+    off_frames = matched_frames[matched_tags == off_tag]
     n_pairs = min(len(on_frames), len(off_frames), config.n_averages)
 
     log.info(
