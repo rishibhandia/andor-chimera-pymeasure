@@ -56,6 +56,10 @@ class TAMonitorWidget(QGroupBox):
         self._jog_buttons = []
         self._build_ui()
         self._load_settings()
+        # _build_ui calls _on_acq_mode_changed → apply_mode_preset, which
+        # clobbers persisted exposure. Re-load camera settings here so the
+        # value the user set in a previous session takes precedence.
+        self._camera_settings._load_settings()
         self._connect_autosave()
 
     def _connect_autosave(self) -> None:
