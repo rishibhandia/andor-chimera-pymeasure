@@ -71,6 +71,7 @@ class TAMonitorWidget(QGroupBox):
         self._avg_time_spin.valueChanged.connect(self._save_settings)
         self._save_dir_edit.textChanged.connect(self._save_settings)
         self._save_prefix_edit.textChanged.connect(self._save_settings)
+        self._swap_tags_check.toggled.connect(self._save_settings)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -162,6 +163,15 @@ class TAMonitorWidget(QGroupBox):
 
         self._external_trigger_check = QCheckBox("External trigger (SDG)")
         acq_form.addRow("", self._external_trigger_check)
+
+        self._swap_tags_check = QCheckBox("Swap pump-ON/OFF tags")
+        self._swap_tags_check.setToolTip(
+            "Invert the chopper REF OUT polarity in software. Use if the GUI "
+            "shows pump-ON frames as dark (probe blocked) and pump-OFF as "
+            "bright — i.e. the beam-to-photo-interrupter alignment makes the "
+            "raw tag stream inverted. Effective for chopper_2x2 mode."
+        )
+        acq_form.addRow("", self._swap_tags_check)
 
         # Averaging: by count or by time
         self._avg_mode_combo = QComboBox()
@@ -363,6 +373,7 @@ class TAMonitorWidget(QGroupBox):
             scan_direction="forward",
             sample_name=f"static_{phase}",
             external_trigger=self._external_trigger_check.isChecked(),
+            swap_tags=self._swap_tags_check.isChecked(),
         )
         self.static_acquire_requested.emit(phase, config)
 
@@ -464,6 +475,7 @@ class TAMonitorWidget(QGroupBox):
             sample_name="monitor",
             shots_per_frame=self._shots_per_frame_spin.value(),
             external_trigger=self._external_trigger_check.isChecked(),
+            swap_tags=self._swap_tags_check.isChecked(),
             crop_height=crop_height,
         )
         self.monitor_requested.emit(config)
@@ -477,6 +489,7 @@ class TAMonitorWidget(QGroupBox):
             scan_direction="forward",
             sample_name="dark",
             external_trigger=self._external_trigger_check.isChecked(),
+            swap_tags=self._swap_tags_check.isChecked(),
         )
         self.dark_requested.emit(config)
 
@@ -530,6 +543,7 @@ class TAMonitorWidget(QGroupBox):
         s.setValue("avg_time", self._avg_time_spin.value())
         s.setValue("save_dir", self._save_dir_edit.text())
         s.setValue("save_prefix", self._save_prefix_edit.text())
+        s.setValue("swap_tags", self._swap_tags_check.isChecked())
 
     def _load_settings(self) -> None:
         """Restore widget values from QSettings (if any)."""
@@ -559,6 +573,10 @@ class TAMonitorWidget(QGroupBox):
         prefix = s.value("save_prefix")
         if prefix:
             self._save_prefix_edit.setText(str(prefix))
+        swap = s.value("swap_tags")
+        if swap is not None:
+            # QSettings returns str on some platforms — coerce to bool
+            self._swap_tags_check.setChecked(str(swap).lower() in ("true", "1"))
 
     def update_position(self) -> None:
         """Update position display from hardware."""
@@ -586,6 +604,7 @@ class TAMonitorWidget(QGroupBox):
         self._avg_mode_combo.setEnabled(not running)
         self._acq_combo.setEnabled(not running)
         self._external_trigger_check.setEnabled(not running)
+        self._swap_tags_check.setEnabled(not running)
         self._camera_settings.setEnabled(not running)
         for btn in self._jog_buttons:
             btn.setEnabled(True)  # jog always enabled for optimization

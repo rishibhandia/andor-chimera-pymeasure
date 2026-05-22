@@ -137,6 +137,15 @@ class TAScanConfigWidget(QGroupBox):
         )
         form.addRow("", self._external_trigger_check)
 
+        self._swap_tags_check = QCheckBox("Swap pump-ON/OFF tags")
+        self._swap_tags_check.setToolTip(
+            "Invert the chopper REF OUT polarity in software. Check this if the "
+            "monitor shows pump-ON frames as dark (probe blocked) and pump-OFF "
+            "as bright — i.e. the beam-to-photo-interrupter alignment makes the "
+            "raw tag stream inverted. Effective for chopper_2x2 mode."
+        )
+        form.addRow("", self._swap_tags_check)
+
         self._static_note_label = QLabel(
             "Pass 1: Pump ON (pump+probe)\n"
             "Pass 2: Pump OFF (probe only)\n"
@@ -518,6 +527,7 @@ class TAScanConfigWidget(QGroupBox):
             acquisition_mode=self._acq_mode_combo.currentText(),
             shots_per_frame=self._shots_per_frame_spin.value(),
             external_trigger=self._external_trigger_check.isChecked(),
+            swap_tags=self._swap_tags_check.isChecked(),
             scan_direction=self._scan_dir_combo.currentText(),
             sample_name=self._sample_name_edit.text(),
             stage_axis=self._stage_axis_spin.value(),
@@ -557,6 +567,7 @@ class TAScanConfigWidget(QGroupBox):
         if idx >= 0:
             self._acq_mode_combo.setCurrentIndex(idx)
         self._external_trigger_check.setChecked(config.external_trigger)
+        self._swap_tags_check.setChecked(getattr(config, "swap_tags", False))
         idx = self._scan_dir_combo.findText(config.scan_direction)
         if idx >= 0:
             self._scan_dir_combo.setCurrentIndex(idx)
@@ -661,6 +672,7 @@ class TAScanConfigWidget(QGroupBox):
         self._n_scans_spin.setEnabled(not running)
         self._acq_mode_combo.setEnabled(not running)
         self._external_trigger_check.setEnabled(not running)
+        self._swap_tags_check.setEnabled(not running)
         self._scan_dir_combo.setEnabled(not running)
         self._sample_name_edit.setEnabled(not running)
         self._save_hdf5_check.setEnabled(not running)
@@ -678,6 +690,7 @@ class TAScanConfigWidget(QGroupBox):
         self._acq_mode_combo.currentIndexChanged.connect(self._save_settings)
         self._shots_per_frame_spin.valueChanged.connect(self._save_settings)
         self._external_trigger_check.toggled.connect(self._save_settings)
+        self._swap_tags_check.toggled.connect(self._save_settings)
         self._scan_dir_combo.currentIndexChanged.connect(self._save_settings)
         self._sample_name_edit.textChanged.connect(self._save_settings)
         self._stage_axis_spin.valueChanged.connect(self._save_settings)
@@ -713,6 +726,7 @@ class TAScanConfigWidget(QGroupBox):
         s.setValue("acq_mode", self._acq_mode_combo.currentText())
         s.setValue("shots_per_frame", self._shots_per_frame_spin.value())
         s.setValue("external_trigger", self._external_trigger_check.isChecked())
+        s.setValue("swap_tags", self._swap_tags_check.isChecked())
         s.setValue("scan_direction", self._scan_dir_combo.currentText())
         s.setValue("sample_name", self._sample_name_edit.text())
         s.setValue("stage_axis", self._stage_axis_spin.value())
@@ -754,6 +768,7 @@ class TAScanConfigWidget(QGroupBox):
         if spf is not None:
             self._shots_per_frame_spin.setValue(int(spf))
         self._external_trigger_check.setChecked(s.value("external_trigger", "false") == "true")
+        self._swap_tags_check.setChecked(str(s.value("swap_tags", "false")).lower() in ("true", "1"))
         idx = self._scan_dir_combo.findText(str(s.value("scan_direction", "forward")))
         if idx >= 0:
             self._scan_dir_combo.setCurrentIndex(idx)
